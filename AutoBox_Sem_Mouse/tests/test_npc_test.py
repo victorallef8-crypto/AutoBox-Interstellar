@@ -40,6 +40,8 @@ class Session:
         if action=="attack":
             if self.ack:self.state["combat"]["attacking"]=True
             return {"action":"attack_sent"}
+        if action=="orbit":
+            return {"action":"orbiting","direction":1}
         if action=="stop":
             self.state["combat"]["attacking"]=False
             return {"action":"stop_sent" if self.state["npc_candidates"] else "stopped"}
@@ -53,7 +55,7 @@ class NpcWorkerTests(unittest.TestCase):
         self.assertTrue(engine.report["kill_confirmed"])
         self.assertTrue(engine.report["damage_observed"])
         self.assertTrue(engine.report["stop_confirmed"])
-        self.assertEqual([p["action"] for _,p in session.calls],["select","attack","stop"])
+        self.assertEqual([p["action"] for _,p in session.calls if p["action"]!="orbit"],["select","attack","stop"])
     def test_hidden_target_approaches_again_before_selecting(self):
         stop=Stop();session=Session(stop);original=session.request;visible=[False]
         def request(op,payload,allowed):
@@ -65,7 +67,7 @@ class NpcWorkerTests(unittest.TestCase):
         session.request=request
         engine=self.engine(session,stop);engine.run()
         self.assertTrue(engine.report["kill_confirmed"])
-        self.assertEqual([p["action"] for _,p in session.calls],["select","approach","select","attack","stop"])
+        self.assertEqual([p["action"] for _,p in session.calls if p["action"]!="orbit"],["select","approach","select","attack","stop"])
 
     def test_permanently_hidden_target_times_out_without_attack(self):
         stop=Stop();session=Session(stop);original=session.request
@@ -77,7 +79,7 @@ class NpcWorkerTests(unittest.TestCase):
         engine=self.engine(session,stop);engine.run()
         self.assertIn("Sem aproximação ou dano",engine.report["status"])
         self.assertFalse(any(p["action"]=="attack" for _,p in session.calls))
-        self.assertLessEqual(sum(p["action"]=="approach" for _,p in session.calls),11)
+        self.assertLessEqual(sum(p["action"]=="approach" for _,p in session.calls),45)
 
     def test_orbit_only_after_attack_confirmation(self):
         stop=Stop();session=Session(stop);original=session.request
@@ -163,6 +165,33 @@ class NpcWorkerTests(unittest.TestCase):
         self.assertEqual(engine.report["allowed_kinds"],["lordakia","mordon"])
         self.assertTrue(engine.report["kill_confirmed"])
 
+    def test_close_acquisition_then_pursue_same_wounded_npc_at_radius(self):
+        stop=Stop();session=Session(stop);original=session.request
+        session.state["npc_candidates"][0]["x"]=1200
+        def request(op,payload,allowed):
+            if payload["action"]=="approach":
+                result=original(op,payload,allowed)
+                npc=session.state["npc_candidates"][0]
+                if payload.get("close_approach"):
+                    session.state["position"]=(npc["x"]-100,0)
+                else:
+                    self.assertTrue(session.state["combat"]["attacking"])
+                    self.assertEqual(payload["radius"],450)
+                    session.state["position"]=(npc["x"]-450,0)
+                return result
+            result=original(op,payload,allowed)
+            if payload["action"]=="attack":
+                session.state["npc_candidates"][0]["x"]+=700
+            return result
+        session.request=request
+        engine=self.engine(session,stop);engine.run()
+        moves=[p for _,p in session.calls if p["action"]=="approach"]
+        self.assertTrue(moves[0]["close_approach"])
+        self.assertFalse(moves[-1]["close_approach"])
+        self.assertTrue(engine.report["kill_confirmed"])
+        self.assertEqual({p["id"] for _,p in session.calls},{"mordon"})
+        self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
+
     def test_lost_attack_ack_does_not_repeat_ctrl(self):
         stop=Stop();session=Session(stop,ack=False);engine=self.engine(session,stop);engine.run()
         self.assertFalse(engine.report["kill_confirmed"])
@@ -187,7 +216,7 @@ class NpcWorkerTests(unittest.TestCase):
             return result
         session.request=request
         engine=self.engine(session,stop);engine.run()
-        self.assertEqual([p["action"] for _,p in session.calls],["select","attack","stop"])
+        self.assertEqual([p["action"] for _,p in session.calls if p["action"]!="orbit"],["select","attack","stop"])
         self.assertTrue(engine.report["stop_confirmed"])
     def test_hp_threshold_stops_fire(self):
         stop=Stop();session=Session(stop,damage=False)

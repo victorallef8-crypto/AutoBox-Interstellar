@@ -1,6 +1,6 @@
 {
-  "version": "0.9.2",
+  "version": "0.9.3",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "b4807f4aa07188a83fc730966f7f36615be4a2ba5229ca282a2e0be1923502d4",
-  "notes": "Seleção de múltiplos tipos de NPC e correção de contraste em listas, campos e tabelas."
+  "sha256": "4b14155db7c27d4ee4216131b3500b91318680ae7624686f4e06ea12ce1b927e",
+  "notes": "Aproxima para selecionar e atacar; depois mantém distância configurada e persegue o mesmo NPC em fuga."
 }

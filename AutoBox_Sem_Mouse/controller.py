@@ -310,7 +310,7 @@ class NpcTestWorker:
         self.orbit=orbit; self.radius=max(150,min(500,radius)); self.repair_portal=repair_portal; self.direction=1
         self.target=None; self.context=None; self.pending=None; self.next_move=0
         self.started=None; self.progress=None; self.best_distance=float("inf"); self.lowest=None
-        self.damage=False; self.baseline_xp=None; self.last_phase=None
+        self.damage=False; self.baseline_xp=None; self.last_phase=None; self.previous_distance=None
         self.report={"mode":"single_npc_test","kind":self.kind,"allowed_kinds":sorted(self.kinds),"status":"Preparando","actions":[],
                      "damage_observed":False,"kill_confirmed":False,"stop_confirmed":False}
 
@@ -442,7 +442,9 @@ class NpcTestWorker:
                 d=distance(snap["position"],(current["x"],current["y"]))
                 self.report["target_distance"]=round(d,1)
                 self.report["attacking"]=snap.get("combat",{}).get("attacking")
-                if d<self.best_distance-10: self.best_distance=d; self.progress=now
+                if self.previous_distance is not None and d<self.previous_distance-2: self.progress=now
+                self.previous_distance=d
+                self.best_distance=min(self.best_distance,d)
                 if now-self.started>180: raise ValueError("Teste excedeu 3 minutos.")
                 if now-self.progress>15: raise ValueError("Sem aproximação ou dano por 15 segundos.")
                 combat=snap.get("combat",{})
@@ -450,7 +452,9 @@ class NpcTestWorker:
                 if self.pending:
                     name,sent=self.pending
                     confirmed=(name=="select" and selected) or (name=="attack" and combat.get("attacking") is True)
-                    if confirmed: self.pending=None
+                    if confirmed:
+                        self.pending=None
+                        self.progress=now
                     elif now-sent>5: raise ValueError("Comando "+name+" não foi confirmado pelo jogo.")
                     else:
                         if self.stop.wait(.2): break
@@ -461,16 +465,16 @@ class NpcTestWorker:
                         raise ValueError("Ataque não aceito: "+result.get("action","?"))
                     self.pending=("attack",now)
                     self.publish("Aguardando confirmação do ataque; mantendo o mesmo NPC.")
-                elif d>520:
+                elif (not selected and d>180) or (selected and d>self.radius+40):
                     if now>=self.next_move:
-                        result=self.action("approach"); self.next_move=now+1.5
+                        result=self.action("approach",close_approach=not selected,radius=self.radius); self.next_move=now+.35
                         if result.get("action") not in ("move_sent","in_range"): raise ValueError("Aproximação não aceita: "+result.get("action","?"))
-                    self.publish("Aproximando do NPC selecionado.")
+                    self.publish("Chegando perto para selecionar o NPC." if not selected else "Perseguindo o mesmo NPC na distância de ataque.")
                 elif not selected:
                     result=self.action("select")
                     if result.get("action")=="not_visible":
                         if now>=self.next_move:
-                            result=self.action("approach",close_approach=True); self.next_move=now+1.5
+                            result=self.action("approach",close_approach=True); self.next_move=now+.35
                             if result.get("action") not in ("move_sent","in_range"):
                                 raise ValueError("Aproximação não aceita: "+result.get("action","?"))
                         self.publish("Aproximando mais para selecionar o mesmo NPC na tela.")
@@ -480,8 +484,8 @@ class NpcTestWorker:
                     else:
                         raise ValueError("NPC não selecionado: "+result.get("action","?"))
                 else:
-                    if self.orbit and now>=self.next_move:
-                        result=self.action("orbit",radius=self.radius,direction=self.direction); self.next_move=now+.8
+                    if (self.orbit or d<self.radius-40) and now>=self.next_move:
+                        result=self.action("orbit",radius=self.radius,direction=self.direction,rotate=self.orbit); self.next_move=now+.35
                         if result.get("action")!="orbiting":
                             raise ValueError("Movimento circular não aceito: "+result.get("action","?"))
                         self.direction=result.get("direction",self.direction)
