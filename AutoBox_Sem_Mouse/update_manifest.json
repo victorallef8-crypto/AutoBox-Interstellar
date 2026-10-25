@@ -1,6 +1,6 @@
 {
-  "version": "0.5.0",
+  "version": "0.6.0",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "afee6a86037daa9c18a21570e1ed4e1cc4c9892571a4d3be4f625f9d3bd3368a",
-  "notes": "Primeira coleta automatica por dados, experimental. Na aba Dados selecione Dados do jogo, espere leitura ao vivo e use F8. Prioriza a box normal mais proxima, conserva ID/revisao e usa a fila do proprio cliente. F9 pausa novos comandos. Nao exige marcacoes de imagem. 131 testes e ponte com callbacks do cliente passaram em ambiente simulado; teste na partida ainda necessario."
+  "sha256": "55b34b01bbf2dad59903c0a6adefa69d2465183605daa44ac379d52931ab5ed0",
+  "notes": "Painel compacto, saldos e Uridium/h, caixas verdes opcionais, reconexão e renascimento com limite de mortes e custo."
 }

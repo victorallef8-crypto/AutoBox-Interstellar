@@ -16,7 +16,7 @@ from PIL import Image, ImageTk
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
 from collector import Collector
-from controller import inside, detection_area, visible_box, DataFarmPlanner, DataCollector
+from controller import inside, detection_area, visible_box, DataFarmPlanner, DataCollector, SessionEarnings
 from vision import locate_boxes
 import updater
 
@@ -83,11 +83,21 @@ class AutoBoxSemMouse:
         self.world_vars["status"].set("Abra o Opera dedicado e entre no mapa.")
         self.last_world_refresh = -100.
         self.collection_mode = tk.StringVar(value=self.cfg.get("collection_mode","Dados do jogo"))
+        self.green = tk.BooleanVar(value=self.cfg.get("green",False))
+        self.reconnect = tk.BooleanVar(value=self.cfg.get("reconnect",True))
+        self.respawn = tk.StringVar(value=self.cfg.get("respawn","Desativado"))
+        self.max_deaths = tk.StringVar(value=str(self.cfg.get("max_deaths",3)))
+        self.max_cost = tk.StringVar(value=str(self.cfg.get("max_cost",0)))
+        self.death_state = {"ids":set(),"count":0}
+        self.death_label = tk.StringVar(value="Mortes nesta sessão: 0")
+        self.repair_label = tk.StringVar(value="Custos de renascimento aparecem quando a nave morrer.")
+        self.earnings = SessionEarnings()
+        self.account_vars = {key:tk.StringVar(value="—") for key in ("uridium","credits","xp","honor","level","earned","hourly","booty_keys")}
         self.data_planner = DataFarmPlanner(arrival_radius=180)
         self.farm_plan = tk.StringVar(value="Aguardando dados para planejar.")
         self.manual_probe_status = tk.StringVar(value="Registre uma coleta manual para validar o comando.")
         root.title("AutoBox Sem Mouse — beta " + updater.CURRENT_VERSION)
-        root.geometry("1000x" + str(min(820, root.winfo_screenheight()-90)))
+        root.geometry("940x" + str(min(820, root.winfo_screenheight()-90)))
         root.minsize(760,min(620,root.winfo_screenheight()-80))
         self._draw()
         self._draw_world_page()
@@ -104,12 +114,12 @@ class AutoBoxSemMouse:
         style.configure("TFrame", background="#111827")
         style.configure("TLabel", background="#111827", foreground="#e5e7eb")
         style.configure("Muted.TLabel", foreground="#94a3b8")
-        style.configure("Title.TLabel", font=("Segoe UI", 22, "bold"), foreground="#f8fafc")
+        style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"), foreground="#f8fafc")
         style.configure("Heading.TLabel", font=("Segoe UI", 13, "bold"))
         style.configure("Card.TFrame", background="#1e293b")
         style.configure("Card.TLabel", background="#1e293b", foreground="#94a3b8")
         style.configure("Count.TLabel", background="#1e293b", foreground="#67e8f9",
-                        font=("Segoe UI", 28, "bold"))
+                        font=("Segoe UI", 20, "bold"))
         style.configure("TButton", background="#263449", padding=(12,8))
         style.map("TButton", background=[("active","#334b68"),("disabled","#1e293b")],
                   foreground=[("disabled","#64748b")])
@@ -169,19 +179,19 @@ class AutoBoxSemMouse:
         self.notebook = ttk.Notebook(shell)
         self.notebook.pack(fill="both", expand=True)
         self.pages = {}
-        for key, title in (("dashboard","Painel"),("collection","Coleta"),("browser","Navegador"),
-                           ("diagnostics","Diagnóstico"),("data","Dados"),("combat","Combate"),("recovery","Recuperação")):
-            page = ttk.Frame(self.notebook)
-            self.pages[key] = page
+        for key, title in (("dashboard","Painel"),("data","Dados e coleta"),("advanced","Avançado")):
+            page=ttk.Frame(self.notebook)
+            self.pages[key]=page
             self.notebook.add(page,text=title)
-        for key in ("combat","recovery"):
-            ttk.Label(self.pages[key],text="Em desenvolvimento. A coleta é o único modo disponível.",
-                      padding=20).pack(anchor="w")
-            self.notebook.tab(self.pages[key],state="disabled")
+        advanced=ttk.Notebook(self.pages["advanced"])
+        advanced.pack(fill="both",expand=True)
+        for key,title in (("browser","Navegador"),("diagnostics","Diagnóstico"),("collection","Coleta por imagem")):
+            page=ttk.Frame(advanced)
+            self.pages[key]=page
+            advanced.add(page,text=title)
 
-        dashboard = ttk.Frame(self.pages["dashboard"],padding=16)
-        dashboard.pack(fill="both",expand=True)
-        ttk.Label(dashboard,text="Visão da sessão",style="Heading.TLabel").pack(anchor="w")
+        dashboard = self._scroll_page(self.pages["dashboard"])
+        ttk.Button(dashboard,text="Iniciar jogo",command=self.open_browser,style="Start.TButton").pack(anchor="w",pady=(0,10))
         ttk.Label(dashboard,text="Modo disponível: coleta de boxes  •  alvo mais próximo primeiro",
                   style="Muted.TLabel").pack(anchor="w",pady=(3,12))
         cards = ttk.Frame(dashboard); cards.pack(fill="x")
@@ -192,12 +202,22 @@ class AutoBoxSemMouse:
             card.grid(row=0,column=column,sticky="ew",padx=(0,8) if column<2 else 0)
             ttk.Label(card,text=label,style="Card.TLabel").pack(anchor="w")
             ttk.Label(card,textvariable=self.counter_vars[key],style="Count.TLabel").pack(anchor="w")
+        balances=ttk.LabelFrame(dashboard,text="Conta e rendimento",padding=10)
+        balances.pack(fill="x",pady=(10,0))
+        for index,(key,label) in enumerate((("uridium","Uridium"),("credits","Créditos"),("xp","XP"),
+                ("honor","Honra"),("level","Nível"),("booty_keys","Chaves verdes"),
+                ("earned","Uridium das boxes nesta sessão"),("hourly","Uridium por hora"))):
+            row,col=divmod(index,2)
+            ttk.Label(balances,text=label,style="Muted.TLabel").grid(row=row,column=col*2,sticky="w",padx=6,pady=4)
+            ttk.Label(balances,textvariable=self.account_vars[key]).grid(row=row,column=col*2+1,sticky="e",padx=10)
+        balances.columnconfigure(1,weight=1)
+        balances.columnconfigure(3,weight=1)
         ttk.Label(dashboard,textvariable=self.active_time,style="Muted.TLabel").pack(anchor="w",pady=12)
         shortcuts=ttk.Frame(dashboard); shortcuts.pack(fill="x",pady=(0,12))
         ttk.Button(shortcuts,text="Configurar coleta",command=lambda:self.notebook.select(self.pages["data"])).pack(side="left",padx=(0,8))
         ttk.Button(shortcuts,text="Verificar atualizações deste bot",command=self.check_updates).pack(side="left")
         ttk.Label(dashboard,text="Histórico da sessão",style="Heading.TLabel").pack(anchor="w",pady=(4,8))
-        self.log=tk.Text(dashboard,height=8,state="disabled",wrap="word",background="#0b1220",
+        self.log=tk.Text(dashboard,height=4,state="disabled",wrap="word",background="#0b1220",
                          foreground="#cbd5e1",insertbackground="white",relief="flat",padx=10,pady=10,
                          font=("Consolas",10))
         log_scroll=ttk.Scrollbar(dashboard,orient="vertical",command=self.log.yview)
@@ -238,6 +258,7 @@ class AutoBoxSemMouse:
                   wraplength=650,style="Muted.TLabel").pack(anchor="w")
 
         diagnostics=self._scroll_page(self.pages["diagnostics"])
+        self.diagnostics_body=diagnostics
         ttk.Label(diagnostics,text="Conferir o reconhecimento",style="Heading.TLabel").pack(anchor="w")
         ttk.Label(diagnostics,text="Os dois testes abaixo pausam a coleta. Confira as marcações antes de iniciar novamente.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=(4,12))
@@ -260,12 +281,33 @@ class AutoBoxSemMouse:
             ttk.Label(group,text=label).grid(row=row,column=0,sticky="nw",padx=(0,18),pady=5)
             ttk.Label(group,textvariable=self.world_vars[key],wraplength=520).grid(row=row,column=1,sticky="w",pady=5)
         group.columnconfigure(1,weight=1)
-        plan=ttk.LabelFrame(body,text="Plano do novo motor",padding=12)
+        plan=ttk.LabelFrame(body,text="Preferências de coleta",padding=12)
         plan.pack(fill="x",pady=10)
         ttk.Label(plan,text="Modo de coleta (F8)").pack(anchor="w")
         ttk.Combobox(plan,textvariable=self.collection_mode,state="readonly",
                      values=("Dados do jogo","Imagem (anterior)")).pack(fill="x",pady=(4,10))
+        ttk.Checkbutton(plan,text="Coletar caixas verdes usando minhas chaves (não compra chaves)",
+                        variable=self.green,command=self.save).pack(anchor="w",pady=4)
+        ttk.Checkbutton(plan,text="Reconectar e retomar após perda de conexão",
+                        variable=self.reconnect,command=self.save).pack(anchor="w",pady=4)
         ttk.Label(plan,textvariable=self.farm_plan,wraplength=650).pack(anchor="w")
+        recovery=ttk.LabelFrame(body,text="Quando a nave morrer",padding=12)
+        recovery.pack(fill="x",pady=6)
+        ttk.Label(recovery,text="Renascimento automático").grid(row=0,column=0,sticky="w")
+        ttk.Combobox(recovery,textvariable=self.respawn,state="readonly",
+                     values=("Desativado","Base","Portal","Local")).grid(row=0,column=1,sticky="ew",pady=4)
+        ttk.Label(recovery,text="Parar ao atingir este total de mortes").grid(row=1,column=0,sticky="w")
+        ttk.Spinbox(recovery,from_=1,to=100,textvariable=self.max_deaths,width=8).grid(row=1,column=1,sticky="w",pady=4)
+        ttk.Label(recovery,text="Custo máximo por renascimento (Uridium)").grid(row=2,column=0,sticky="w")
+        ttk.Spinbox(recovery,from_=0,to=100000,textvariable=self.max_cost,width=8).grid(row=2,column=1,sticky="w",pady=4)
+        ttk.Label(recovery,textvariable=self.death_label).grid(row=3,column=0,columnspan=2,sticky="w",pady=4)
+        ttk.Label(recovery,textvariable=self.repair_label,wraplength=650).grid(row=4,column=0,columnspan=2,sticky="w",pady=4)
+        ttk.Label(recovery,text="Local pode renascer com pouca vida; a coleta aguarda recuperação manual.",
+                  style="Muted.TLabel",wraplength=650).grid(row=5,column=0,columnspan=2,sticky="w",pady=4)
+        ttk.Button(recovery,text="Salvar preferências",command=self.save).grid(row=6,column=0,sticky="w",pady=4)
+        plan=self.diagnostics_body
+
+
         ttk.Button(plan,text="Registrar uma coleta manual (30 segundos)",
                    command=self.record_manual_collect).pack(fill="x",pady=(10,4))
         ttk.Button(plan,text="Copiar diagnóstico da coleta",
@@ -325,6 +367,19 @@ class AutoBoxSemMouse:
             "fresh":False,"status":"Abra o Opera dedicado e entre no mapa."}
         for key,var in self.world_vars.items():
             var.set(data.get("status","Aguardando dados.") if key=="status" else "—")
+        self.death_label.set("Mortes nesta sessão: "+str(self.death_state["count"]))
+        repair=data.get("repair") or {}
+        names={"base":"Base","portal":"Portal","spot":"Local"}
+        options=repair.get("options",[])
+        self.repair_label.set("  |  ".join(names.get(o.get("id"),"?")+": "+str(o.get("cost","—"))+" U"+
+            ("" if o.get("available") and o.get("affordable") else " (indisponível)") for o in options)
+            if options else "Custos de renascimento aparecem quando a nave morrer.")
+        self.earnings.observe(data, self.running and not self.stop_event.is_set())
+        account=data.get("account",{}) if data.get("fresh") else {}
+        for key in ("uridium","credits","xp","honor","level","booty_keys"):
+            value=data.get(key) if key=="booty_keys" and data.get("fresh") else account.get(key)
+            self.account_vars[key].set(format(value,",.0f").replace(",",".") if type(value) in (int,float) else "—")
+        self.data_planner.include_green=self.green.get()
         decision=self.data_planner.step(data,now)
         labels={"paused":"Aguardando", "recover":"Recuperação necessária", "search":"Procurar boxes",
                 "approach":"Aproximar", "collect":"Verificar coleta", "confirmed":"Coleta observada",
@@ -364,6 +419,9 @@ class AutoBoxSemMouse:
         elapsed = self.active_elapsed
         if self.running:
             elapsed += max(0,time.monotonic()-self.active_started)
+        self.account_vars["earned"].set(format(self.earnings.total,",.0f").replace(",","."))
+        rate=self.earnings.hourly(elapsed)
+        self.account_vars["hourly"].set("Calculando…" if rate is None else format(rate,",.0f").replace(",",".") + " U/h")
         seconds = int(elapsed)
         self.active_time.set("Tempo em coleta: %02d:%02d:%02d" % (seconds//3600,seconds//60%60,seconds%60))
         self.session_label.set("Opera conectado" if self.session.ready.is_set() else "Opera desconectado")
@@ -397,6 +455,12 @@ class AutoBoxSemMouse:
             threshold = float(self.threshold.get().replace(",", "."))
             if not .6 <= threshold <= .95:
                 raise ValueError("Use confianca entre 0,60 e 0,95.")
+            deaths=int(self.max_deaths.get()); cost=int(self.max_cost.get())
+            if not 1<=deaths<=100 or not 0<=cost<=100000:
+                raise ValueError("Mortes: 1 a 100; custo: 0 a 100000.")
+            self.cfg.update(respawn=self.respawn.get(),max_deaths=deaths,max_cost=cost)
+            self.cfg["green"] = self.green.get()
+            self.cfg["reconnect"] = self.reconnect.get()
             self.cfg["collection_mode"] = self.collection_mode.get()
             self.cfg["threshold"] = threshold
             self.cfg["full_map"] = bool(self.full_map.get())
@@ -465,7 +529,12 @@ class AutoBoxSemMouse:
                 self.say("Recupere a nave antes de iniciar a coleta por dados.")
                 return
             self.stop_event=threading.Event()
-            engine=DataCollector(self.session,self.stop_event,lambda event,data:self.events.put((event,data)))
+            self.earnings.observe(snapshot,False)
+            engine=DataCollector(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
+                                 settings={"green":self.green.get(),"reconnect":self.reconnect.get(),
+                                     "respawn":{"Base":"base","Portal":"portal","Local":"spot"}.get(self.respawn.get()),
+                                     "max_deaths":self.cfg["max_deaths"],"max_cost":self.cfg["max_cost"],
+                                     "death_state":self.death_state})
             self.worker=threading.Thread(target=engine.run,daemon=True)
             self.worker.start()
             self.say("Coleta por dados iniciada. Mantém o alvo até a coleta; F9 pausa.")

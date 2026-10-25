@@ -1,73 +1,43 @@
 # AutoBox Sem Mouse
 
-Beta 0.5.0 — coleta por dados (experimental)
+AutoBox Interstellar — Beta 0.6.0
 
-1. Abra o Opera dedicado pelo bot, faca login e entre no mapa.
-2. Na aba Dados, aguarde Leitura ao vivo e selecione Dados do jogo.
-3. F8 inicia, F9 pausa os novos comandos e F10 para o bot. A nave pode concluir o percurso que ja estava em andamento.
-4. Nao precisa marcar areas nem aprender imagem no modo por dados. Mantenha a janela do jogo aberta; teste atras de outros programas sem minimizar.
+ATUALIZAR
+No Painel, use Verificar atualizações deste bot. As preferências e a sessão do navegador ficam na pasta de dados do aplicativo.
 
-Seleciona a box normal mais proxima por coordenadas e preserva ID/revisao ate terminar. Usa o movimento e o evento de coleta do proprio cliente, que conserva sua fila e sequencia. Nao fabrica pacotes HTTP nem usa o mouse do Windows. Nao procura por portais nem movimenta aleatoriamente no minimapa. Sem boxes, aguarda; sem dados, com vida em 25% ou menos, mapa/vida alterados ou sem progresso, pausa. Boxes que exigem chave nao sao alvos deste modo. Combate e recuperacao continuam indisponiveis.
+COMEÇAR
+1. No Painel, clique Iniciar jogo. O navegador dedicado abre https://interstellar-verse.com/.
+2. Faça login e entre no mapa. Em Dados e coleta, aguarde Leitura ao vivo.
+3. Use Dados do jogo como modo. F8 inicia; F9 pausa; F10 para e cancela reconexões. Um percurso já aceito pelo jogo pode terminar.
+4. A coleta por dados dispensa marcação de áreas. Mantém a box mais próxima como alvo até terminar.
+5. Mantenha o navegador aberto. O funcionamento minimizado ainda precisa de validação.
 
-A confirmacao exige aumento do contador, desaparecimento/mudanca do alvo e proximidade observada. O posicionamento segue o deslocamento de 120 unidades encontrado no cliente; o raio de confirmacao de 180 unidades ainda precisa de validacao na partida. O modo Imagem (anterior) continua disponivel no seletor. Nao ha garantia de ausencia de banimento.
+PAINEL
+Saldos: Uridium, créditos, XP, honra, nível e chaves verdes.
+Uridium da sessão: somente novos eventos de recompensa de boxes durante a coleta, excluindo PET.
+Uridium/h: recompensas contadas divididas pelo tempo ativo; começa após 60 segundos. Pausas e espera de reconexão/renascimento não entram no tempo ativo.
+Saldos indisponíveis aparecem como traço. O contador de mortes e os ganhos são zerados ao fechar o aplicativo.
 
-Validacao: testes Python do motor, interface e cancelamento, mais teste local da ponte com stage/queue/collectObject/pointerdown extraidos do cliente fornecido e ambiente simulado, em escalas 33%, 100% e 200%. Isso nao equivale a uma partida real testada.
+PREFERÊNCIAS
+- Caixas verdes: desativadas inicialmente. Usa somente chaves existentes, sem comprar. A confirmação combina desaparecimento do alvo, proximidade e redução de chaves.
+- Reconectar: ativado inicialmente. Aguarda o fluxo voltar, usa os botões normais de entrada/tentativa do cliente e recarrega a página do mapa se necessário. Tentativas espaçadas, até 60 segundos entre elas. Só retoma após leitura atual; F9/F10 cancelam. Se exigir autenticação, faça login manualmente. Não reabre um navegador que você fechou.
+- Renascimento: desativado inicialmente. Escolha Base, Portal ou Local; custo máximo começa em zero Uridium. Confere opção disponível, saldo e preço do botão antes de confirmar.
+- Limite de mortes: padrão 3. Ao atingir o limite, encerra antes de outro renascimento. Contagem durante a coleta automática, por identificação da morte.
+- Renascimento local pode dar apenas 1% de vida. Com vida em 25% ou menos a coleta para e pede recuperação manual.
+- Ajustes de coleta, reconexão e renascimento são aplicados ao iniciar com F8.
 
+AVANÇADO
+Navegador, diagnóstico, exportação e calibração do modo Imagem (anterior) ficam separados do uso diário. As novas preferências de chaves, renascimento e reconexão são do modo Dados do jogo.
 
-Historico de versoes anteriores:
+AINDA PENDENTE
+Escolher mapa e viajar automaticamente pelos portais; fugir de jogadores; recuperação automática de vida; combate/NPCs; PET e seus modos.
+O coletor atual aguarda boxes no mapa em que a nave está. Não compra chaves nem troca de mapa sozinho.
 
-# AutoBox Sem Mouse
+VALIDAÇÃO
+140 testes Python de leitura, planejamento, interface, atualização, cancelamento, estatísticas, chaves, renascimento e reconexão.
+Teste local da ponte com callbacks do cliente fornecido, incluindo zoom 33%, 100% e 200%, e caixas verdes.
+Teste do botão de renascimento com preço atual, morte diferente e painel oculto.
+Replay privado de 22 mensagens do jogo, sem publicar dados da sessão.
+Esses testes simulados não substituem validação das novas funções em uma partida real.
 
-Bot independente, exclusivo de coleta visual no Interstellar em uma sessao dedicada do Opera GX.
-
-Baixe [AutoBox_Sem_Mouse.zip](AutoBox_Sem_Mouse.zip), extraia e execute INSTALAR_E_ABRIR.bat. Feche o bot antigo para evitar conflitos de atalhos.
-
-Configure mapa, modelo de box e area da nave. Minimap e notificacoes sao opcionais. F8 inicia, F9 pausa e F10 para.
-
-Esta beta possui configuracoes e atualizador proprios. A logica e a interface foram verificadas com navegador simulado; a coleta real ainda precisa de validacao. Nao ha garantia de ausencia de banimento.
-
-Consulte LEIA-ME.txt para detalhes.
-
-Beta 0.1.1: detector com mais escalas e recorte do objeto luminoso; teste visual de deteccao sem cliques; busca limitada a 24 s sem candidatos, alternancia de patrulha e retorno ao centro da zona marcada ao reconhecer radiacao. Retorno depende de calibracao correta e precisa de validacao no jogo.
-
-Beta 0.1.2: converte coordenadas da captura para pixels CSS medidos no navegador antes de clicar, com validacao de pagina/zoom entre captura e clique. A previa informa os dois pontos. 56 testes passaram; a abertura de um Opera local para teste foi impedida pelo ambiente, e a coleta real ainda depende de validacao.
-
-Referencia das unidades de coordenadas: [Playwright Mouse](https://playwright.dev/python/docs/api/class-mouse) e [CDP Input](https://chromedevtools.github.io/devtools-protocol/tot/Input/#method-dispatchMouseEvent).
-
-Beta 0.1.3: prioridade ao box mais proximo sem desvio para outro durante reverificacao, rastreamento local com previsao curta de movimento, protecao restrita ao centro da nave e busca estendida para a faixa inferior (opcao ligada por padrao, minimapa excluido). Aproximacao exige desaparecimento a ate 22 pixels da nave, com recuperacao de perdas breves.
-
-Validacao: 64 testes passaram. Na analise local do print fornecido, a area antiga excluia a box inferior; a area estendida a reconheceu com 0.975 de confianca. Isso valida esse caso de imagem; a coleta em movimento ainda precisa de validacao na partida.
-
-Beta 0.1.4: rejeita um candidato quando seu brilho faz parte de um objeto conectado muito maior que o modelo, como a borda do portal. O filtro vale na busca, no rastreamento e no teste de deteccao.
-
-Validacao: o falso positivo da borda no print fornecido foi removido; boxes reais dos prints anteriores foram preservadas. 67 testes passaram, incluindo estrutura grande com brilho que a versao anterior aceitava com 0.998 de correlacao e uma box isolada ao lado da estrutura. A coleta em movimento ainda depende de validacao no jogo.
-
-Beta 0.2.0: primeira etapa da interface inspirada em organizacao por modos. Tema escuro, abas Painel/Coleta/Navegador/Diagnostico, controles de coleta permanentes, contadores e tempo ativo. Combate e Recuperacao estao desativados e ainda nao executam acoes. Preserva o motor de coleta da 0.1.4, incluindo a rejeicao do falso positivo do portal; configuracao, modelo e perfil existentes usam os mesmos caminhos.
-
-Validacao desta etapa: 70 testes passaram, incluindo interface Tk, estados das abas, tempo ativo sem contar pausas, contadores, deteccao e servico de navegador simulado. A nova interface nao acrescenta leitura de memoria nem validacao real de combate.
-
-Beta 0.3.0: primeira etapa de leitura de dados ao vivo. Observa EventSource pelo CDP da janela dedicada, reconstrói full + patches de objeto/valor observados e mostra a aba Dados. Sequencias interrompidas, conexoes antigas e estados desatualizados nao produzem alvo atual. Operacoes de patch relevantes ainda desconhecidas interrompem a leitura ate novo full. O leitor filtra os campos mantidos em memoria e nao registra tokens ou chat. A coleta automatica permanece visual nesta etapa.
-
-Validacao: 91 testes, incluindo callbacks CDP simulados, reconexao, sequencia, atomicidade, limpeza de campos privados e painel. Replay das 22 mensagens fornecidas reconstruiu 40 boxes, 4 portais e a box mais proxima. Nenhum dado original da sessao foi incluido no pacote ou repositorio. A recepcao no Opera conectado ao jogo ainda depende de validacao pelo usuario.
-
-Referencias da observacao: [CDP Network eventSourceMessageReceived](https://chromedevtools.github.io/devtools-protocol/tot/Network/#event-eventSourceMessageReceived), [Playwright CDPSession](https://playwright.dev/python/docs/api/class-cdpsession).
-
-Beta 0.3.1: a janela dedicada inicia em https://interstellar-verse.com/ para permitir login e entrada no mapa pelo site. O reconhecimento da pagina de jogo continua separado do endereco inicial.
-
-Beta 0.4.0: motor de decisao por ID/revisao e coordenadas em validacao. Seleciona a box mais proxima, preserva o alvo, estima viagem, detecta falta de progresso e exige proximidade + desaparecimento + aumento do contador para indicar coleta observada. O plano ainda nao envia comandos ao jogo. A chegada usa raio inicial estimado de 100 unidades, ainda nao validado no jogo.
-
-A aba Dados inclui registro passivo de uma coleta manual (30 s) e copia de diagnostico com nomes de campos, destino, referencias a boxes conhecidas e aumento observado do contador. Ignora comandos cumulativos antigos e nao grava tokens, chat ou valores de campos desconhecidos. O registro e necessario para validar o adaptador de execucao antes de automatizar farm por dados. A coleta visual continua sendo o unico modo automatico.
-
-Validacao: 108 testes passaram, alem do replay das 22 mensagens. A observacao do EventSource nao exige mais que a pagina ja esteja em /play no instante da requisicao. A recepcao ao vivo, o comando manual e a execucao futura por dados ainda precisam de validacao no jogo.
-
-Beta 0.4.1: corrige a aba Dados vazia: seus campos e botoes agora sao montados ao iniciar, mesmo sem conexao. Teste de regressao reproduziu a falha antes da correcao; 109 testes passaram. Leitura e coleta reais ainda precisam de validacao no jogo.
-
-Beta 0.4.2: acrescenta diagnostico da primeira interrupcao do leitor (sequencia, campo, operacao e estrutura limitada sem textos privados). O registro manual preserva comandos observados quando a leitura falha. Nao acrescenta suporte a operacoes desconhecidas: copie o diagnostico antes de recarregar. 111 testes passaram; inclui registro sem alterar o estado recebido e preservacao da falha original.
-
-Beta 0.4.3: suporta atualizacoes indexadas de listas no formato [a, tamanho final, pares de indice/patch], identificado pelo diagnostico enviado. Aplica patches de objeto nos itens, preserva a ordem, permite substituicao, crescimento completo e truncamento e rejeita indices invalidos ou listas incompletas. A projecao de campos tambem vale para cada item atualizado. 115 testes passaram, incluindo reproducao sintetica da atualizacao do indice 35 em 40 boxes; validacao ao vivo ainda necessaria. Registro manual e coleta automatica por dados continuam em validacao.
-
-Beta 0.4.4: diagnostico inclui formato e valores permitidos do campo collect (booleano, coordenadas, revisao e referencias a boxes conhecidas), sem copiar textos desconhecidos ou valores de campos privados. Atualizador usa requisicao unica e cabecalhos sem cache, preservando verificacao de endereco e SHA-256. Nao envia comandos de coleta por dados nesta etapa.
-
-Beta 0.4.5: inclui o valor curto de categoria do campo collect.kind, que o filtro da 0.4.4 omitia. Mantem ID de box conhecida e revisao; campos privados e textos desconhecidos continuam omitidos. Nao presume o valor de kind nem envia comandos por dados.
-
-Beta 0.4.6: botao Exportar integracao do cliente na aba Dados. Com a janela dedicada no mapa, salva um JSON dos scripts JavaScript do mesmo dominio, sem parametros dos URLs e com redacao de atribuicoes literais de credenciais. Faz apenas GET dos scripts, nao exporta cookies/estado e nao envia comandos de jogo. Limites de tempo, tamanho e quantidade de arquivos. Necessario para identificar a fila do cliente antes de implementar o envio automatico de comandos por dados; o formato collect kind=box, id e revision ja foi observado. 123 testes passaram. Validacao no jogo ainda pendente.
+Instalação nova: Python 3.11+; execute INSTALAR_E_ABRIR.bat. A instalação usa uma .venv própria.

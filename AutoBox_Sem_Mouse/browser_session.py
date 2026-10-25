@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 HOME_URL = "https://interstellar-verse.com/"
 GAME_URL = "https://interstellar-verse.com/play/#play"
 
-DATA_TARGET_SCRIPT = "(target) => {\n const r=window.PeriodWindows?.renderer, groups=window.DarkOrbitGroups;\n const canvas=document.getElementById('space');\n if(!r || !canvas || typeof r.worldAt!=='function' || typeof r.hitBonusBox!=='function' || typeof groups?.onFollow!=='function')\n   throw Error('Integração do cliente indisponível. Entre no mapa novamente.');\n if(groups.isPingArmed?.()) throw Error('Desative a marcação de grupo antes de coletar.');\n const rect=canvas.getBoundingClientRect(), cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;\n if(rect.width<=0||rect.height<=0) throw Error('Canvas do jogo indisponível.');\n const a=r.worldAt(cx,cy), b=r.worldAt(cx+10,cy), c=r.worldAt(cx,cy+10);\n const xx=(b.x-a.x)/10, xy=(c.x-a.x)/10, yx=(b.y-a.y)/10, yy=(c.y-a.y)/10;\n const det=xx*yy-xy*yx;\n if(![a.x,a.y,xx,xy,yx,yy,det].every(Number.isFinite)||Math.abs(det)<1e-8) throw Error('Projeção do mapa indisponível.');\n const dx=target.x-a.x, dy=target.y-a.y;\n const px=cx+(dx*yy-dy*xy)/det, py=cy+(dy*xx-dx*yx)/det;\n if(!Number.isFinite(px)||!Number.isFinite(py)) throw Error('Projeção inválida.');\n const projected=r.worldAt(px,py);\n if(!projected||!Number.isFinite(projected.x)||!Number.isFinite(projected.y)||Math.hypot(projected.x-target.x,projected.y-target.y)>.5) throw Error('Projeção do cliente mudou. Coleta pausada.');\n for(const [ox,oy] of [[0,0],[0,-4],[0,4],[-4,0],[4,0]]) {\n   const x=px+ox,y=py+oy;\n   if(x<rect.left+2||x>=rect.right-2||y<rect.top+2||y>=rect.bottom-2) continue;\n   const hit=r.hitBonusBox(x,y);\n   if(!hit||hit.id!==target.id||hit.revision!==target.revision||hit.kind==='booty') continue;\n   if(r.hitTarget?.(x,y)||r.hitWorldButton?.(x,y)) continue;\n   if(!target.can_collect) return {action:'wait'};\n   canvas.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,buttons:1,\n       pointerId:9381,pointerType:'mouse',clientX:x,clientY:y}));\n   return {action:'collect',id:hit.id,revision:hit.revision};\n }\n if(!target.can_move) return {action:'wait'};\n groups.onFollow({x:target.x,y:Math.max(0,target.y-120),mapId:target.map});\n return {action:'move',id:target.id,revision:target.revision};\n}"
+DATA_TARGET_SCRIPT = "(target) => {\n const r=window.PeriodWindows?.renderer, groups=window.DarkOrbitGroups;\n const canvas=document.getElementById('space');\n if(!r || !canvas || typeof r.worldAt!=='function' || typeof r.hitBonusBox!=='function' || typeof groups?.onFollow!=='function')\n   throw Error('Integração do cliente indisponível. Entre no mapa novamente.');\n if(groups.isPingArmed?.()) throw Error('Desative a marcação de grupo antes de coletar.');\n const rect=canvas.getBoundingClientRect(), cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;\n if(rect.width<=0||rect.height<=0) throw Error('Canvas do jogo indisponível.');\n const a=r.worldAt(cx,cy), b=r.worldAt(cx+10,cy), c=r.worldAt(cx,cy+10);\n const xx=(b.x-a.x)/10, xy=(c.x-a.x)/10, yx=(b.y-a.y)/10, yy=(c.y-a.y)/10;\n const det=xx*yy-xy*yx;\n if(![a.x,a.y,xx,xy,yx,yy,det].every(Number.isFinite)||Math.abs(det)<1e-8) throw Error('Projeção do mapa indisponível.');\n const dx=target.x-a.x, dy=target.y-a.y;\n const px=cx+(dx*yy-dy*xy)/det, py=cy+(dy*xx-dx*yx)/det;\n if(!Number.isFinite(px)||!Number.isFinite(py)) throw Error('Projeção inválida.');\n const projected=r.worldAt(px,py);\n if(!projected||!Number.isFinite(projected.x)||!Number.isFinite(projected.y)||Math.hypot(projected.x-target.x,projected.y-target.y)>.5) throw Error('Projeção do cliente mudou. Coleta pausada.');\n for(const [ox,oy] of [[0,0],[0,-4],[0,4],[-4,0],[4,0]]) {\n   const x=px+ox,y=py+oy;\n   if(x<rect.left+2||x>=rect.right-2||y<rect.top+2||y>=rect.bottom-2) continue;\n   const hit=r.hitBonusBox(x,y);\n   if(!hit||hit.id!==target.id||hit.revision!==target.revision||(hit.kind==='booty'&&!target.allow_green)) continue;\n   if(r.hitTarget?.(x,y)||r.hitWorldButton?.(x,y)) continue;\n   if(!target.can_collect) return {action:'wait'};\n   canvas.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,buttons:1,\n       pointerId:9381,pointerType:'mouse',clientX:x,clientY:y}));\n   return {action:'collect',id:hit.id,revision:hit.revision};\n }\n if(!target.can_move) return {action:'wait'};\n groups.onFollow({x:target.x,y:Math.max(0,target.y-120),mapId:target.map});\n return {action:'move',id:target.id,revision:target.revision};\n}"
 
 
 def find_opera_gx():
@@ -56,9 +56,10 @@ class UnsupportedWorldPatch(ValueError):
 
 class WorldFeed:
     """Reconstrucao somente de campos de navegacao; nao guarda tokens nem chat."""
-    ROOT = {"map", "world", "me", "boxes", "npcs"}
+    ROOT = {"map", "world", "me", "boxes", "npcs", "events", "time"}
+    LISTS = (("boxes",),("npcs",),("map","gates"),("events",),("me","repairChoices","options"))
     ME = {"x","y","speed","hp","maxHp","shield","maxShield","moving","destination",
-          "mapId","deadUntil","respawnRevision","targetId","attacking","repairing","inputSeq","achievements"}
+          "mapId","deadUntil","respawnRevision","targetId","attacking","repairing","inputSeq","achievements","credits","uridium","xp","honor","galaxyGates","repairChoices"}
     MAP = {"id","width","height","gates"}
     ENTITY = {"id","revision","x","y","type","kind","hp","maxHp"}
     def __init__(self, clock=None):
@@ -95,6 +96,10 @@ class WorldFeed:
         if not path: return cls.ROOT
         if path in (("boxes","*"),("npcs","*")): return cls.ENTITY
         if path == ("map","gates","*"): return {"id","to","x","y"}
+        if path == ("events","*"): return {"id","time","type","field","amount","petCollected"}
+        if path == ("me","galaxyGates"): return {"bootyKeys"}
+        if path == ("me","repairChoices"): return {"id","readyAt","baseMap","options"}
+        if path == ("me","repairChoices","options","*"): return {"id","cost","available","affordable"}
         if path == ("me",): return cls.ME
         if path == ("map",): return cls.MAP
         if path == ("world",): return {"width","height"}
@@ -107,10 +112,10 @@ class WorldFeed:
     def _project(cls, value, path=()):
         keys = cls._keys(path)
         if keys is not None:
-            if value is None and path == ("me","destination"): return None
+            if value is None and path in (("me","destination"),("me","repairChoices"),("me","galaxyGates")): return None
             if not isinstance(value, dict): raise ValueError("objeto esperado")
             return {k:cls._project(v,path+(k,)) for k,v in value.items() if k in keys}
-        if path in (("boxes",),("npcs",),("map","gates")):
+        if path in cls.LISTS:
             if not isinstance(value,list) or len(value)>20000: raise ValueError("lista invalida")
             return [cls._project(item,path+("*",)) for item in value]
         return cls._scalar(value)
@@ -129,7 +134,7 @@ class WorldFeed:
         op = patch[0]
         if op == "v" and len(patch)==2:
             return cls._project(patch[1],path)
-        if op == "a" and path in (("boxes",),("npcs",),("map","gates")):
+        if op == "a" and path in cls.LISTS:
             if len(patch)!=3 or not isinstance(current,list):
                 raise ValueError("patch de lista invalido")
             length, changes=patch[1:]
@@ -251,6 +256,14 @@ class WorldFeed:
                 0<=b["x"]<=self.state["map"].get("width",self.state.get("world",{}).get("width",0)) and
                 0<=b["y"]<=self.state["map"].get("height",self.state.get("world",{}).get("height",0))]
             result["gates"]=[dict(g) for g in self.state["map"].get("gates",[])]
+            result["account"]={k:me.get(k) for k in ("credits","uridium","xp","honor")}
+            xp=me.get("xp")
+            result["account"]["level"]=(1 if xp<10000 else 2+int(math.log2(xp/10000))) if self._number(xp) and xp>=0 else None
+            keys=(me.get("galaxyGates") or {}).get("bootyKeys",0)
+            result["booty_keys"]=keys if type(keys) is int and keys>=0 else 0
+            result["repair"]=json.loads(json.dumps(me.get("repairChoices")))
+            result["server_time"]=self.state.get("time")
+            result["rewards"]=[dict(e) for e in self.state.get("events",[]) if e.get("type")=="box-collected"]
             result["respawn_revision"]=me.get("respawnRevision")
             result["dead"]=bool(me.get("deadUntil")) or (self._number(me.get("hp")) and me["hp"]<=0)
             result["destination"]=dict(me["destination"]) if isinstance(me.get("destination"),dict) else None
@@ -527,6 +540,55 @@ class BrowserSession:
             raise ValueError("Nenhum arquivo JavaScript disponivel. Entre no mapa pela janela dedicada.")
         return {"schema":"autobox-client-integration-v1","files":files}
 
+    def _respawn(self, page, target, allowed):
+        snap=self.world_feed.navigation_snapshot()
+        repair=snap.get("repair") or {}
+        option=next((o for o in repair.get("options",[]) if o.get("id")==target.get("option")),None)
+        if (not snap.get("fresh") or not snap.get("dead") or repair.get("id")!=target.get("death_id")
+                or not option or not option.get("available") or not option.get("affordable")
+                or not self.world_feed._number(option.get("cost")) or option["cost"]<0
+                or option["cost"]>target.get("max_cost",0)):
+            return {"action":"blocked"}
+        if allowed is not None and not allowed(): return {"action":"cancelled"}
+        return page.evaluate(r"""t => {
+            const panel=document.getElementById('respawnOverlay');
+            if(!panel||panel.hidden||!panel.getClientRects().length||panel.dataset.deathId!==String(t.death_id))
+                return {action:'wait'};
+            const choice=panel.querySelector('[data-repair-option="'+t.option+'"]');
+            if(!choice||choice.disabled||choice.dataset.affordable!=='true') return {action:'blocked'};
+            choice.click();
+            const button=panel.querySelector('.repair-confirm');
+            const price=choice.querySelector('.repair-price')?.textContent||'';
+            const match=price.match(/^\s*(\d+(?:\.\d+)?)\s*U\./);
+            const amount=price.trim()==='No charge'?0:match?Number(match[1]):NaN;
+            if(!button||button.disabled||!Number.isFinite(amount)||amount>t.max_cost) return {action:'blocked'};
+            button.click();
+            return {action:'respawn'};
+        }""",target)
+
+    def _reconnect(self, context, payload, allowed):
+        if allowed is not None and not allowed(): return {"action":"cancelled"}
+        if self.world_feed.navigation_snapshot().get("fresh"): return {"action":"ready"}
+        pages=[p for p in context.pages if urlsplit(p.url).hostname=="interstellar-verse.com"]
+        if not pages: return {"action":"closed"}
+        page=next((p for p in reversed(pages) if urlsplit(p.url).path.rstrip("/")=="/play"),pages[-1])
+        action=page.evaluate("""() => {
+            const visible=e=>e&&e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden';
+            if(visible(document.getElementById('authScreen'))) return 'login';
+            for(const id of ['flightStart','flightLoadingRetry','startGame']){
+                const e=document.getElementById(id);
+                if(visible(e)&&!e.disabled) return id;
+            }
+            return 'wait';
+        }""")
+        if allowed is not None and not allowed(): return {"action":"cancelled"}
+        if action in ("flightStart","flightLoadingRetry","startGame"):
+            page.locator("#"+action).click(timeout=2000)
+        elif action=="wait" and payload.get("reload") and urlsplit(page.url).path.rstrip("/")=="/play":
+            page.reload(wait_until="domcontentloaded",timeout=5000)
+            action="reload"
+        return {"action":action}
+
     def _data_target(self, page, target, allowed):
         snapshot=self.world_feed.navigation_snapshot()
         if not snapshot.get("fresh") or snapshot.get("dead"):
@@ -539,14 +601,17 @@ class BrowserSession:
         box=next((b for b in snapshot["candidates"] if b.get("id")==target.get("id") and
                   b.get("revision")==target.get("revision")),None)
         if box is None: return {"action":"gone"}
-        if type(box.get("revision")) is not int or box.get("kind") not in (None,"box","bonus"):
+        if type(box.get("revision")) is not int or box.get("kind") not in (None,"box","bonus","booty"):
             raise ValueError("Tipo ou revisao da box nao suportado.")
+        green=box.get("kind")=="booty"
+        if green and (not target.get("allow_green") or (snapshot.get("booty_keys") or 0)<1):
+            return {"action":"gone"}
         now=time.monotonic(); key=(snapshot["map"],snapshot.get("respawn_revision"),box["id"],box["revision"])
         previous=self.data_action
         same=previous and previous["key"]==key
         elapsed=now-previous["time"] if same else float("inf")
         collecting=same and previous["action"]=="collect"
-        payload={"map":snapshot["map"],"id":box["id"],"revision":box["revision"],"x":box["x"],"y":box["y"],
+        payload={"allow_green":green,"map":snapshot["map"],"id":box["id"],"revision":box["revision"],"x":box["x"],"y":box["y"],
                  "can_collect":not collecting or elapsed>=3,
                  "can_move":not collecting and (not same or elapsed>=2)}
         if allowed is not None and not allowed(): return {"action":"cancelled"}
@@ -645,6 +710,10 @@ class BrowserSession:
                         reply.put((True, None))
                         break
                     try:
+                        if operation == "reconnect":
+                            result=self._reconnect(context,payload or {},allowed)
+                            reply.put((True,result))
+                            continue
                         page = self._game_page(context)
                         # Recusa cliques enfileirados se F9/F10 ja interrompeu o bot.
                         if allowed is not None and not allowed():
@@ -652,6 +721,8 @@ class BrowserSession:
                             continue
                         if operation == "screenshot":
                             result = self._capture(page)
+                        elif operation == "respawn":
+                            result = self._respawn(page,payload,allowed)
                         elif operation == "data_target":
                             result = self._data_target(page,payload,allowed)
                         elif operation == "client_sources":

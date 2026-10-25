@@ -83,18 +83,17 @@ class AppTests(unittest.TestCase):
         self.app.stop_event.clear(); self.app.pause()
         self.assertTrue(self.app.stop_event.is_set())
     def test_only_implemented_modes_are_available(self):
-        self.assertEqual(len(self.app.notebook.tabs()),7)
-        for key in ("dashboard","collection","browser","diagnostics","data"):
+        self.assertEqual(len(self.app.notebook.tabs()),3)
+        for key in ("dashboard","data","advanced"):
             self.assertEqual(self.app.notebook.tab(self.app.pages[key],"state"),"normal")
-        for key in ("combat","recovery"):
-            self.assertEqual(self.app.notebook.tab(self.app.pages[key],"state"),"disabled")
+        self.assertNotIn("combat",self.app.pages)
 
     def test_data_tab_contains_status_fields_and_diagnostic_buttons(self):
         def descendants(widget):
             for child in widget.winfo_children():
                 yield child
                 yield from descendants(child)
-        widgets=list(descendants(self.app.pages["data"]))
+        widgets=list(descendants(self.app.pages["data"]))+list(descendants(self.app.pages["diagnostics"]))
         texts=[str(w.cget("text")) for w in widgets if "text" in w.keys()]
         self.assertIn("Registrar uma coleta manual (30 segundos)",texts)
         self.assertIn("Copiar diagnóstico da coleta",texts)
