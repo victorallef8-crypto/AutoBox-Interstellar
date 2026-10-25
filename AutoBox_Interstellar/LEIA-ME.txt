@@ -1,3 +1,27 @@
+CORRECAO BETA 3.3.1
+
+Antes de clicar, o bot captura novamente uma area proxima do alvo.
+Depois de posicionar o cursor, confere o alvo uma segunda vez.
+Se o box desaparecer ou continuar se deslocando, cancela esse clique e busca
+novamente. Durante a ronda, verifica a tela a cada 0,25 segundo e retorna
+a busca quando encontra um box. A deteccao continua dependendo do modelo
+aprendido e da area calibrada.
+
+Esta e uma correcao candidata: passou em testes simulados de movimento,
+mas ainda precisa ser testada dentro do jogo.
+
+NOVIDADES DA BETA 3.3
+
+A coleta agora distingue recompensa confirmada, prazo esgotado e interrupcao.
+Depois de 3 tentativas seguidas sem confirmacao, o AutoBox faz uma ronda
+na zona segura do minimapa. Sem essa zona calibrada, pausa e pede a calibracao.
+Uma recompensa confirmada zera a sequencia de falhas. Pausas e perda de foco
+nao contam como falhas. A ronda preserva o historico temporario de alvos.
+
+IMPORTANTE: marque a area YOU RECEIVED e a zona segura no minimapa.
+O contador continua indicando boxes selecionadas, nao coletas confirmadas.
+Esta versao foi verificada com testes simulados; falta validacao dentro do jogo.
+
 AUTOBOX INTERSTELLAR VERSE - BETA 3.2
 ===================================
 

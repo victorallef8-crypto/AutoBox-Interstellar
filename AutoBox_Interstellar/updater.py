@@ -20,7 +20,7 @@ import zipfile
 from pathlib import Path
 
 
-CURRENT_VERSION = "3.2"
+CURRENT_VERSION = "3.3.1"
 OWNER_REPO = "victorallef8-crypto/AutoBox-Interstellar"
 REPO_RAW_PREFIX = (
     "https://raw.githubusercontent.com/"
@@ -65,7 +65,7 @@ def _read_url(url: str, max_bytes: int) -> bytes:
 
     req = urllib.request.Request(
         _verified_repo_url(url),
-        headers={"User-Agent": "AutoBox-Interstellar-Updater/3.2"},
+        headers={"User-Agent": "AutoBox-Interstellar-Updater/3.3.1"},
     )
     with urllib.request.build_opener(BlockRedirects).open(req, timeout=15) as response:
         final_url = response.geturl()

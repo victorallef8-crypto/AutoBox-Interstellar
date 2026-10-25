@@ -3,6 +3,21 @@
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
+## Beta 3.3.1
+
+- Revalida a posicao do box em capturas recentes antes do clique.
+- Descarta alvos que desapareceram ou continuam se deslocando.
+- Procura boxes durante a espera da ronda.
+- Validacao em jogo ainda pendente.
+
+## Beta 3.3
+
+- Cada tentativa distingue recompensa confirmada, prazo esgotado e interrupcao.
+- Depois de tres tentativas consecutivas sem confirmacao, faz uma ronda na zona segura.
+- Sem zona segura calibrada, pausa e explica o motivo.
+- Uma recompensa confirmada zera a sequencia; pausas e troca de janela nao somam falhas.
+- O historico de alvos recentes e mantido durante a ronda.
+
 ## Recursos
 
 - Identificacao visual de boxes na area calibrada pelo jogador.
@@ -21,7 +36,7 @@ de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 1. Baixe `AutoBox_Interstellar.zip` neste repositorio.
 2. Extraia a pasta `AutoBox_Interstellar`.
 3. Instale Python 3.11+ e execute `INSTALAR_E_ABRIR.bat`.
-4. Use os botoes de calibracao do proprio programa. Na Beta 3.2, marque
+4. Use os botoes de calibracao do proprio programa. Na Beta 3.3, marque
    tambem a area onde aparecem as notificacoes `You received`.
 
 Ao abrir, o AutoBox verifica se existe versao nova. O usuario tambem pode

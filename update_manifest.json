@@ -1,6 +1,6 @@
 {
-  "version": "3.2",
+  "version": "3.3.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "6f1526cde0c072df0e7a8fff8a3828f357e0eb206da4dd507dae8deb0acab32f",
-  "notes": "Renascimento automatico na base, no portal ou no mesmo lugar, com limites e confirmacao para opcoes pagas."
+  "sha256": "4482634b014e774c378f0b5c3903735db2623bfd7ee191954eae22dfebb0fe3e",
+  "notes": "Confere a posicao do box antes de clicar, detecta boxes durante a ronda e recupera tentativas sem confirmacao."
 }

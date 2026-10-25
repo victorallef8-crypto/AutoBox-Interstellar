@@ -30,6 +30,8 @@ APP_NAME = "AutoBox Interstellar Verse"
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxInterstellar"
 SETTINGS_PATH = APP_DIR / "config.json"
 TEMPLATE_PATH = APP_DIR / "box_modelo.png"
+MAX_COLLECTION_TIMEOUTS = 3
+
 REPAIR_COSTS = {"base": 0, "portal": 250, "same_place": 500}
 REPAIR_LABELS = {"base": "base", "portal": "portal", "same_place": "mesmo lugar"}
 
@@ -229,7 +231,7 @@ def repair_click_points(panel: tuple[int, int, int, int],
 class AutoBoxApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title(APP_NAME + " - beta 3.2")
+        root.title(APP_NAME + " - beta 3.3.1")
         root.geometry("600x885")
         root.minsize(545, 735)
 
@@ -298,7 +300,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | Interstellar Verse",
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.2 • Coleta rapida • 3 locais de renascimento",
+        ttk.Label(frame, text="Beta 3.3.1 • Posicao do box conferida antes do clique",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -682,8 +684,71 @@ class AutoBoxApp:
                 random.randint(area["top"] + my,
                                area["top"] + area["height"] - my))
 
+    def _click_current_box(self, sct, sample, region, target):
+        """Revalida um alvo localmente antes de clicar; nao usa posicao antiga."""
+        x, y = target
+        left, top = max(0, x - 60), max(0, y - 60)
+        right = min(region["width"], x + 61)
+        bottom = min(region["height"], y + 61)
+        area = {"left": region["left"] + left, "top": region["top"] + top,
+                "width": right - left, "height": bottom - top}
+
+        def near_target(expected, radius):
+            frame, monitor = self._screen_capture(sct)
+            if radiation_visible(frame) or find_death_panel(frame) is not None:
+                return None
+            crop = self._screen_area(frame, monitor, area)
+            if crop is None:
+                return None
+            matches = locate_boxes(crop, sample, threshold=self.threshold)
+            nearby = [(px + left, py + top, confidence)
+                      for px, py, confidence in matches
+                      if (px + left - expected[0]) ** 2 +
+                         (py + top - expected[1]) ** 2 <= radius ** 2]
+            if not nearby:
+                return None
+            best = min(nearby, key=lambda p: (p[0] - expected[0]) ** 2 +
+                                             (p[1] - expected[1]) ** 2)
+            return best, frame, monitor
+
+        if not self._ready_to_click() or self.region != region:
+            return None
+        first = near_target(target, 35)
+        if first is None:
+            return None
+        (x, y, _), _, _ = first
+        # Posiciona o cursor ANTES da ultima captura: mover o mouse tambem leva tempo.
+        pyautogui.moveTo(region["left"] + x, region["top"] + y, duration=0)
+        self._sleep_interruptible(.08)
+        if not self._ready_to_click() or self.region != region:
+            return None
+        current = near_target((x, y), 4)
+        if current is None:
+            self.events.put(("status", "Box mudou de posicao. Atualizando o alvo antes de clicar..."))
+            return None
+        (x, y, score), frame, monitor = current
+        if not self._ready_to_click() or self.region != region:
+            return None
+        pyautogui.click(region["left"] + x, region["top"] + y)
+        return x, y, score, frame, monitor
+
+    def _patrol_wait(self, sct, sample):
+        """Verifica a tela durante a ronda em vez de esperar as cegas."""
+        deadline = time.monotonic() + self.patrol_seconds
+        while time.monotonic() < deadline and self._ready_to_click():
+            self._sleep_interruptible(min(.25, max(0, deadline - time.monotonic())))
+            if not self._ready_to_click():
+                return
+            frame, monitor = self._screen_capture(sct)
+            if radiation_visible(frame) or find_death_panel(frame) is not None:
+                return
+            crop = self._screen_area(frame, monitor, self.region)
+            if crop is not None and locate_boxes(crop, sample, threshold=self.threshold):
+                self.events.put(("status", "Box encontrada durante a ronda. Conferindo a posicao..."))
+                return
+
     def _reward_wait(self, sct, before_click, monitor, target_x: int):
-        """Busca uma notificacao NOVA; a espera e apenas um prazo maximo."""
+        """Retorna confirmed, timeout ou interrupted para cada tentativa."""
         before_area = (self._screen_area(before_click, monitor, self.notice_region)
                        if self.notice_region else None)
         baseline = before_area.copy() if before_area is not None else None
@@ -693,15 +758,17 @@ class AutoBoxApp:
         consecutive = 0
         while time.monotonic() < deadline and self._ready_to_click():
             self._sleep_interruptible(0.18)
+            if not self._ready_to_click():
+                return "interrupted"
             frame, current_monitor = self._screen_capture(sct)
             if radiation_visible(frame) or find_death_panel(frame) is not None:
-                return
+                return "interrupted"
             if baseline is not None and self.notice_region:
                 current = self._screen_area(frame, current_monitor, self.notice_region)
                 consecutive = consecutive + 1 if new_reward_message(baseline, current) else 0
                 if consecutive >= 2 and time.monotonic() - began >= 0.3:
                     self.events.put(("status", "Novo YOU RECEIVED! Procurando a proxima box..."))
-                    return
+                    return "confirmed"
                 continue
             # Compatibilidade com a versao anterior ate marcar a area.
             present = reward_notice_visible(frame, target_x)
@@ -709,7 +776,23 @@ class AutoBoxApp:
                 saw_clear = True
             elif saw_clear and time.monotonic() - began >= 0.55:
                 self.events.put(("status", "Recompensa detectada! Procurando a proxima box..."))
-                return
+                return "confirmed"
+        return "timeout" if self._ready_to_click() else "interrupted"
+
+    def _recover_collection(self):
+        """Sai de uma sequencia sem recompensa sem repetir o alvo."""
+        destination = self._choose_safe_point()
+        if destination is None:
+            with self.state_lock:
+                self.running = False
+            self.events.put(("status", "Tres tentativas sem confirmacao. Pausado: marque a zona segura no minimapa."))
+            return False
+        if not self._ready_to_click():
+            return False
+        pyautogui.click(*destination)
+        self.events.put(("status", "Tres tentativas sem confirmacao. Ronda na zona segura para procurar outros boxes..."))
+        self._sleep_interruptible(self.patrol_seconds)
+        return True
 
     def _handle_radiation(self):
         if not self.safe_region:
@@ -759,6 +842,7 @@ class AutoBoxApp:
         recent: list[tuple[int, int, float]] = []
         previous: tuple[int, int] | None = None
         missed = 0
+        collection_timeouts = 0
         last_patrol = 0.0
         try:
             with mss.mss() as sct:
@@ -779,6 +863,7 @@ class AutoBoxApp:
                             sample = new_sample
                             sample_modified = new_modified
                             recent.clear()
+                            collection_timeouts = 0
 
                     full_frame, monitor = self._screen_capture(sct)
                     dead = find_death_panel(full_frame)
@@ -787,11 +872,13 @@ class AutoBoxApp:
                                                  dead[1] + monitor["top"], dead[2], dead[3]))
                         recent.clear()
                         previous = None
+                        collection_timeouts = 0
                         continue
                     if radiation_visible(full_frame):
                         self._handle_radiation()
                         recent.clear()
                         previous = None
+                        collection_timeouts = 0
                         continue
 
                     region = dict(self.region)
@@ -811,6 +898,14 @@ class AutoBoxApp:
                         if all((x - rx) ** 2 + (y - ry) ** 2 > 35 ** 2 for rx, ry, _ in recent)
                     ]
 
+                    if collection_timeouts >= MAX_COLLECTION_TIMEOUTS:
+                        if self._recover_collection():
+                            collection_timeouts = 0
+                            previous = None
+                            missed = 0
+                            last_patrol = time.monotonic()
+                        continue
+
                     if candidates:
                         missed = 0
                         if previous is None:
@@ -822,14 +917,23 @@ class AutoBoxApp:
                                         max(0.4, p[2]))
                         x, y, score = candidates[0]
                         if self._ready_to_click():
-                            # Um alvo por vez; o jogo se encarrega de mover a nave.
-                            pyautogui.click(region["left"] + x, region["top"] + y)
+                            clicked = self._click_current_box(sct, sample, region, (x, y))
+                            if clicked is None:
+                                self._sleep_interruptible(.12)
+                                continue
+                            x, y, score, click_frame, click_monitor = clicked
                             self.events.put(("click", None))
                             self.events.put(("status", f"Indo ate box ({score:.0%} de confianca)..."))
                             recent.append((x, y, time.monotonic()))
                             previous = (x, y)
-                            self._reward_wait(sct, full_frame, monitor,
-                                              region["left"] + x - monitor["left"])
+                            result = self._reward_wait(sct, click_frame, click_monitor,
+                                                       region["left"] + x - click_monitor["left"])
+                            if result == "confirmed":
+                                collection_timeouts = 0
+                            elif result == "timeout":
+                                collection_timeouts += 1
+                                self.events.put(("status",
+                                    f"Tempo esgotado sem confirmacao ({collection_timeouts}/{MAX_COLLECTION_TIMEOUTS}). Procurando outro alvo..."))
                     else:
                         missed += 1
                         if (self.safe_region and missed >= 2 and
@@ -839,10 +943,10 @@ class AutoBoxApp:
                                 pyautogui.click(*destination)
                                 self.events.put(("status", "Sem boxes. Ronda na zona segura do minimapa..."))
                                 previous = None
-                                recent.clear()
+                                # Mantem alvos recentes para evitar repetir falhas apos a ronda.
                                 last_patrol = now
                                 missed = 0
-                                self._sleep_interruptible(self.patrol_seconds)
+                                self._patrol_wait(sct, sample)
                         else:
                             if not self.safe_region and missed == 2:
                                 self.events.put(("status", "Sem boxes. Esperando (ronda desativada ate marcar minimapa)."))
