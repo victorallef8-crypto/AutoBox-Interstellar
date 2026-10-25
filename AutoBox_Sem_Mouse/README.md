@@ -1,5 +1,23 @@
 # AutoBox Sem Mouse
 
+Beta 0.5.0 — coleta por dados (experimental)
+
+1. Abra o Opera dedicado pelo bot, faca login e entre no mapa.
+2. Na aba Dados, aguarde Leitura ao vivo e selecione Dados do jogo.
+3. F8 inicia, F9 pausa os novos comandos e F10 para o bot. A nave pode concluir o percurso que ja estava em andamento.
+4. Nao precisa marcar areas nem aprender imagem no modo por dados. Mantenha a janela do jogo aberta; teste atras de outros programas sem minimizar.
+
+Seleciona a box normal mais proxima por coordenadas e preserva ID/revisao ate terminar. Usa o movimento e o evento de coleta do proprio cliente, que conserva sua fila e sequencia. Nao fabrica pacotes HTTP nem usa o mouse do Windows. Nao procura por portais nem movimenta aleatoriamente no minimapa. Sem boxes, aguarda; sem dados, com vida em 25% ou menos, mapa/vida alterados ou sem progresso, pausa. Boxes que exigem chave nao sao alvos deste modo. Combate e recuperacao continuam indisponiveis.
+
+A confirmacao exige aumento do contador, desaparecimento/mudanca do alvo e proximidade observada. O posicionamento segue o deslocamento de 120 unidades encontrado no cliente; o raio de confirmacao de 180 unidades ainda precisa de validacao na partida. O modo Imagem (anterior) continua disponivel no seletor. Nao ha garantia de ausencia de banimento.
+
+Validacao: testes Python do motor, interface e cancelamento, mais teste local da ponte com stage/queue/collectObject/pointerdown extraidos do cliente fornecido e ambiente simulado, em escalas 33%, 100% e 200%. Isso nao equivale a uma partida real testada.
+
+
+Historico de versoes anteriores:
+
+# AutoBox Sem Mouse
+
 Bot independente, exclusivo de coleta visual no Interstellar em uma sessao dedicada do Opera GX.
 
 Baixe [AutoBox_Sem_Mouse.zip](AutoBox_Sem_Mouse.zip), extraia e execute INSTALAR_E_ABRIR.bat. Feche o bot antigo para evitar conflitos de atalhos.

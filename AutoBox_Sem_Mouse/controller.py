@@ -1,6 +1,7 @@
 """Decisoes da coleta; nao depende de imagem, navegador ou mouse do Windows."""
 from dataclasses import dataclass
 from math import hypot, isfinite
+import time
 
 def inside(point, area, margin=0):
     x, y = point
@@ -149,11 +150,14 @@ class DataFarmPlanner:
             self.reset()
             return {"phase":"paused","reason":"Mapa ou renascimento mudou. Plano anterior descartado."}
         self.map_id, self.respawn = map_id, respawn
+        if snapshot.get("dead"):
+            self.reset()
+            return {"phase":"paused","reason":"Nave destruida. Inicie novamente apos recuperar."}
         if snapshot.get("hp_percent") is not None and snapshot["hp_percent"]<=25:
             self.target=None
             return {"phase":"recover","reason":"Vida baixa. Recuperacao automatica ainda nao configurada."}
         position=snapshot["position"]
-        boxes=snapshot.get("candidates",[])
+        boxes=[b for b in snapshot.get("candidates",[]) if b.get("kind") in (None,"box","bonus")]
         if self.target is None:
             if not boxes:
                 return {"phase":"search","reason":"Nenhuma box disponivel nos dados."}
@@ -161,6 +165,7 @@ class DataFarmPlanner:
             self.started=self.last_progress=now
             self.best_distance=float("inf")
             self.baseline=snapshot.get("box_counter")
+            self.last_distance=float("inf")
         current=next((b for b in boxes if self.key(b)==self.key(self.target)),None)
         if current is None:
             counter=snapshot.get("box_counter")
@@ -187,3 +192,44 @@ class DataFarmPlanner:
         if current_distance<=self.arrival_radius:
             return dict(result,phase="collect",reason="Perto do alvo; aguardar coleta e confirmacao.")
         return dict(result,phase="approach",reason="Aproximar da box selecionada; manter o mesmo ID.")
+
+
+class DataCollector:
+    """Executa um alvo por vez pela interface do cliente; nao monta pacotes HTTP."""
+    def __init__(self, session, stop_event, emit, clock=None):
+        self.session=session; self.stop=stop_event; self.emit=emit
+        self.clock=clock or time.monotonic
+        self.planner=DataFarmPlanner(arrival_radius=180)
+
+    def run(self):
+        last_status=None; attempted=None
+        self.emit("running",True)
+        try:
+            while not self.stop.is_set():
+                snapshot=self.session.get_world_snapshot()
+                decision=self.planner.step(snapshot,self.clock())
+                phase=decision["phase"]
+                status=(phase,decision.get("target_id"))
+                if status!=last_status:
+                    self.emit("status",decision["reason"]+(" Alvo: "+decision["target_id"] if decision.get("target_id") else ""))
+                    last_status=status
+                if phase in ("paused","recover","stalled"):
+                    if phase=="stalled": self.emit("failed",None)
+                    break
+                if phase=="confirmed": self.emit("confirmed",None)
+                elif phase=="unconfirmed": self.emit("failed",None)
+                elif phase in ("approach","collect"):
+                    key=(decision["target_id"],decision.get("revision"))
+                    if key!=attempted:
+                        self.emit("attempt",None); attempted=key
+                    if self.stop.is_set(): break
+                    self.session.request("data_target",{
+                        "map":snapshot["map"],"respawn_revision":snapshot.get("respawn_revision"),
+                        "id":decision["target_id"],"revision":decision.get("revision")},
+                        allowed=lambda:not self.stop.is_set())
+                if self.stop.wait(.15): break
+        except Exception as exc:
+            self.emit("status","Coleta por dados pausada: "+str(exc))
+        finally:
+            self.stop.set()
+            self.emit("running",False)

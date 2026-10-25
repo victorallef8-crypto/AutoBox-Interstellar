@@ -12,6 +12,9 @@ from urllib.parse import urlsplit
 HOME_URL = "https://interstellar-verse.com/"
 GAME_URL = "https://interstellar-verse.com/play/#play"
 
+DATA_TARGET_SCRIPT = "(target) => {\n const r=window.PeriodWindows?.renderer, groups=window.DarkOrbitGroups;\n const canvas=document.getElementById('space');\n if(!r || !canvas || typeof r.worldAt!=='function' || typeof r.hitBonusBox!=='function' || typeof groups?.onFollow!=='function')\n   throw Error('Integração do cliente indisponível. Entre no mapa novamente.');\n if(groups.isPingArmed?.()) throw Error('Desative a marcação de grupo antes de coletar.');\n const rect=canvas.getBoundingClientRect(), cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;\n if(rect.width<=0||rect.height<=0) throw Error('Canvas do jogo indisponível.');\n const a=r.worldAt(cx,cy), b=r.worldAt(cx+10,cy), c=r.worldAt(cx,cy+10);\n const xx=(b.x-a.x)/10, xy=(c.x-a.x)/10, yx=(b.y-a.y)/10, yy=(c.y-a.y)/10;\n const det=xx*yy-xy*yx;\n if(![a.x,a.y,xx,xy,yx,yy,det].every(Number.isFinite)||Math.abs(det)<1e-8) throw Error('Projeção do mapa indisponível.');\n const dx=target.x-a.x, dy=target.y-a.y;\n const px=cx+(dx*yy-dy*xy)/det, py=cy+(dy*xx-dx*yx)/det;\n if(!Number.isFinite(px)||!Number.isFinite(py)) throw Error('Projeção inválida.');\n const projected=r.worldAt(px,py);\n if(!projected||!Number.isFinite(projected.x)||!Number.isFinite(projected.y)||Math.hypot(projected.x-target.x,projected.y-target.y)>.5) throw Error('Projeção do cliente mudou. Coleta pausada.');\n for(const [ox,oy] of [[0,0],[0,-4],[0,4],[-4,0],[4,0]]) {\n   const x=px+ox,y=py+oy;\n   if(x<rect.left+2||x>=rect.right-2||y<rect.top+2||y>=rect.bottom-2) continue;\n   const hit=r.hitBonusBox(x,y);\n   if(!hit||hit.id!==target.id||hit.revision!==target.revision||hit.kind==='booty') continue;\n   if(r.hitTarget?.(x,y)||r.hitWorldButton?.(x,y)) continue;\n   if(!target.can_collect) return {action:'wait'};\n   canvas.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,buttons:1,\n       pointerId:9381,pointerType:'mouse',clientX:x,clientY:y}));\n   return {action:'collect',id:hit.id,revision:hit.revision};\n }\n if(!target.can_move) return {action:'wait'};\n groups.onFollow({x:target.x,y:Math.max(0,target.y-120),mapId:target.map});\n return {action:'move',id:target.id,revision:target.revision};\n}"
+
+
 def find_opera_gx():
     for base in (os.environ.get("LOCALAPPDATA"), os.environ.get("PROGRAMFILES"),
                  os.environ.get("PROGRAMFILES(X86)")):
@@ -57,7 +60,7 @@ class WorldFeed:
     ME = {"x","y","speed","hp","maxHp","shield","maxShield","moving","destination",
           "mapId","deadUntil","respawnRevision","targetId","attacking","repairing","inputSeq","achievements"}
     MAP = {"id","width","height","gates"}
-    ENTITY = {"id","revision","x","y","type","hp","maxHp"}
+    ENTITY = {"id","revision","x","y","type","kind","hp","maxHp"}
     def __init__(self, clock=None):
         self.clock = clock or time.monotonic
         self.lock = threading.RLock()
@@ -249,6 +252,7 @@ class WorldFeed:
                 0<=b["y"]<=self.state["map"].get("height",self.state.get("world",{}).get("height",0))]
             result["gates"]=[dict(g) for g in self.state["map"].get("gates",[])]
             result["respawn_revision"]=me.get("respawnRevision")
+            result["dead"]=bool(me.get("deadUntil")) or (self._number(me.get("hp")) and me["hp"]<=0)
             result["destination"]=dict(me["destination"]) if isinstance(me.get("destination"),dict) else None
             result["box_counter"]=me.get("achievements",{}).get("counters",{}).get("bonusboxes")
             return result
@@ -369,6 +373,8 @@ class BrowserSession:
         self.last_click = None
         self.world_feed = WorldFeed()
         self.probe = ManualCollectProbe(self.world_feed)
+        self.data_action = None
+        self.data_actions_dispatched = 0
 
     def start(self, executable):
         if self.thread is not None and self.thread.is_alive():
@@ -378,6 +384,7 @@ class BrowserSession:
         self.capture_geometry = None
         self.capture_page = None
         self.last_click = None
+        self.data_action = None
         self.world_feed.begin(None)
         self.probe = ManualCollectProbe(self.world_feed)
         self.ready.clear()
@@ -520,6 +527,37 @@ class BrowserSession:
             raise ValueError("Nenhum arquivo JavaScript disponivel. Entre no mapa pela janela dedicada.")
         return {"schema":"autobox-client-integration-v1","files":files}
 
+    def _data_target(self, page, target, allowed):
+        snapshot=self.world_feed.navigation_snapshot()
+        if not snapshot.get("fresh") or snapshot.get("dead"):
+            raise ValueError("Leitura indisponivel ou nave destruida. Coleta por dados pausada.")
+        if snapshot.get("hp_percent") is None or snapshot["hp_percent"]<=25:
+            raise ValueError("Vida baixa ou indisponivel. Coleta por dados pausada.")
+        if (target.get("map")!=snapshot["map"] or
+                target.get("respawn_revision")!=snapshot.get("respawn_revision")):
+            raise ValueError("Mapa ou renascimento mudou. Inicie novamente.")
+        box=next((b for b in snapshot["candidates"] if b.get("id")==target.get("id") and
+                  b.get("revision")==target.get("revision")),None)
+        if box is None: return {"action":"gone"}
+        if type(box.get("revision")) is not int or box.get("kind") not in (None,"box","bonus"):
+            raise ValueError("Tipo ou revisao da box nao suportado.")
+        now=time.monotonic(); key=(snapshot["map"],snapshot.get("respawn_revision"),box["id"],box["revision"])
+        previous=self.data_action
+        same=previous and previous["key"]==key
+        elapsed=now-previous["time"] if same else float("inf")
+        collecting=same and previous["action"]=="collect"
+        payload={"map":snapshot["map"],"id":box["id"],"revision":box["revision"],"x":box["x"],"y":box["y"],
+                 "can_collect":not collecting or elapsed>=3,
+                 "can_move":not collecting and (not same or elapsed>=2)}
+        if allowed is not None and not allowed(): return {"action":"cancelled"}
+        result=page.evaluate(DATA_TARGET_SCRIPT,payload)
+        if not isinstance(result,dict) or result.get("action") not in ("move","collect","wait"):
+            raise ValueError("Resposta do cliente inesperada.")
+        if result["action"]!="wait":
+            self.data_actions_dispatched+=1
+            self.data_action={"key":key,"time":now,"action":result["action"]}
+        return result
+
     def _attach_feed(self, context, page):
         try:
             client = context.new_cdp_session(page)
@@ -559,7 +597,10 @@ class BrowserSession:
         return self.probe.arm()
 
     def get_manual_probe_report(self):
-        return self.probe.report()
+        report=self.probe.report()
+        report["automatic_actions_dispatched"]=self.data_actions_dispatched
+        if self.data_actions_dispatched: report["automatic_commands_sent"]=None
+        return report
 
     def _run(self, executable):
         context = None
@@ -611,6 +652,8 @@ class BrowserSession:
                             continue
                         if operation == "screenshot":
                             result = self._capture(page)
+                        elif operation == "data_target":
+                            result = self._data_target(page,payload,allowed)
                         elif operation == "client_sources":
                             result = self._client_sources(page)
                         elif operation == "click":

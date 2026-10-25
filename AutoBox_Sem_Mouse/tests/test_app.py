@@ -55,6 +55,30 @@ class AppTests(unittest.TestCase):
         self.app.start()
         self.assertIn("Abra a sessao dedicada",self.app.status.get())
         self.assertIsNone(self.app.worker)
+    def test_data_start_does_not_require_image_calibration(self):
+        previous=(self.app.worker,self.app.collection_mode.get())
+        self.app.collection_mode.set("Dados do jogo"); self.app.session.ready.set()
+        try:
+            with patch.object(self.app.session,"get_world_snapshot",return_value={"fresh":True,"hp_percent":80}), patch.object(self.module,"DataCollector") as engine, patch.object(self.module.threading,"Thread") as thread:
+                self.app.start()
+                engine.assert_called_once()
+                thread.return_value.start.assert_called_once()
+                self.assertIn("Coleta por dados iniciada",self.app.status.get())
+        finally:
+            self.app.worker=previous[0]; self.app.collection_mode.set(previous[1])
+            self.app.stop_event.set(); self.app.session.ready.clear()
+
+    def test_data_start_requires_live_reading(self):
+        previous=self.app.collection_mode.get()
+        self.app.collection_mode.set("Dados do jogo"); self.app.session.ready.set()
+        try:
+            with patch.object(self.app.session,"get_world_snapshot",return_value={"fresh":False}), patch.object(self.module,"DataCollector") as engine:
+                self.app.start()
+                engine.assert_not_called()
+                self.assertIn("Aguarde a leitura ao vivo",self.app.status.get())
+        finally:
+            self.app.collection_mode.set(previous); self.app.session.ready.clear()
+
     def test_pause_cancels_clicks(self):
         self.app.stop_event.clear(); self.app.pause()
         self.assertTrue(self.app.stop_event.is_set())

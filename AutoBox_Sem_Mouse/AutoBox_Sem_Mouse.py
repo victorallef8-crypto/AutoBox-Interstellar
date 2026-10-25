@@ -16,7 +16,7 @@ from PIL import Image, ImageTk
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
 from collector import Collector
-from controller import inside, detection_area, visible_box, DataFarmPlanner
+from controller import inside, detection_area, visible_box, DataFarmPlanner, DataCollector
 from vision import locate_boxes
 import updater
 
@@ -82,7 +82,8 @@ class AutoBoxSemMouse:
                            ("status","map","position","hp","counts","nearest","distance","sequence")}
         self.world_vars["status"].set("Abra o Opera dedicado e entre no mapa.")
         self.last_world_refresh = -100.
-        self.data_planner = DataFarmPlanner()
+        self.collection_mode = tk.StringVar(value=self.cfg.get("collection_mode","Dados do jogo"))
+        self.data_planner = DataFarmPlanner(arrival_radius=180)
         self.farm_plan = tk.StringVar(value="Aguardando dados para planejar.")
         self.manual_probe_status = tk.StringVar(value="Registre uma coleta manual para validar o comando.")
         root.title("AutoBox Sem Mouse — beta " + updater.CURRENT_VERSION)
@@ -193,7 +194,7 @@ class AutoBoxSemMouse:
             ttk.Label(card,textvariable=self.counter_vars[key],style="Count.TLabel").pack(anchor="w")
         ttk.Label(dashboard,textvariable=self.active_time,style="Muted.TLabel").pack(anchor="w",pady=12)
         shortcuts=ttk.Frame(dashboard); shortcuts.pack(fill="x",pady=(0,12))
-        ttk.Button(shortcuts,text="Configurar coleta",command=lambda:self.notebook.select(self.pages["collection"])).pack(side="left",padx=(0,8))
+        ttk.Button(shortcuts,text="Configurar coleta",command=lambda:self.notebook.select(self.pages["data"])).pack(side="left",padx=(0,8))
         ttk.Button(shortcuts,text="Verificar atualizações deste bot",command=self.check_updates).pack(side="left")
         ttk.Label(dashboard,text="Histórico da sessão",style="Heading.TLabel").pack(anchor="w",pady=(4,8))
         self.log=tk.Text(dashboard,height=8,state="disabled",wrap="word",background="#0b1220",
@@ -205,7 +206,7 @@ class AutoBoxSemMouse:
         self.log.pack(fill="both",expand=True)
 
         collection=self._scroll_page(self.pages["collection"])
-        ttk.Label(collection,text="Preparar a coleta",style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(collection,text="Coleta por imagem (modo anterior)",style="Heading.TLabel").pack(anchor="w")
         ttk.Label(collection,text="Use o zoom desejado no Opera antes de aprender a box. As marcações usam uma imagem congelada.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=(4,12))
         calibrate=ttk.LabelFrame(collection,text="Reconhecimento e áreas",padding=12)
@@ -249,7 +250,7 @@ class AutoBoxSemMouse:
     def _draw_world_page(self):
         body = self._scroll_page(self.pages["data"])
         ttk.Label(body,text="Dados ao vivo do jogo",style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(body,text="Novo motor por ID e coordenadas em validação. O plano abaixo ainda não envia comandos.",
+        ttk.Label(body,text="Coleta por ID e coordenadas. Escolha Dados do jogo e use F8 para iniciar; F9 pausa.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=(4,12))
         group=ttk.LabelFrame(body,text="Estado recebido pela janela dedicada",padding=14)
         group.pack(fill="x")
@@ -261,6 +262,9 @@ class AutoBoxSemMouse:
         group.columnconfigure(1,weight=1)
         plan=ttk.LabelFrame(body,text="Plano do novo motor",padding=12)
         plan.pack(fill="x",pady=10)
+        ttk.Label(plan,text="Modo de coleta (F8)").pack(anchor="w")
+        ttk.Combobox(plan,textvariable=self.collection_mode,state="readonly",
+                     values=("Dados do jogo","Imagem (anterior)")).pack(fill="x",pady=(4,10))
         ttk.Label(plan,textvariable=self.farm_plan,wraplength=650).pack(anchor="w")
         ttk.Button(plan,text="Registrar uma coleta manual (30 segundos)",
                    command=self.record_manual_collect).pack(fill="x",pady=(10,4))
@@ -280,7 +284,7 @@ class AutoBoxSemMouse:
             return
         try:
             self.session.arm_manual_probe()
-            self.say("Coleta visual pausada. Clique manualmente em uma box no jogo e espere coletar.")
+            self.say("Coleta automática pausada. Clique manualmente em uma box no jogo e espere coletar.")
             self.manual_probe_status.set("Registro por 30 segundos. Depois clique em Copiar diagnóstico.")
         except ValueError as exc:
             self.say(str(exc))
@@ -393,6 +397,7 @@ class AutoBoxSemMouse:
             threshold = float(self.threshold.get().replace(",", "."))
             if not .6 <= threshold <= .95:
                 raise ValueError("Use confianca entre 0,60 e 0,95.")
+            self.cfg["collection_mode"] = self.collection_mode.get()
             self.cfg["threshold"] = threshold
             self.cfg["full_map"] = bool(self.full_map.get())
             temporary = CONFIG_PATH.with_suffix(".tmp")
@@ -429,7 +434,7 @@ class AutoBoxSemMouse:
                 if not self.session.ready.wait(65):
                     raise RuntimeError(self.session.error or "Opera GX nao respondeu.")
                 self.events.put(("status", self.session.warning or
-                    "Sessao aberta. Faca login, calibre o mapa, a nave e uma box."))
+                    "Sessao aberta. Entre no mapa e aguarde a leitura na aba Dados."))
             except Exception as exc:
                 self.events.put(("status", str(exc)))
             finally:
@@ -450,6 +455,20 @@ class AutoBoxSemMouse:
             self.say("Abra a sessao dedicada primeiro.")
             return
         if not self.save():
+            return
+        if self.collection_mode.get()=="Dados do jogo":
+            snapshot=self.session.get_world_snapshot()
+            if not snapshot.get("fresh"):
+                self.say("Aguarde a leitura ao vivo na aba Dados antes de iniciar.")
+                return
+            if snapshot.get("hp_percent") is None or snapshot["hp_percent"]<=25 or snapshot.get("dead"):
+                self.say("Recupere a nave antes de iniciar a coleta por dados.")
+                return
+            self.stop_event=threading.Event()
+            engine=DataCollector(self.session,self.stop_event,lambda event,data:self.events.put((event,data)))
+            self.worker=threading.Thread(target=engine.run,daemon=True)
+            self.worker.start()
+            self.say("Coleta por dados iniciada. Mantém o alvo até a coleta; F9 pausa.")
             return
         required = all(valid_area(self.cfg.get(k), self.viewport) for k in ("map","ship"))
         if not required or not MODEL_PATH.is_file():

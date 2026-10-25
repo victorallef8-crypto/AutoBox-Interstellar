@@ -85,6 +85,41 @@ class BrowserSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"Nenhum arquivo JavaScript"):
             self.session.request("client_sources")
 
+    def data_snapshot(self):
+        return {"fresh":True,"map":"m","respawn_revision":5,"hp_percent":80,"dead":False,
+                "candidates":[{"id":"box","revision":63,"x":300,"y":500}]}
+
+    def test_data_action_uses_current_box_coordinates_and_never_windows_mouse(self):
+        self.session.world_feed.navigation_snapshot=Mock(return_value=self.data_snapshot())
+        self.page.evaluate=Mock(return_value={"action":"collect"})
+        result=self.session.request("data_target",{"map":"m","respawn_revision":5,"id":"box","revision":63,"x":999999})
+        self.assertEqual(result["action"],"collect")
+        payload=self.page.evaluate.call_args.args[1]
+        self.assertEqual((payload["x"],payload["y"]),(300,500))
+        self.assertTrue(payload["can_collect"])
+        self.session.request("data_target",{"map":"m","respawn_revision":5,"id":"box","revision":63})
+        payload=self.page.evaluate.call_args.args[1]
+        self.assertFalse(payload["can_collect"])
+        self.assertFalse(payload["can_move"])
+        self.page.mouse.click.assert_not_called()
+
+    def test_stale_dead_low_health_and_changed_life_block_data_actions(self):
+        for field,value in (("fresh",False),("dead",True),("hp_percent",25),("hp_percent",None),("map","other"),("respawn_revision",6)):
+            with self.subTest(field=field,value=value):
+                data=self.data_snapshot(); data[field]=value
+                self.session.world_feed.navigation_snapshot=Mock(return_value=data)
+                self.page.evaluate=Mock()
+                with self.assertRaises(RuntimeError):
+                    self.session.request("data_target",{"map":"m","respawn_revision":5,"id":"box","revision":63})
+                self.page.evaluate.assert_not_called()
+
+    def test_changed_box_revision_and_pause_cancel_data_actions(self):
+        self.session.world_feed.navigation_snapshot=Mock(return_value=self.data_snapshot())
+        self.page.evaluate=Mock()
+        self.assertEqual(self.session.request("data_target",{"map":"m","respawn_revision":5,"id":"box","revision":62})["action"],"gone")
+        self.assertFalse(self.session.request("data_target",{},allowed=lambda:False))
+        self.page.evaluate.assert_not_called()
+
     def test_passive_reader_only_enables_network_events(self):
         self.cdp.send.assert_called_once_with("Network.enable")
         callbacks=dict(call.args for call in self.cdp.on.call_args_list)

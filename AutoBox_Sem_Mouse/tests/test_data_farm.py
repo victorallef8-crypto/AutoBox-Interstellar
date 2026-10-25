@@ -1,7 +1,9 @@
 import json
 import unittest
 from copy import deepcopy
-from controller import DataFarmPlanner
+from controller import DataFarmPlanner, DataCollector
+from unittest.mock import Mock
+import threading
 from browser_session import WorldFeed, ManualCollectProbe
 
 def world():
@@ -62,6 +64,35 @@ class FarmPlannerTests(unittest.TestCase):
         result=self.planner.step(updated,0)
         self.assertEqual(result["phase"],"search")
         self.assertNotIn("destination",result)
+
+class DataCollectorTests(unittest.TestCase):
+    def test_worker_keeps_target_then_confirms_and_selects_next_nearest(self):
+        event=threading.Event(); events=[]
+        first=world(); first["position"]=(130,140)
+        second=deepcopy(first); second["candidates"]=[second["candidates"][0]]; second["box_counter"]=11
+        session=Mock(); session.get_world_snapshot.side_effect=[first,second,second]
+        commands=[]
+        def request(operation,payload,allowed):
+            self.assertTrue(allowed()); commands.append((operation,payload))
+            if len(commands)==2: event.set()
+            return {"action":"collect"}
+        session.request.side_effect=request
+        DataCollector(session,event,lambda *args:events.append(args)).run()
+        self.assertEqual([c[1]["id"] for c in commands],["near","far"])
+        self.assertEqual(sum(e[0]=="confirmed" for e in events),1)
+        self.assertEqual(events[-1],("running",False))
+
+    def test_invalid_feed_and_death_never_send_commands(self):
+        for data in ({"fresh":False},dict(world(),dead=True),dict(world(),hp_percent=20)):
+            session=Mock(); session.get_world_snapshot.return_value=data
+            stop=threading.Event()
+            DataCollector(session,stop,lambda *args:None).run()
+            session.request.assert_not_called()
+            self.assertTrue(stop.is_set())
+
+    def test_booty_is_not_selected(self):
+        data=world(); data["candidates"][1]["kind"]="booty"
+        self.assertEqual(DataFarmPlanner().step(data,0)["target_id"],"far")
 
 class ProbeTests(unittest.TestCase):
     def setUp(self):
