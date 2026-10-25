@@ -1,3 +1,21 @@
+BETA 3.6.1 - ACOMPANHAR O ALVO NO MODO DEDICADO
+
+No modo Interstellar sem mouse, marque agora a AREA DA NAVE, sem boxes.
+Essa referencia e usada para distancias e para impedir cliques sobre a nave.
+Enquanto o box escolhido se move na imagem, o bot revalida e corrige a rota
+para o MESMO alvo a intervalos limitados, sem selecionar outro durante a viagem.
+Maximo de 6 correcoes por tentativa; recompensa confirmada encerra a tentativa.
+
+DIAGNOSTICO: use Ver ponto do ultimo clique na box.
+O bot pausa e abre a imagem que serviu ao clique, com uma cruz vermelha no
+ponto enviado e um retangulo amarelo na area marcada da nave.
+A imagem fica somente na memoria do aplicativo; nao e enviada automaticamente.
+Se ainda passar perto sem coletar, confira se a cruz esta no centro do box
+e envie um print dessa previa para diagnosticar o alinhamento real.
+
+Calibracao e sessao permanecem separadas do modo que usa o mouse do Windows.
+Validacao em testes simulados; falta confirmar a coleta dentro do jogo.
+
 BETA 3.6 - MODO EXPERIMENTAL SEM OCUPAR O MOUSE
 
 No AutoBox principal, clique em Interstellar: testar coleta sem ocupar o mouse.

@@ -11,7 +11,7 @@ source = Path(__file__).resolve().parents[1] / "AutoBox_Interstellar.py"
 tree = ast.parse(source.read_text(encoding="utf-8"))
 app = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "AutoBoxApp")
 methods = [n for n in app.body if isinstance(n, ast.FunctionDef)
-           and n.name in ("_reward_wait", "_recover_collection", "_collect_loop", "_track_box", "_game_click", "_ship_area_valid", "_ship_center", "_box_allowed", "_capture_context")]
+           and n.name in ("_reward_wait", "_recover_collection", "_collect_loop", "_track_box", "_game_click", "_ship_area_valid", "_ship_center", "_box_allowed", "_uses_ship_area", "_capture_context")]
 
 class Clock:
     def __init__(self):

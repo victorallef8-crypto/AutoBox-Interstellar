@@ -315,7 +315,7 @@ class AutoBoxApp:
         self.coordinator = coordinator
         self.settings_path, self.template_path = profile_paths(storage_id or profile_id)
         if coordinator is None:
-            root.title(APP_NAME + " - beta 3.6")
+            root.title(APP_NAME + " - beta 3.6.1")
             root.geometry("640x920")
 
         APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -399,7 +399,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | " + self.profile["label"],
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.6 • Configuracao independente por jogo",
+        ttk.Label(frame, text="Beta 3.6.1 • Configuracao independente por jogo",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -416,7 +416,7 @@ class AutoBoxApp:
         ttk.Label(capture_box, textvariable=self.sample_status).grid(row=1, column=1, sticky="w", padx=(12, 0))
         ttk.Label(capture_box, textvariable=self.safe_status).grid(row=2, column=1, sticky="w", padx=(12, 0))
         ttk.Label(capture_box, textvariable=self.notice_status).grid(row=3, column=1, sticky="w", padx=(12, 0))
-        if self.profile_id == "krypton":
+        if self._uses_ship_area():
             ttk.Button(capture_box, text="Marcar area da nave (sem boxes)",
                        command=lambda: self._capture_selection("ship")).grid(
                 row=4, column=0, sticky="ew", pady=(7, 0))
@@ -749,7 +749,7 @@ class AutoBoxApp:
         if not self.region or not self.template_path.exists():
             messagebox.showinfo("Falta calibrar", "Selecione a area do mapa e aprenda uma box primeiro.")
             return
-        if self.profile_id == "krypton" and not self._ship_area_valid(self.region):
+        if self._uses_ship_area() and not self._ship_area_valid(self.region):
             messagebox.showinfo("Marcar a nave", "Clique em Marcar area da nave e selecione apenas a nave dentro do mapa.")
             return
         if not self.apply_settings():
@@ -950,6 +950,9 @@ class AutoBoxApp:
             pyautogui.mouseUp(button="left")
         return True
 
+    def _uses_ship_area(self):
+        return self.profile_id == "krypton" or getattr(self, "browser_mode", False)
+
     def _ship_area_valid(self, region):
         area = getattr(self, "ship_region", None)
         if not area or not region:
@@ -967,14 +970,14 @@ class AutoBoxApp:
             return False
 
     def _ship_center(self, region):
-        if self.profile_id == "krypton" and self._ship_area_valid(region):
+        if self._uses_ship_area() and self._ship_area_valid(region):
             area = self.ship_region
             return (area["left"] + area["width"] / 2 - region["left"],
                     area["top"] + area["height"] / 2 - region["top"])
         return region["width"] / 2, region["height"] / 2
 
     def _box_allowed(self, point, region):
-        if self.profile_id != "krypton":
+        if not self._uses_ship_area():
             return True
         if not self._ship_area_valid(region):
             return False
@@ -1162,9 +1165,14 @@ class AutoBoxApp:
                                 announced = True
                         # Um destino de tela pode ficar desatualizado enquanto a camera move.
                         # Retenta somente este alvo, ainda visivel e longe da nave.
-                        if (self.profile_id == "krypton" and distance > arrival_radius and
-                                now - last_progress >= 1.0 and now - last_retry >= 1.2 and
-                                retries < 2 and consecutive == 0):
+                        browser_mode = getattr(self, "browser_mode", False)
+                        retry_limit = 6 if browser_mode else 2
+                        reaim_browser = (browser_mode and now - last_retry >= .9 and
+                                         self._box_allowed(tracked, region))
+                        resume_krypton = (self.profile_id == "krypton" and distance > arrival_radius and
+                                          now - last_progress >= 1.0 and now - last_retry >= 1.2)
+                        if ((reaim_browser or resume_krypton) and
+                                retries < retry_limit and consecutive == 0):
                             last_retry = now
                             clicked = self._click_current_box(sct, sample, region, tracked)
                             if clicked is not None:
@@ -1175,7 +1183,7 @@ class AutoBoxApp:
                                 deadline = min(hard_deadline, max(
                                     deadline, last_progress + self.wait_seconds))
                                 self.events.put(("status",
-                                    f"Aproximacao parou. Retomando o mesmo box ({retries}/2)..."))
+                                    f"Atualizando a rota para o mesmo box ({retries}/{retry_limit})..."))
             if departure_deadline is not None and now >= departure_deadline:
                 self.events.put(("status", "Box saiu de vista perto da nave. Procurando a proxima (sem confirmacao)..."))
                 return "unconfirmed"
@@ -1292,7 +1300,7 @@ class AutoBoxApp:
                     boxes = locate_boxes(frame, sample, threshold=self.threshold,
                                    require_bright=self.profile_id == "interstellar")
                     now = time.monotonic()
-                    recent_ttl = 2.5 if self.profile_id == "krypton" else 18.0
+                    recent_ttl = 2.5 if self._uses_ship_area() else 18.0
                     recent = [(x, y, t) for x, y, t in recent if now - t <= recent_ttl]
                     boxes = [(x, y, score) for x, y, score in boxes
                              if self._box_allowed((x, y), region)]
@@ -1329,7 +1337,7 @@ class AutoBoxApp:
                             result = self._reward_wait(sct, click_frame, click_monitor,
                                                        region["left"] + x - click_monitor["left"],
                                                        sample=sample, target=(x, y), region=region)
-                            if self.profile_id == "krypton" and result in ("confirmed", "unconfirmed"):
+                            if self._uses_ship_area() and result in ("confirmed", "unconfirmed"):
                                 # A camera mudou: nao conserva as coordenadas antigas da rota.
                                 recent.clear()
                                 final_target = self.last_tracked_target
@@ -1343,7 +1351,7 @@ class AutoBoxApp:
                                 self.events.put(("status",
                                     f"Tempo esgotado sem confirmacao ({collection_timeouts}/{MAX_COLLECTION_TIMEOUTS}). Procurando outro alvo..."))
                     else:
-                        if self.profile_id == "krypton" and boxes:
+                        if self._uses_ship_area() and boxes:
                             # Ha boxes visiveis, apenas temporariamente filtrados.
                             # Nao interrompe a area com uma nova ordem de minimapa.
                             self._sleep_interruptible(.3)
@@ -1384,7 +1392,7 @@ class AutoBoxWindow:
         self.root = root
         self.apps = {}
         self.active_app = None
-        root.title(APP_NAME + " - beta 3.6")
+        root.title(APP_NAME + " - beta 3.6.1")
         root.geometry("660x" + str(min(970, root.winfo_screenheight() - 90)))
         root.minsize(590, min(780, root.winfo_screenheight() - 90))
         self.background_process = None
@@ -1650,6 +1658,9 @@ class BackgroundApp(AutoBoxApp):
         self.session = BrowserSession(APP_DIR / "profiles" / "interstellar_browser" / "opera_session",
                                       viewport)
         self.installing = False
+        self.last_click_preview = None
+        self.last_browser_frame = None
+        self.aiming_box = False
         canvas = tk.Canvas(root, highlightthickness=0)
         scroll = ttk.Scrollbar(root, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scroll.set)
@@ -1660,7 +1671,7 @@ class BackgroundApp(AutoBoxApp):
         body.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda event: canvas.itemconfigure(item, width=event.width))
         super().__init__(root, parent=body, storage_id="interstellar_browser")
-        root.title("AutoBox - Interstellar sem mouse (teste) - beta 3.6")
+        root.title("AutoBox - Interstellar sem mouse (teste) - beta 3.6.1")
         root.geometry("680x" + str(min(950, root.winfo_screenheight() - 80)))
         self.opera_executable = self.cfg.get("opera_executable", "") or find_opera_gx()
         self.root.after(500, self._monitor_session)
@@ -1676,7 +1687,39 @@ class BackgroundApp(AutoBoxApp):
         ttk.Button(box, text="Abrir Opera GX dedicado", command=self._open_browser).pack(
             fill="x", pady=(8, 3))
         ttk.Button(box, text="Localizar executavel do Opera GX", command=self._choose_opera).pack(fill="x")
+        ttk.Button(box, text="Ver ponto do ultimo clique na box",
+                   command=self._show_last_click).pack(fill="x", pady=(4, 0))
         super()._draw()
+
+    def _show_last_click(self):
+        self.pause()
+        if self.last_click_preview is None:
+            self.status.set("Ainda nao ha clique de box para mostrar.")
+            return
+        frame, x, y = self.last_click_preview
+        image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        original_width, original_height = image.size
+        image.thumbnail((self.root.winfo_screenwidth() - 80, self.root.winfo_screenheight() - 160))
+        scale_x, scale_y = image.width / original_width, image.height / original_height
+        window = tk.Toplevel(self.root)
+        window.title("Ultimo clique: vermelho = ponto enviado; amarelo = nave")
+        ttk.Label(window, text="Coleta pausada. Confira se a cruz vermelha fica no centro do box.",
+                  padding=8).pack()
+        canvas = tk.Canvas(window, width=image.width, height=image.height, highlightthickness=0)
+        canvas.pack()
+        photo = ImageTk.PhotoImage(image)
+        canvas._preview_photo = photo
+        canvas.create_image(0, 0, anchor="nw", image=photo)
+        px, py = x * scale_x, y * scale_y
+        canvas.create_line(px - 14, py, px + 14, py, fill="red", width=2)
+        canvas.create_line(px, py - 14, px, py + 14, fill="red", width=2)
+        canvas.create_oval(px - 7, py - 7, px + 7, py + 7, outline="red", width=2)
+        if self.ship_region:
+            area = self.ship_region
+            canvas.create_rectangle(area["left"] * scale_x, area["top"] * scale_y,
+                                    (area["left"] + area["width"]) * scale_x,
+                                    (area["top"] + area["height"]) * scale_y,
+                                    outline="yellow", width=2)
 
     def _monitor_session(self):
         if self.session.closed.is_set() and self.running:
@@ -1729,16 +1772,27 @@ class BackgroundApp(AutoBoxApp):
         with self.state_lock:
             return self.running and not self.stopped and self.session.ready.is_set()
 
+    def _click_current_box(self, sct, sample, region, target):
+        self.aiming_box = True
+        try:
+            return super()._click_current_box(sct, sample, region, target)
+        finally:
+            self.aiming_box = False
+
     def _game_click(self, x, y, test=False):
         if not self._ready_to_click():
             return False
-        return self.session.request("click", (x, y), allowed=self._ready_to_click)
+        sent = self.session.request("click", (x, y), allowed=self._ready_to_click)
+        if sent and self.aiming_box and self.last_browser_frame is not None:
+            self.last_click_preview = (self.last_browser_frame.copy(), x, y)
+        return sent
 
     def _screen_capture(self, sct):
         data = self.session.request("screenshot")
         image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
         if image is None:
             raise RuntimeError("Nao foi possivel capturar a janela dedicada.")
+        self.last_browser_frame = image.copy()
         height, width = image.shape[:2]
         if (width, height) != (self.session.viewport["width"], self.session.viewport["height"]):
             raise RuntimeError("A imagem do navegador mudou de tamanho. Abra novamente e recalibre.")

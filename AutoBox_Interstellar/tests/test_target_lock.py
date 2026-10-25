@@ -126,7 +126,7 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertTrue(all(call.args[3] == self.target for call in calls))
         statuses = [data for kind, data in self.bot.events.queue if kind == "status"]
-        self.assertTrue(any("Retomando o mesmo box" in status for status in statuses))
+        self.assertTrue(any("Atualizando a rota para o mesmo box" in status for status in statuses))
 
     def test_krypton_keeps_flying_without_repeated_clicks(self):
         self.krypton()
@@ -187,6 +187,40 @@ class TargetTests(unittest.TestCase):
         self.bot._track_box.return_value = None
         self.assertEqual(self.wait(), "unconfirmed")
         self.assertLess(self.clock.now, 1.3)
+
+    def browser(self):
+        self.krypton()
+        self.bot.profile_id = "interstellar"
+        self.bot.browser_mode = True
+
+    def test_browser_corrects_same_box_during_continuous_approach(self):
+        self.browser()
+        self.bot._track_box.side_effect = lambda *args: (
+            (max(550, 900 - self.clock.now * 80), 300) if self.clock.now < 4.6 else None)
+        self.assertEqual(self.wait(), "unconfirmed")
+        calls = self.bot._click_current_box.call_args_list
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertTrue(all(call.args[3][0] < 900 for call in calls))
+        self.assertTrue(all(call.args[3][1] == 300 for call in calls))
+
+    def test_browser_bounds_corrections_without_reward(self):
+        self.browser()
+        self.assertEqual(self.wait(), "timeout")
+        self.assertEqual(self.bot._click_current_box.call_count, 6)
+        self.assertLess(self.clock.now, 13)
+
+    def test_browser_never_redirects_into_marked_ship(self):
+        self.browser()
+        self.target = (500, 300)
+        self.bot._track_box.return_value = self.target
+        self.assertEqual(self.wait(), "timeout")
+        self.bot._click_current_box.assert_not_called()
+
+    def test_browser_lost_target_does_not_trigger_correction(self):
+        self.browser()
+        self.bot._track_box.return_value = None
+        self.assertEqual(self.wait(), "timeout")
+        self.bot._click_current_box.assert_not_called()
 
     def test_tracker_follows_nearest_not_highest_confidence(self):
         del self.bot._track_box

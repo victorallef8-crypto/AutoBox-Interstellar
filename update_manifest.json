@@ -1,6 +1,6 @@
 {
-  "version": "3.6",
+  "version": "3.6.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "fce15b37e0aa1b1caa1168bb032f51098e0d8019b1a8b8b6e6e74744bec50cc4",
-  "notes": "Modo experimental de coleta em sessao separada do Opera GX, com captura e cliques da pagina. Requer login e calibracao proprios; validacao real pendente."
+  "sha256": "ff261a7a57c8935b0752dbf767dadc83b438c45cc746d18f6b6ab411b1a9a374",
+  "notes": "Modo dedicado acompanha o mesmo alvo durante o voo e mostra a previa do clique. Marque a area da nave nesse modo apos atualizar."
 }

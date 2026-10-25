@@ -124,6 +124,8 @@ class BackgroundInputTests(unittest.TestCase):
                      str(source), "exec"), scope)
         self.app = scope["Panel"]()
         self.app.state_lock = threading.Lock()
+        self.app.aiming_box = False
+        self.app.last_browser_frame = None
         self.app.running = True
         self.app.stopped = False
         self.app.session = SimpleNamespace(ready=threading.Event(), request=Mock(return_value=True))
@@ -143,6 +145,21 @@ class BackgroundInputTests(unittest.TestCase):
         self.app.session.ready.clear()
         self.assertFalse(self.app._game_click(10, 20))
         self.app.session.request.assert_not_called()
+
+    def test_preview_records_sent_box_click_only(self):
+        self.app.aiming_box = True
+        frame = Mock()
+        self.app.last_browser_frame = frame
+        self.assertTrue(self.app._game_click(120, 240))
+        self.assertEqual(self.app.last_click_preview, (frame.copy.return_value, 120, 240))
+
+    def test_cancelled_click_does_not_record_preview(self):
+        self.app.aiming_box = True
+        self.app.last_click_preview = None
+        self.app.last_browser_frame = Mock()
+        self.app.session.request.return_value = False
+        self.assertFalse(self.app._game_click(120, 240))
+        self.assertIsNone(self.app.last_click_preview)
 
     def test_background_context_does_not_open_screen_capture(self):
         with self.app._capture_context() as capture:

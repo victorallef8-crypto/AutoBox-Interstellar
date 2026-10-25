@@ -3,6 +3,13 @@
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
+## Beta 3.6.1
+
+- Modo dedicado exige marcar a nave e corrige a rota para o mesmo box durante o voo.
+- Previa local mostra o ponto exato do ultimo clique de box.
+- Correcoes limitadas e interrompidas por recompensa, perda do alvo ou pausa.
+- Coleta real ainda precisa de validacao no jogo.
+
 ## Beta 3.6 — modo de navegador experimental
 
 - Botao para abrir coleta numa sessao separada do Opera GX.
