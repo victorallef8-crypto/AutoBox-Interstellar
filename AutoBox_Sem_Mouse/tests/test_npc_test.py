@@ -116,6 +116,43 @@ class NpcWorkerTests(unittest.TestCase):
         self.assertIn("Recuperada no portal",engine.report["status"])
         self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
 
+
+    def test_failed_stop_at_portal_exits_without_repair_or_new_attack(self):
+        from unittest.mock import patch
+        stop=Stop();session=Session(stop,damage=False);original=session.request
+        def request(op,payload,allowed):
+            if payload["action"]=="stop":
+                session.calls.append((op,dict(payload)))
+                return {"action":"stop_ctrl_sent" if payload["allow_ctrl_stop"] else "stop_unavailable"}
+            if payload["action"]=="retreat":
+                session.calls.append((op,dict(payload)))
+                self.assertFalse(payload["enable_repair"])
+                return {"action":"retreating","gate":"near","distance":0,"repair":"waiting"}
+            result=original(op,payload,allowed)
+            if payload["action"]=="attack": session.state["hp_percent"]=35.9
+            return result
+        session.request=request
+        engine=NpcTestWorker(session,stop,lambda *e:None,clock=lambda:stop.now,repair_portal=True)
+        with patch("controller.time.sleep"):
+            engine.run()
+        self.assertIn("Ataque não parou",engine.report["status"])
+        self.assertFalse(engine.report["stop_confirmed"])
+        self.assertLess(stop.now,20)
+        stops=[p for _,p in session.calls if p["action"]=="stop"]
+        self.assertEqual(sum(p["allow_ctrl_stop"] for p in stops),1)
+        self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
+
+    def test_secondary_volley_does_not_confirm_stopped(self):
+        from unittest.mock import patch
+        stop=Stop();session=Session(stop,damage=False)
+        session.state["combat"]["secondaryVolley"]=True
+        engine=self.engine(session,stop)
+        engine.target=session.state["npc_candidates"][0]
+        engine.context={"map":"3-4","life":1};engine.started=0
+        with patch("controller.time.sleep"):
+            engine.cease_fire()
+        self.assertFalse(engine.report["stop_confirmed"])
+
     def test_missing_repair_confirmation_does_not_toggle_again(self):
         stop=Stop();session=Session(stop,damage=False);original=session.request
         def request(op,payload,allowed):

@@ -1,6 +1,6 @@
 {
-  "version": "0.12.1",
+  "version": "0.12.2",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "6de7ef70f569f7f78b628c21dec0775cf8e1f336e2261238f91a70d3c36e80c6",
-  "notes": "Certificados HTTPS incluídos no executável de usuário; correção da atualização em PCs sem a cadeia de confiança necessária."
+  "sha256": "f64fd480cf5b68a75417b615a9244ee499433dbd5879143698347f7befa983af",
+  "notes": "Corrige ataque preso ao recuperar no portal: parada alternativa controlada, confirmação antes do reparo e interrupção explícita se a parada falhar."
 }

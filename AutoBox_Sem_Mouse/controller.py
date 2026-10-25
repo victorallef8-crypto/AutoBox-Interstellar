@@ -350,19 +350,21 @@ class NpcTestWorker:
         if self.target is None or self.context is None: return
         try:
             payload=dict(self.context,id=self.target["id"],revision=self.target.get("respawnRevision"),
-                         min_hp=self.min_hp,action="stop")
+                         min_hp=self.min_hp,action="stop",allow_ctrl_stop=not getattr(self,"stop_toggle_sent",False))
             before=self.session.get_world_snapshot().get("sequence")
             result=self.session.request("npc_action",payload,allowed=lambda:True)
+            self.report["last_stop_result"]=(result or {}).get("action")
+            if self.report["last_stop_result"] in ("stop_sent","stop_ctrl_sent"): self.stop_toggle_sent=True
             self.report["actions"].append({"seconds":round(self.clock()-self.started,2),"action":"stop","result":(result or {}).get("action")})
             self.report["actions"]=self.report["actions"][-40:]
             if result and result.get("action")=="stopped":
                 self.report["stop_confirmed"]=True; return
-            # Stop is an explicit right-click selection when visible, so it never starts fire.
+            # Prefer explicit deselection; allow one guarded Ctrl fallback per fight, then wait for echo.
             for _ in range(20):
                 snap=self.session.get_world_snapshot()
                 if (snap.get("fresh") and snap.get("map")==self.context["map"] and
                     snap.get("respawn_revision")==self.context["life"] and
-                    snap.get("combat",{}).get("attacking") is False and
+                    snap.get("combat",{}).get("attacking") is False and not snap.get("combat",{}).get("secondaryVolley") and
                     type(before) is int and type(snap.get("sequence")) is int and snap["sequence"]>before):
                     self.report["stop_confirmed"]=True; return
                 time.sleep(.1)
@@ -415,12 +417,15 @@ class NpcTestWorker:
                 self.report["portal_distance"]=result.get("distance")
                 if result.get("repair")=="unavailable": raise ValueError("Equipe uma CPU/robô de reparo no jogo.")
                 if result.get("repair") in ("sent","enabled") and repair_sent is None: repair_sent=now
-                if result.get("distance",99999)<=80 and (snap.get("hp_percent") or 0)>=90:
+                if not firing and result.get("distance",99999)<=80 and (snap.get("hp_percent") or 0)>=90:
                     self.report["recovered"]=True
                     self.publish("Recuperada no portal com pelo menos 90% de vida.")
                     return
+            if firing and stop_attempts>=3 and now-started>=15:
+                raise ValueError("Ataque não parou após 3 tentativas. Farm interrompido; pressione Ctrl no jogo e confira o reparo.")
             if firing and stop_attempts<3:
                 self.cease_fire(); stop_attempts+=1
+                self.report["stop_attempts"]=stop_attempts
             elif not firing:
                 self.report["stop_confirmed"]=True
             self.publish("Indo ao portal; aguardando parada dos tiros." if firing else "Indo ao portal; reparo aguarda as condições de combate do jogo.")
