@@ -19,3 +19,7 @@ Referencia das unidades de coordenadas: [Playwright Mouse](https://playwright.de
 Beta 0.1.3: prioridade ao box mais proximo sem desvio para outro durante reverificacao, rastreamento local com previsao curta de movimento, protecao restrita ao centro da nave e busca estendida para a faixa inferior (opcao ligada por padrao, minimapa excluido). Aproximacao exige desaparecimento a ate 22 pixels da nave, com recuperacao de perdas breves.
 
 Validacao: 64 testes passaram. Na analise local do print fornecido, a area antiga excluia a box inferior; a area estendida a reconheceu com 0.975 de confianca. Isso valida esse caso de imagem; a coleta em movimento ainda precisa de validacao na partida.
+
+Beta 0.1.4: rejeita um candidato quando seu brilho faz parte de um objeto conectado muito maior que o modelo, como a borda do portal. O filtro vale na busca, no rastreamento e no teste de deteccao.
+
+Validacao: o falso positivo da borda no print fornecido foi removido; boxes reais dos prints anteriores foram preservadas. 67 testes passaram, incluindo estrutura grande com brilho que a versao anterior aceitava com 0.998 de correlacao e uma box isolada ao lado da estrutura. A coleta em movimento ainda depende de validacao no jogo.

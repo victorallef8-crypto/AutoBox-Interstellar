@@ -51,11 +51,27 @@ def locate_boxes(frame_bgr: np.ndarray, sample_bgr: np.ndarray,
             patch = frame_bgr[max(0, cy - 4): min(height, cy + 5),
                               max(0, cx - 4): min(width, cx + 5)]
             if patch.size and (not require_bright or int(np.max(np.min(patch, axis=2))) >= 120):
-                proposals.append((cx, cy, float(scores[y, x])))
+                proposals.append((cx, cy, float(scores[y, x]), sw, sh))
 
+    # Um brilho que faz parte de uma estrutura grande (portal/nave/painel)
+    # nao pode ser aceito so porque um recorte pequeno lembra a box.
+    context = (frame_gray >= 35).astype(np.uint8)
+    context = cv2.morphologyEx(context, cv2.MORPH_CLOSE, np.ones((3,3),np.uint8))
+    _, context_labels, context_stats, _ = cv2.connectedComponentsWithStats(context)
     proposals.sort(key=lambda p: p[2], reverse=True)
     output: list[tuple[int, int, float]] = []
-    for x, y, confidence in proposals:
+    for x, y, confidence, sw, sh in proposals:
+        patch = frame_gray[max(0,y-3):min(height,y+4), max(0,x-3):min(width,x+4)]
+        if not patch.size:
+            continue
+        py, px = np.unravel_index(int(patch.argmax()), patch.shape)
+        label = context_labels[max(0,y-3)+py, max(0,x-3)+px]
+        if label == 0:
+            continue
+        bx, by, bw, bh, area = context_stats[label]
+        if (bw > max(24, 3*sw) or bh > max(24, 3*sh) or area > 4*sw*sh
+                or bx == 0 or by == 0 or bx+bw >= width or by+bh >= height):
+            continue
         if all((x - ox) ** 2 + (y - oy) ** 2 >= 24 ** 2 for ox, oy, _ in output):
             output.append((x, y, confidence))
         if len(output) >= 40:
