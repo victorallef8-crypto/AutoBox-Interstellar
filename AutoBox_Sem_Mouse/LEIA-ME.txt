@@ -1,0 +1,49 @@
+AUTOBOX SEM MOUSE — BETA 0.1.0
+
+Programa novo e independente, exclusivo de coleta no Interstellar.
+Nao importa nem executa o AutoBox antigo. Nao tem Krypton ou combate a NPC.
+
+INSTALAR
+1. Feche o AutoBox antigo para evitar conflito dos atalhos F8/F9/F10.
+2. Extraia a pasta AutoBox_Sem_Mouse e execute INSTALAR_E_ABRIR.bat.
+3. E necessario Python 3.11+ instalado. As dependencias ficam na .venv desta pasta.
+
+PREPARAR
+1. Clique em Abrir Opera GX e entrar no jogo.
+2. Se nao localizar o navegador, selecione opera.exe ou launcher.exe do Opera GX.
+3. Faca o login manualmente nessa sessao separada.
+4. Marque o mapa, aprenda uma box clicando precisamente no centro e marque apenas a nave.
+5. Marque opcionalmente a zona segura NO MINIMAPA para patrulhar e as mensagens de recompensa.
+6. F8 inicia; F9 pausa; F10 para. Pode usar outra janela do computador.
+
+No primeiro teste, mantenha o Opera dedicado aberto, mesmo atras de outras janelas.
+Navegador minimizado e computador bloqueado ainda nao foram validados.
+
+COMO COLETA
+- Escolhe o alvo detectado mais perto da nave marcada.
+- Mantem um unico alvo durante a aproximacao.
+- Recaptura a posicao antes de clicar, com ate seis correcoes por tentativa.
+- Cliques nao sao considerados prova de progresso.
+- Recompensa nova confirma coleta; desaparecimento perto da nave apenas libera nova busca.
+- Ha limite de tempo e parada quando o navegador falha ou surge aviso visual de perigo/morte.
+- O historico e a previa mostram o que o bot tentou fazer.
+
+DIAGNOSTICO
+Use Ver imagem e ponto do ultimo clique. A coleta pausa e a cruz vermelha
+mostra o ponto enviado ao navegador. Confira se esta no centro do box.
+A previa fica na memoria local; nao e enviada automaticamente.
+
+ARQUIVOS
+Configuracoes e modelo: pasta AutoBoxSemMouse em APPDATA.
+Perfil do navegador: subpasta opera_session dessa mesma pasta.
+Nao copia a sessao pessoal do Opera nem importa calibracoes do bot antigo.
+
+ATUALIZACOES
+Este bot tem manifesto e pacote proprios no GitHub.
+Use Verificar atualizacoes deste bot nas proximas versoes.
+O atualizador verifica SHA-256 e substitui somente os arquivos conhecidos.
+
+ESTADO DESTA BETA
+Testes de logica, interface e navegador simulado foram executados.
+A coleta real dentro do jogo ainda depende de validacao.
+Nao ha garantia contra banimento. Nenhum mecanismo de ocultacao de automacao foi adicionado.

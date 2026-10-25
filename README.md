@@ -1,3 +1,7 @@
+# Novo bot independente: AutoBox Sem Mouse
+
+A versão exclusiva de coleta sem ocupar o cursor está em [AutoBox_Sem_Mouse](AutoBox_Sem_Mouse/README.md), com pacote e atualizador próprios. O aplicativo anterior continua abaixo.
+
 # AutoBox - Interstellar e Krypton
 
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
