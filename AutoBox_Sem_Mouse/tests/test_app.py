@@ -161,4 +161,56 @@ class AppTests(unittest.TestCase):
         self.assertIn("Abra o Opera",self.app.world_vars["status"].get())
         self.app.last_world_refresh=previous
 
+
+    def test_npc_and_collection_controls_have_independent_stop_events(self):
+        app=self.app
+        old=app.npc_state
+        try:
+            app.stop_event.clear(); app.npc_stop_event.clear(); app.npc_state="running"
+            app.pause_npc()
+            self.assertTrue(app.npc_stop_event.is_set())
+            self.assertFalse(app.stop_event.is_set())
+            self.assertEqual(app.npc_state,"paused")
+            app.npc_stop_event.clear()
+            app.pause()
+            self.assertTrue(app.stop_event.is_set())
+            self.assertFalse(app.npc_stop_event.is_set())
+            app.stop_all()
+            self.assertTrue(app.npc_stop_event.is_set())
+            self.assertEqual(app.npc_state,"stopped")
+        finally:
+            app.stop_event.set(); app.npc_stop_event.set(); app.npc_state=old
+
+    def test_collection_and_trip_cannot_start_during_combat(self):
+        with patch.object(self.app,"npc_active",return_value=True), patch.object(self.module,"DataCollector") as collector, patch.object(self.module,"TravelWorker") as travel:
+            self.app.start()
+            self.app.start_trip("3-2")
+            collector.assert_not_called()
+            travel.assert_not_called()
+
+    def test_npc_start_uses_own_worker_and_resume_preserves_kills(self):
+        app=self.app
+        previous=(app.npc_worker,app.npc_engine,app.npc_state,app.worker)
+        app.session.ready.set()
+        app.npc_worker=None
+        app.npc_engine=types.SimpleNamespace(kills=7)
+        app.npc_state="paused"
+        try:
+            with patch.object(app.session,"get_world_snapshot",return_value={"fresh":True,"hp_percent":100}), patch.object(self.module,"NpcFarmWorker") as engine, patch.object(self.module.threading,"Thread") as thread:
+                app.start_npc_test()
+                self.assertIs(app.worker,previous[3])
+                self.assertIs(engine.call_args.args[1],app.npc_stop_event)
+                self.assertIsNot(app.stop_event,app.npc_stop_event)
+                self.assertEqual(engine.return_value.kills,7)
+                thread.return_value.start.assert_called_once()
+                app.npc_worker=None
+                app.stop_npc()
+                app.start_npc_test()
+                self.assertEqual(engine.return_value.kills,0)
+        finally:
+            app.npc_stop_event.set()
+            app.npc_worker,app.npc_engine,app.npc_state,app.worker=previous
+            app.session.ready.clear()
+
 if __name__=="__main__": unittest.main()
+

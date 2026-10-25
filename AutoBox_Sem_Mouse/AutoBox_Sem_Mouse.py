@@ -44,6 +44,13 @@ class AutoBoxSemMouse:
         self.stop_event = threading.Event()
         self.stop_event.set()
         self.worker = None
+        self.npc_worker = None
+        self.npc_engine = None
+        self.npc_stop_event = threading.Event()
+        self.npc_stop_event.set()
+        self.npc_state = "stopped"
+        self.npc_generation = 0
+        self.npc_summary = tk.StringVar(value="Parado | NPCs derrotados: 0")
         self.opening = False
         self.closing = False
         self.attempts = self.confirmed = self.failed = 0
@@ -308,6 +315,11 @@ class AutoBoxSemMouse:
         body=self._scroll_page(self.pages["combat"])
         ttk.Label(body,text="Kill NPC — farm contínuo",style="Heading.TLabel").pack(anchor="w",pady=(0,8))
         ttk.Label(body,textvariable=self.combat_status,wraplength=680).pack(anchor="w",pady=(0,10))
+        controls=ttk.Frame(body)
+        controls.pack(fill="x",pady=8)
+        for text,command in (("Iniciar NPC",self.start_npc_test),("Pausar NPC",self.pause_npc),("Parar NPC",self.stop_npc)):
+            ttk.Button(controls,text=text,command=command).pack(side="left",expand=True,fill="x",padx=3)
+        ttk.Label(body,textvariable=self.npc_summary).pack(anchor="w",pady=4)
         self._map_controls(body,self.npc_map,"NPC")
         test=ttk.LabelFrame(body,text="Farm de NPCs",padding=10)
         test.pack(fill="x",pady=6)
@@ -326,10 +338,8 @@ class AutoBoxSemMouse:
         ttk.Combobox(test,textvariable=self.npc_ammo,state="readonly",values=("lcb10","mcb25","mcb50","ucb100","sab50","rsb75")).grid(row=6,column=1,sticky="w")
         ttk.Label(test,text="Míssil (none = desativado)").grid(row=7,column=0,sticky="w")
         ttk.Combobox(test,textvariable=self.npc_rocket,state="readonly",values=("none","r310","plt2026","plt2021","plt3030")).grid(row=7,column=1,sticky="w")
-        ttk.Button(test,text="Iniciar farm de NPCs",command=self.start_npc_test,style="Start.TButton").grid(
-            row=8,column=0,columnspan=2,sticky="ew",pady=8)
-        ttk.Label(test,text="Comece com pelo menos 80% de vida e estoque das munições escolhidas. Laser sem confirmação de seleção encerra o teste; míssil vazio não é comprado. "
-            "F9/F10 interrompem o teste. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal; após recuperar 90% de vida, o farm retoma.",
+        ttk.Label(test,text="Comece com pelo menos 80% de vida e estoque das munições escolhidas. Laser sem confirmação de seleção encerra o farm; míssil vazio não é comprado. "
+            "F9/F10 interrompem todos os modos. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal; após recuperar 90% de vida, o farm retoma.",
             wraplength=680,style="Muted.TLabel").grid(row=9,column=0,columnspan=2,sticky="w")
         ttk.Label(body,text="NPCs presentes no mapa",style="Heading.TLabel").pack(anchor="w",pady=6)
         self.npc_table=ttk.Treeview(body,columns=("kind","hp","distance"),show="headings",height=5)
@@ -359,25 +369,61 @@ class AutoBoxSemMouse:
             ttk.Checkbutton(self.npc_choices,text=kind,variable=var).grid(row=index//3,column=index%3,sticky="w",padx=5,pady=2)
 
     def start_npc_test(self):
+        if self.closing: return
+        if self.npc_active():
+            self.combat_status.set("Farm em execução ou encerrando o ataque. Aguarde antes de iniciar novamente.")
+            return
         if not self.save(): return
         if not self.session.ready.is_set():
-            self.say("Abra o jogo e entre no mapa antes do teste."); return
+            self.say("Abra o jogo e entre no mapa antes do farm."); return
         if self.worker is not None and self.worker.is_alive():
-            self.say("Pause a coleta ou viagem com F9 antes do teste de NPC."); return
+            self.say("Pause a coleta ou viagem com F9 antes de iniciar o farm de NPC."); return
         snapshot=self.session.get_world_snapshot()
         if not snapshot.get("fresh") or snapshot.get("dead"):
             self.say("Aguarde dados ao vivo com a nave viva."); return
         if snapshot.get("hp_percent") is None or snapshot["hp_percent"]<80:
-            self.say("Recupere a vida para pelo menos 80% antes do teste."); return
-        self.session.combat_probe.stop("Registro manual encerrado para teste automático.")
+            self.say("Recupere a vida para pelo menos 80% antes do farm."); return
+        self.session.combat_probe.stop("Registro manual encerrado para farm automático.")
         self.last_npc_report=None
-        self.stop_event=threading.Event()
-        engine=NpcFarmWorker(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
+        previous_kills=self.npc_engine.kills if self.npc_state=="paused" and self.npc_engine else 0
+        self.npc_generation+=1
+        generation=self.npc_generation
+        self.npc_stop_event=threading.Event()
+        engine=NpcFarmWorker(self.session,self.npc_stop_event,lambda event,data:self.events.put(("npc_event",(generation,event,data))),
             kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get())
-        self.worker=threading.Thread(target=engine.run,daemon=True)
-        self.worker.start()
+        engine.kills=previous_kills
+        self.npc_engine=engine
+        self.npc_state="running"
+        self.npc_worker=threading.Thread(target=engine.run,daemon=True)
+        self.npc_worker.start()
+        self.combat_status.set("Farm contínuo iniciado: procura o próximo NPC marcado após cada derrota.")
+
+    def npc_active(self):
+        return self.npc_worker is not None and self.npc_worker.is_alive()
+
+    def pause_npc(self):
+        self.npc_stop_event.set()
+        if self.npc_state!="stopped": self.npc_state="paused"
+        self.combat_status.set("NPC pausado. Aguarde encerrar os tiros; Iniciar NPC retoma a busca e mantém o contador.")
+
+    def stop_npc(self):
+        self.npc_stop_event.set()
+        self.npc_state="stopped"
+        self.combat_status.set("NPC parado. Aguarde encerrar os tiros; o próximo início abre uma nova sessão.")
+
+    def pause_all(self):
+        self.pause()
+        self.pause_npc()
+
+    def stop_all(self):
+        self.stop()
+        self.stop_npc()
 
     def record_combat(self):
+        self.npc_stop_event.set()
+        if self.npc_active():
+            self.root.after(100,self.record_combat)
+            return
         self.stop_event.set()
         if self.worker is not None and self.worker.is_alive():
             self.root.after(100,self.record_combat)
@@ -402,6 +448,9 @@ class AutoBoxSemMouse:
         self.say("Diagnóstico da luta copiado. Cole no chat para validar o combate.")
 
     def start_trip(self,destination):
+        if self.npc_active():
+            self.say("Pause o farm na aba Kill NPC antes de iniciar uma viagem manual.")
+            return
         destination=destination.strip()
         if not destination:
             self.say("Informe o mapa de destino para viajar.")
@@ -421,6 +470,10 @@ class AutoBoxSemMouse:
         self.worker.start()
 
     def record_manual_collect(self):
+        self.npc_stop_event.set()
+        if self.npc_active():
+            self.root.after(100,self.record_manual_collect)
+            return
         self.stop_event.set()
         if self.worker is not None and self.worker.is_alive():
             self.root.after(100,self.record_manual_collect)
@@ -433,6 +486,10 @@ class AutoBoxSemMouse:
             self.say(str(exc))
 
     def export_client_integration(self):
+        self.npc_stop_event.set()
+        if self.npc_active():
+            self.root.after(100,self.export_client_integration)
+            return
         self.stop_event.set()
         if self.worker is not None and self.worker.is_alive():
             self.root.after(100,self.export_client_integration)
@@ -549,6 +606,13 @@ class AutoBoxSemMouse:
         self.active_time.set("Tempo em coleta: %02d:%02d:%02d" % (seconds//3600,seconds//60%60,seconds%60))
         self.session_label.set("Opera conectado" if self.session.ready.is_set() else "Opera desconectado")
         self.running_label.set("Coletando boxes" if self.running and not self.stop_event.is_set() else "Coleta pausada")
+        active=self.npc_active()
+        label={"running":"Farmando", "paused":"Pausado", "stopped":"Parado"}[self.npc_state]
+        if active and self.npc_stop_event.is_set(): label="Encerrando ataque"
+        kills=self.npc_engine.kills if self.npc_engine else 0
+        self.npc_summary.set(label+" | NPCs derrotados: "+str(kills))
+        if active: self.running_label.set("Kill NPC — "+label)
+
 
     def _bind_keys(self):
         def pressed(key):
@@ -638,6 +702,9 @@ class AutoBoxSemMouse:
 
 
     def start(self):
+        if self.npc_active():
+            self.say("Pause ou pare o farm na aba Kill NPC antes de iniciar a coleta.")
+            return
         if self.closing:
             return
         if self.worker is not None and self.worker.is_alive():
@@ -698,6 +765,7 @@ class AutoBoxSemMouse:
 
     def _download(self, manifest):
         self.stop_event.set()
+        self.npc_stop_event.set()
         self.say("Baixando e verificando a atualizacao...")
         def download():
             try:
@@ -715,7 +783,18 @@ class AutoBoxSemMouse:
             except queue.Empty:
                 break
             if event=="command":
-                {"start":self.start,"pause":self.pause,"stop":self.stop}[data]()
+                {"start":self.start,"pause":self.pause_all,"stop":self.stop_all}[data]()
+            elif event=="npc_event":
+                generation,kind,value=data
+                if generation!=self.npc_generation: continue
+                if kind=="npc_report":
+                    self.last_npc_report=value
+                    if self.npc_state=="running": self.combat_status.set(value["status"])
+                elif kind=="status":
+                    if self.npc_state=="running": self.combat_status.set(value)
+                    self.say(value)
+                elif kind=="running" and not value and self.npc_state=="running":
+                    self.npc_state="stopped"
             elif event=="npc_report":
                 self.last_npc_report=data
                 self.combat_status.set(data["status"])
@@ -745,11 +824,14 @@ class AutoBoxSemMouse:
             return
         self.closing=True
         self.stop_event.set()
+        self.npc_stop_event.set()
         self.listener.stop()
         self.say("Encerrando a sessao dedicada...")
         done=threading.Event()
         def shutdown():
             try:
+                if self.npc_worker is not None:
+                    self.npc_worker.join(timeout=5)
                 self.session.close()
             finally:
                 done.set()

@@ -97,3 +97,7 @@ Beta 0.11.1: lasers LCB-10, MCB-25, MCB-50, UCB-100, SAB-50 e RSB-75. Mísseis R
 Beta 0.11.1: farm contínuo. Exige 80% de vida para iniciar; entre lutas prossegue acima do limite de vida configurado. Ao atingir o limite, recupera se habilitado; sem recuperação, encerra. Após recuperar 90%, procura novo alvo marcado. Sem NPC presente, aguarda. Erros, leitura perdida, morte ou derrota sem confirmação encerram o ciclo. Nenhum renascimento automático de combate.
 
 Beta 0.11.1: farm permite até 15 minutos por luta, mantendo verificações de vida e falta de progresso. Perseguição atualiza destino mais cedo e aproxima o ponto de destino para compensar o atraso ao seguir NPC móvel.
+
+
+Beta 0.12.0 — controles independentes de Kill NPC
+Na aba Kill NPC, Iniciar NPC mantém o farm contínuo dos tipos marcados. Pausar NPC encerra os tiros e permite retomar com o contador preservado; Parar NPC encerra a sessão e o próximo início zera o contador. Aguarde o ataque terminar antes de reiniciar. Os botões de coleta controlam somente a coleta; F9/F10 interrompem ambos os modos. Coleta e combate não rodam simultaneamente na mesma nave. Falhas de leitura, morte, limite de vida sem recuperação e falta de progresso ainda interrompem o combate.
