@@ -1,3 +1,10 @@
+BETA 3.3.2 - CLIQUE DURANTE O VOO
+
+Corrige a restricao da 3.3.1 que esperava o box ficar quase parado na tela.
+Agora acompanha o deslocamento entre capturas e clica na posicao mais recente,
+sem ficar apenas com o cursor em cima do box.
+Validacao com testes simulados; falta confirmar dentro do jogo.
+
 CORRECAO BETA 3.3.1
 
 Antes de clicar, o bot captura novamente uma area proxima do alvo.

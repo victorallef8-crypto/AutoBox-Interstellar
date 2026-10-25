@@ -47,14 +47,22 @@ class ClickTests(unittest.TestCase):
         # Local crop starts at (140, 140). Old target is (200, 200).
         self.detector.side_effect = [[(70, 60, .95)], [(72, 61, .96)]]
         result = self.click()
-        self.mouse.moveTo.assert_called_once_with(310, 400, duration=0)
+        self.mouse.moveTo.assert_not_called()
         self.mouse.click.assert_called_once_with(312, 401)
         self.assertEqual(result[:3], (212, 201, .96))
         self.assertIs(result[3], self.frame)
         self.assertIs(result[4], self.monitor)
 
-    def test_moving_box_is_not_clicked(self):
-        self.detector.side_effect = [[(60, 60, .95)], [(70, 60, .95)]]
+    def test_moving_box_is_clicked_at_latest_position(self):
+        self.detector.side_effect = [[(60, 60, .95)], [(80, 70, .95)]]
+        result = self.click()
+        self.mouse.click.assert_called_once_with(320, 410)
+        self.mouse.moveTo.assert_not_called()
+        self.assertEqual(self.now, 0)
+        self.assertEqual(result[:2], (220, 210))
+
+    def test_target_jump_beyond_tracking_radius_is_not_clicked(self):
+        self.detector.side_effect = [[(60, 60, .95)], [(110, 60, .95)]]
         self.assertIsNone(self.click())
         self.mouse.click.assert_not_called()
 
@@ -69,11 +77,11 @@ class ClickTests(unittest.TestCase):
         self.mouse.moveTo.assert_not_called()
         self.mouse.click.assert_not_called()
 
-    def test_pause_after_mouse_move_blocks_click(self):
-        self.detector.return_value = [(60, 60, .95)]
-        def pause(seconds):
+    def test_pause_after_first_capture_blocks_click(self):
+        def matches(*args, **kwargs):
             self.active = False
-        self.bot._sleep_interruptible = pause
+            return [(60, 60, .95)]
+        self.detector.side_effect = matches
         self.assertIsNone(self.click())
         self.mouse.click.assert_not_called()
 

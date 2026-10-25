@@ -3,6 +3,12 @@
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
+## Beta 3.3.2
+
+- Corrige a espera por estabilidade que impedia cliques durante o voo.
+- Clica na posicao atualizada sem mover o cursor e aguardar antes.
+- Mantem o descarte de alvos desaparecidos ou com deslocamento excessivo.
+
 ## Beta 3.3.1
 
 - Revalida a posicao do box em capturas recentes antes do clique.

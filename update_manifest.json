@@ -1,6 +1,6 @@
 {
-  "version": "3.3.1",
+  "version": "3.3.2",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "4482634b014e774c378f0b5c3903735db2623bfd7ee191954eae22dfebb0fe3e",
-  "notes": "Confere a posicao do box antes de clicar, detecta boxes durante a ronda e recupera tentativas sem confirmacao."
+  "sha256": "957c9e89745f5dd5dc4dbce826337ddfd49e24a88bf41ae0b22b535859c411f5",
+  "notes": "Corrige a espera por estabilidade que impedia clicar nos boxes durante o voo da nave."
 }

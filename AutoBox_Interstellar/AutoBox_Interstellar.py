@@ -231,7 +231,7 @@ def repair_click_points(panel: tuple[int, int, int, int],
 class AutoBoxApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title(APP_NAME + " - beta 3.3.1")
+        root.title(APP_NAME + " - beta 3.3.2")
         root.geometry("600x885")
         root.minsize(545, 735)
 
@@ -300,7 +300,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | Interstellar Verse",
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.3.1 • Posicao do box conferida antes do clique",
+        ttk.Label(frame, text="Beta 3.3.2 • Posicao do box conferida antes do clique",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -717,12 +717,11 @@ class AutoBoxApp:
         if first is None:
             return None
         (x, y, _), _, _ = first
-        # Posiciona o cursor ANTES da ultima captura: mover o mouse tambem leva tempo.
-        pyautogui.moveTo(region["left"] + x, region["top"] + y, duration=0)
-        self._sleep_interruptible(.08)
+        # O cenario se desloca durante o voo. Reencontra e clica no alvo atual,
+        # sem mover o cursor antes nem exigir que o box pare na tela.
         if not self._ready_to_click() or self.region != region:
             return None
-        current = near_target((x, y), 4)
+        current = near_target((x, y), 35)
         if current is None:
             self.events.put(("status", "Box mudou de posicao. Atualizando o alvo antes de clicar..."))
             return None
