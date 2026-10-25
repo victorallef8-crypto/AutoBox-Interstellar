@@ -279,6 +279,25 @@ class ManualCollectProbe:
             self.status="Gravando por 30 segundos. Clique manualmente em uma box e espere coletar."
             return True
 
+    @classmethod
+    def _collect_detail(cls, value, ids, depth=0, numeric=True):
+        if depth>4: return {"type":"depth-limit"}
+        if value is None or isinstance(value,bool): return value
+        if WorldFeed._number(value):
+            return value if numeric else {"type":"number","value_omitted":True}
+        if isinstance(value,str):
+            return {"box_id":value} if value in ids else {"type":"string","value_omitted":True}
+        if isinstance(value,list):
+            return {"type":"array","length":len(value),
+                    "items":[cls._collect_detail(v,ids,depth+1,numeric) for v in value[:8]]}
+        if isinstance(value,dict):
+            allowed={"id","boxId","targetId","revision","boxRevision","x","y","position","destination","box"}
+            return {"type":"object","fields":list(value)[:16],
+                    "values":{k:cls._collect_detail(v,ids,depth+1,k in {"revision","boxRevision","x","y"})
+                              for k,v in list(value.items())[:16] if k in allowed},
+                    "omitted_fields":sum(k not in allowed for k in value)}
+        return {"type":"unsupported"}
+
     def observe(self, text):
         try:
             if not isinstance(text,str) or len(text)>200000: return
@@ -308,6 +327,8 @@ class ManualCollectProbe:
                         close=min(boxes,key=lambda b:math.hypot(b.get("x",1e30)-dest["x"],b.get("y",1e30)-dest["y"]),default=None)
                         if close and math.hypot(close["x"]-dest["x"],close["y"]-dest["y"])<=50:
                             sample["near_box_id"]=close["id"]
+                    if "collect" in cmd:
+                        sample["collect"]=self._collect_detail(cmd["collect"],ids)
                     sample["box_references"]={k:v for k,v in cmd.items() if isinstance(v,str) and v in ids}
                     self.samples=(self.samples+[sample])[-8:]
                 if self.samples: self.status="Comando observado. Espere a coleta e copie o diagnostico."

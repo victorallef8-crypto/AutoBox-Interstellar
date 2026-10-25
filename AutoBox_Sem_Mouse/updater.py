@@ -20,7 +20,7 @@ import zipfile
 from pathlib import Path
 
 
-CURRENT_VERSION = "0.4.3"
+CURRENT_VERSION = "0.4.4"
 OWNER_REPO = "victorallef8-crypto/AutoBox-Interstellar"
 REPO_RAW_PREFIX = (
     "https://raw.githubusercontent.com/"
@@ -67,13 +67,17 @@ def _read_url(url: str, max_bytes: int) -> bytes:
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             raise ValueError("Redirecionamento nao autorizado")
 
+    verified = _verified_repo_url(url)
+    request_url = verified + "?autobox_check=" + str(time.time_ns())
     req = urllib.request.Request(
-        _verified_repo_url(url),
-        headers={"User-Agent": "AutoBox-Interstellar-Updater/0.1.0"},
+        request_url,
+        headers={"User-Agent": "AutoBox-Interstellar-Updater/0.1.0",
+                 "Cache-Control":"no-cache", "Pragma":"no-cache"},
     )
     with urllib.request.build_opener(BlockRedirects).open(req, timeout=15) as response:
         final_url = response.geturl()
-        _verified_repo_url(final_url)  # nao segue redirects para outros sites
+        if final_url != request_url:
+            raise ValueError("Endereco de resposta nao autorizado")
         output = response.read(max_bytes + 1)
     if len(output) > max_bytes:
         raise ValueError("Arquivo de atualizacao maior que o permitido")

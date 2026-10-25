@@ -105,6 +105,24 @@ class ProbeTests(unittest.TestCase):
         self.assertNotIn("secret-value",json.dumps(report))
         self.assertNotIn("secret-channel",json.dumps(report))
         self.assertEqual(report["automatic_commands_sent"],0)
+    def test_collect_payload_boolean_and_nested_box_reference_are_visible(self):
+        self.probe.arm(); self.post(collect=True)
+        self.post(seq=12,collect={"boxId":"near","revision":2,"token":"private-token","account":12345})
+        commands=self.probe.report()["commands"]
+        self.assertIs(commands[0]["collect"],True)
+        detail=commands[1]["collect"]
+        self.assertEqual(detail["values"]["boxId"],{"box_id":"near"})
+        self.assertEqual(detail["values"]["revision"],2)
+        self.assertEqual(detail["omitted_fields"],2)
+        self.assertNotIn("private-token",json.dumps(commands))
+        self.assertNotIn("12345",json.dumps(commands))
+
+    def test_collect_unknown_string_is_not_copied(self):
+        self.probe.arm(); self.post(collect="private-unknown")
+        detail=self.probe.report()["commands"][0]["collect"]
+        self.assertEqual(detail,{"type":"string","value_omitted":True})
+        self.assertNotIn("private-unknown",json.dumps(self.probe.report()))
+
     def test_cumulative_backlog_is_ignored_and_duplicates_not_added(self):
         self.probe.arm(); self.post(seq=10); self.post(); self.post()
         self.assertEqual(len(self.probe.report()["commands"]),1)
