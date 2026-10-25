@@ -12,7 +12,7 @@ from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
-from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker, NpcTestWorker
+from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker, NpcTestWorker, NpcFarmWorker
 import updater
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxSemMouse"
@@ -73,7 +73,7 @@ class AutoBoxSemMouse:
         self.npc_repair=tk.BooleanVar(value=self.cfg.get("npc_repair",False))
         self.npc_portal_fight=tk.BooleanVar(value=self.cfg.get("npc_portal_fight",False))
         self.last_npc_report=None
-        self.combat_status=tk.StringVar(value="Teste automático: um NPC por execução, usando as munições escolhidas.")
+        self.combat_status=tk.StringVar(value="Farm contínuo: alvos marcados, munições escolhidas e recuperação por vida.")
         self.combat_report_status=tk.StringVar(value="Registro ainda não iniciado.")
         self.map_boxes=[]
         self.green = tk.BooleanVar(value=self.cfg.get("green",False))
@@ -306,10 +306,10 @@ class AutoBoxSemMouse:
 
     def _draw_combat_page(self):
         body=self._scroll_page(self.pages["combat"])
-        ttk.Label(body,text="Kill NPC — teste de uma luta",style="Heading.TLabel").pack(anchor="w",pady=(0,8))
+        ttk.Label(body,text="Kill NPC — farm contínuo",style="Heading.TLabel").pack(anchor="w",pady=(0,8))
         ttk.Label(body,textvariable=self.combat_status,wraplength=680).pack(anchor="w",pady=(0,10))
         self._map_controls(body,self.npc_map,"NPC")
-        test=ttk.LabelFrame(body,text="Teste automático acompanhado",padding=10)
+        test=ttk.LabelFrame(body,text="Farm de NPCs",padding=10)
         test.pack(fill="x",pady=6)
         ttk.Label(test,text="Tipos de NPC (marque um ou mais)").grid(row=0,column=0,sticky="nw")
         self.npc_choices=ttk.Frame(test)
@@ -326,10 +326,10 @@ class AutoBoxSemMouse:
         ttk.Combobox(test,textvariable=self.npc_ammo,state="readonly",values=("lcb10","mcb25","mcb50","ucb100","sab50","rsb75")).grid(row=6,column=1,sticky="w")
         ttk.Label(test,text="Míssil (none = desativado)").grid(row=7,column=0,sticky="w")
         ttk.Combobox(test,textvariable=self.npc_rocket,state="readonly",values=("none","r310","plt2026","plt2021","plt3030")).grid(row=7,column=1,sticky="w")
-        ttk.Button(test,text="Testar 1 NPC",command=self.start_npc_test,style="Start.TButton").grid(
+        ttk.Button(test,text="Iniciar farm de NPCs",command=self.start_npc_test,style="Start.TButton").grid(
             row=8,column=0,columnspan=2,sticky="ew",pady=8)
         ttk.Label(test,text="Comece com pelo menos 80% de vida e estoque das munições escolhidas. Laser sem confirmação de seleção encerra o teste; míssil vazio não é comprado. "
-            "F9/F10 interrompem o teste. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal nem retoma o ataque.",
+            "F9/F10 interrompem o teste. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal; após recuperar 90% de vida, o farm retoma.",
             wraplength=680,style="Muted.TLabel").grid(row=9,column=0,columnspan=2,sticky="w")
         ttk.Label(body,text="NPCs presentes no mapa",style="Heading.TLabel").pack(anchor="w",pady=6)
         self.npc_table=ttk.Treeview(body,columns=("kind","hp","distance"),show="headings",height=5)
@@ -346,7 +346,7 @@ class AutoBoxSemMouse:
         ttk.Button(body,text="Encerrar registro",command=self.finish_combat_recording).pack(fill="x",pady=4)
         ttk.Button(body,text="Copiar diagnóstico da luta",command=self.copy_combat_report).pack(fill="x",pady=4)
         ttk.Label(body,textvariable=self.combat_report_status,wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
-        ttk.Label(body,text="O registro manual só observa. O botão Testar 1 NPC executa uma luta. F8 continua iniciando a coleta de boxes.",
+        ttk.Label(body,text="O registro manual só observa. Iniciar farm de NPCs continua após cada derrota confirmada. F9/F10 encerram o farm. F8 continua iniciando a coleta de boxes.",
                   wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
 
     def _sync_npc_choices(self,kinds):
@@ -372,7 +372,7 @@ class AutoBoxSemMouse:
         self.session.combat_probe.stop("Registro manual encerrado para teste automático.")
         self.last_npc_report=None
         self.stop_event=threading.Event()
-        engine=NpcTestWorker(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
+        engine=NpcFarmWorker(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
             kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get())
         self.worker=threading.Thread(target=engine.run,daemon=True)
         self.worker.start()

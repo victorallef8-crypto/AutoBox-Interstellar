@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from controller import NpcTestWorker
+from controller import NpcTestWorker, NpcFarmWorker
 from browser_session import BrowserSession
 import test_combat_travel as probe_tests
 
@@ -291,6 +291,43 @@ class NpcWorkerTests(unittest.TestCase):
         engine.run()
         self.assertIn("não foi confirmado",engine.report["status"])
         self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
+
+    def test_farm_continues_after_kill_with_75_percent_life(self):
+        stop=Stop();session=Session(stop);original=session.request;spawned=[0]
+        def request(op,payload,allowed):
+            result=original(op,payload,allowed)
+            if payload["action"]=="stop" and not session.state["npc_candidates"] and spawned[0]<1:
+                spawned[0]+=1
+                session.state["hp_percent"]=75
+                session.state["npc_candidates"]=[dict(id="mordon",respawnRevision=2,kind="mordon",x=100,y=0,hp=1000,shield=0)]
+            return result
+        session.request=request
+        def emit(event,data):
+            if event=="npc_report" and data.get("kills")==2:stop.set()
+        engine=NpcFarmWorker(session,stop,emit,kind=["mordon"],clock=lambda:stop.now)
+        engine.run()
+        self.assertEqual(engine.kills,2)
+        self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),2)
+
+    def test_farm_does_not_restart_after_unconfirmed_attack(self):
+        stop=Stop();session=Session(stop,ack=False)
+        engine=NpcFarmWorker(session,stop,lambda *e:None,clock=lambda:stop.now)
+        engine.run()
+        self.assertEqual(engine.kills,0)
+        self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
+
+    def test_farm_recovers_before_next_target(self):
+        stop=Stop();session=Session(stop);session.state["hp_percent"]=39
+        engine=NpcFarmWorker(session,stop,lambda *e:None,repair_portal=True,clock=lambda:stop.now)
+        previous=Mock();previous.report={}
+        def recover():
+            previous.report["recovered"]=True
+            session.state["hp_percent"]=90
+            stop.set()
+        previous.recover_at_portal.side_effect=recover;engine.last=previous
+        engine.run()
+        previous.recover_at_portal.assert_called_once()
+        self.assertEqual(session.calls,[])
 
     def test_lost_attack_ack_does_not_repeat_ctrl(self):
         stop=Stop();session=Session(stop,ack=False);engine=self.engine(session,stop);engine.run()

@@ -317,6 +317,7 @@ class NpcTestWorker:
         self.destination=destination; self.min_hp=min_hp; self.clock=clock or time.monotonic
         self.orbit=orbit; self.radius=max(150,min(800,radius)); self.repair_portal=repair_portal; self.direction=1
         self.ammo=ammo; self.rocket=rocket; self.next_rocket=0
+        self.finish_stop=True; self.minimum_start_hp=80
         self.portal_fight=portal_fight; self.fight_gate=None; self.gate_best=float("inf")
         self.target=None; self.context=None; self.pending=None; self.next_move=0
         self.started=None; self.progress=None; self.best_distance=float("inf"); self.lowest=None
@@ -415,7 +416,8 @@ class NpcTestWorker:
                 if result.get("repair")=="unavailable": raise ValueError("Equipe uma CPU/robô de reparo no jogo.")
                 if result.get("repair") in ("sent","enabled") and repair_sent is None: repair_sent=now
                 if result.get("distance",99999)<=80 and (snap.get("hp_percent") or 0)>=90:
-                    self.publish("Recuperada no portal. Teste encerrado; ataque não será retomado.")
+                    self.report["recovered"]=True
+                    self.publish("Recuperada no portal com pelo menos 90% de vida.")
                     return
             if firing and stop_attempts<3:
                 self.cease_fire(); stop_attempts+=1
@@ -445,7 +447,7 @@ class NpcTestWorker:
                         if self.stop.wait(.5): break
                         continue
                 if self.target is None:
-                    if hp<80: raise ValueError("Recupere a vida para pelo menos 80% antes do teste.")
+                    if hp<self.minimum_start_hp: raise ValueError("Recupere a vida antes de iniciar outra luta.")
                     combat=snap.get("combat",{})
                     if combat.get("attacking"): raise ValueError("Pare o ataque atual antes do teste.")
 
@@ -559,9 +561,68 @@ class NpcTestWorker:
         finally:
             if self.stop.is_set(): self.publish("Teste cancelado.")
             self.cease_fire()
-            self.stop.set()
+            if self.finish_stop: self.stop.set()
             if self.target is not None and not self.report["stop_confirmed"]:
                 self.report["status"]+=" Não foi possível confirmar a parada; confira o jogo."
                 self.emit("status",self.report["status"])
             self.emit("npc_report",dict(self.report))
+            self.emit("running",False)
+
+
+class NpcFarmWorker:
+    """Encadeia lutas confirmadas; falhas e F9 encerram o ciclo."""
+    def __init__(self,session,stop,emit,**settings):
+        self.session=session; self.stop=stop; self.emit=emit; self.settings=settings
+        self.kills=0; self.last=None
+
+    def relay(self,event,data):
+        if event=="running": return
+        if event=="npc_report":
+            data=dict(data,mode="continuous_npc_farm",kills=self.kills)
+        self.emit(event,data)
+
+    def run(self):
+        kinds=self.settings.get("kind","mordon")
+        kinds=set(kinds if isinstance(kinds,(list,tuple,set)) else [kinds])
+        limit=self.settings.get("min_hp",40)
+        try:
+            while not self.stop.is_set():
+                snap=self.session.get_world_snapshot()
+                if not snap.get("fresh") or snap.get("dead"):
+                    raise ValueError("Farm interrompido: dados indisponíveis ou nave destruída.")
+                hp=snap.get("hp_percent")
+                if hp is None: raise ValueError("Vida indisponível; farm interrompido.")
+                if hp<=limit:
+                    if not self.settings.get("repair_portal") or self.last is None:
+                        raise ValueError("Vida no limite; habilite recuperação ou repare manualmente.")
+                    self.last.report["recovered"]=False
+                    self.last.recover_at_portal()
+                    if self.stop.is_set(): break
+                    if not self.last.report.get("recovered"):
+                        raise ValueError("Recuperação não concluída; farm interrompido.")
+                    continue
+                destination=self.settings.get("destination","")
+                present=any((n.get("kind") or n.get("type")) in kinds and (n.get("hp") or 0)>0
+                            for n in snap.get("npc_candidates",[]))
+                if not present and (not destination or snap.get("map")==destination):
+                    self.emit("status","Aguardando NPC dos tipos marcados. Derrotados: "+str(self.kills))
+                    if self.stop.wait(1): break
+                    continue
+                engine=NpcTestWorker(self.session,self.stop,self.relay,**self.settings)
+                engine.finish_stop=False
+                engine.minimum_start_hp=80 if self.last is None else limit+.01
+                self.last=engine
+                engine.run()
+                if self.stop.is_set(): break
+                if not engine.report.get("stop_confirmed"): break
+                if engine.report.get("kill_confirmed"):
+                    self.kills+=1
+                    self.relay("npc_report",engine.report)
+                elif not engine.report.get("recovered"):
+                    break
+                if self.stop.wait(.2): break
+        except Exception as exc:
+            self.emit("status",str(exc))
+        finally:
+            self.stop.set()
             self.emit("running",False)
