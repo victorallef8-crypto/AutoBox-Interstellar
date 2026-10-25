@@ -280,20 +280,22 @@ class ManualCollectProbe:
             return True
 
     @classmethod
-    def _collect_detail(cls, value, ids, depth=0, numeric=True):
+    def _collect_detail(cls, value, ids, depth=0, numeric=True, category=False):
         if depth>4: return {"type":"depth-limit"}
         if value is None or isinstance(value,bool): return value
         if WorldFeed._number(value):
             return value if numeric else {"type":"number","value_omitted":True}
         if isinstance(value,str):
+            if category and 0<len(value)<=32 and value.isascii() and all(c.isalnum() or c in "_-" for c in value):
+                return value
             return {"box_id":value} if value in ids else {"type":"string","value_omitted":True}
         if isinstance(value,list):
             return {"type":"array","length":len(value),
                     "items":[cls._collect_detail(v,ids,depth+1,numeric) for v in value[:8]]}
         if isinstance(value,dict):
-            allowed={"id","boxId","targetId","revision","boxRevision","x","y","position","destination","box"}
+            allowed={"kind","id","boxId","targetId","revision","boxRevision","x","y","position","destination","box"}
             return {"type":"object","fields":list(value)[:16],
-                    "values":{k:cls._collect_detail(v,ids,depth+1,k in {"revision","boxRevision","x","y"})
+                    "values":{k:cls._collect_detail(v,ids,depth+1,k in {"revision","boxRevision","x","y"},category=k=="kind")
                               for k,v in list(value.items())[:16] if k in allowed},
                     "omitted_fields":sum(k not in allowed for k in value)}
         return {"type":"unsupported"}

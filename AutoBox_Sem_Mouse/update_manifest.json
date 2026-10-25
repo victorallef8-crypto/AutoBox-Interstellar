@@ -1,6 +1,6 @@
 {
-  "version": "0.4.4",
+  "version": "0.4.5",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "40aa46e3cd94033e3796bbb01391ab20b15b0f18cd722852368891f143671240",
-  "notes": "Diagnostico agora inclui detalhes permitidos do comando collect para validar a coleta por dados. Consultas futuras do atualizador evitam cache. 119 testes passaram. Ainda nao envia comandos automaticos por dados."
+  "sha256": "b39123959d80e9837d400e5176a79232116dea4653043e16e37e1363188a3e9e",
+  "notes": "Corrige omissao de collect.kind no diagnostico. Registre uma coleta manual para conferir kind, id e revision. 121 testes passaram. Ainda nao executa coleta automatica por dados."
 }

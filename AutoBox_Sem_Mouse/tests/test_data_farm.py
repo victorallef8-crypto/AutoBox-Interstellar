@@ -117,6 +117,21 @@ class ProbeTests(unittest.TestCase):
         self.assertNotIn("private-token",json.dumps(commands))
         self.assertNotIn("12345",json.dumps(commands))
 
+    def test_collect_kind_id_revision_are_all_preserved(self):
+        self.probe.arm()
+        self.post(collect={"kind":"bonusbox","id":"near","revision":63})
+        detail=self.probe.report()["commands"][0]["collect"]
+        self.assertEqual(detail["values"],{"kind":"bonusbox","id":{"box_id":"near"},"revision":63})
+        self.assertEqual(detail["omitted_fields"],0)
+
+    def test_collect_kind_does_not_allow_arbitrary_text_or_nested_private_data(self):
+        self.probe.arm()
+        self.post(collect={"kind":"private message with spaces", "id":"unknown-private-id", "token":"secret-value"})
+        report=json.dumps(self.probe.report())
+        self.assertNotIn("private message with spaces",report)
+        self.assertNotIn("unknown-private-id",report)
+        self.assertNotIn("secret-value",report)
+
     def test_collect_unknown_string_is_not_copied(self):
         self.probe.arm(); self.post(collect="private-unknown")
         detail=self.probe.report()["commands"][0]["collect"]
