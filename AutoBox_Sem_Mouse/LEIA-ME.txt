@@ -1,4 +1,4 @@
-AUTOBOX SEM MOUSE — BETA 0.3.1
+AUTOBOX SEM MOUSE — BETA 0.4.0
 
 Programa novo e independente, exclusivo de coleta no Interstellar.
 Nao importa nem executa o AutoBox antigo. Nao tem Krypton ou combate a NPC.
@@ -32,6 +32,16 @@ PREPARAR
 
 No primeiro teste, mantenha o Opera dedicado aberto, mesmo atras de outras janelas.
 Navegador minimizado e computador bloqueado ainda nao foram validados.
+
+NOVO MOTOR POR DADOS — EM VALIDACAO
+A aba Dados agora mostra decisoes por ID/revisao e distancia, aproximacao,
+espera e verificacao de recompensa. Esta etapa ainda nao executa farm por dados.
+Para validar o comando real do cliente:
+1. Entre no mapa pela janela dedicada e aguarde Dados mostrar leitura atual.
+2. Clique Registrar uma coleta manual (30 segundos). A coleta visual pausa.
+3. Clique voce mesmo em uma box e espere a nave coleta-la.
+4. Clique Copiar diagnostico da coleta e cole no chat.
+O registro observa comandos que o cliente ja enviou; nunca os reenvia.
 
 DADOS AO VIVO — ETAPA 1
 Abra o Opera pela aba Navegador e entre no mapa. A aba Dados observa as mensagens
@@ -87,7 +97,7 @@ Na aba Painel, use Verificar atualizacoes deste bot nas proximas versoes.
 O atualizador verifica SHA-256 e substitui somente os arquivos conhecidos.
 
 ESTADO DESTA BETA
-91 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
+108 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
 Replay local das 22 mensagens fornecidas: estado reconstruido e box mais proxima conferida.
 A recepcao passiva foi testada com CDP simulado; a conexao ao jogo real ainda precisa de validacao.
 A coleta real dentro do jogo ainda depende de validacao.

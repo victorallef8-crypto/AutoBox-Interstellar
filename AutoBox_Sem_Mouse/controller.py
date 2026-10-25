@@ -1,6 +1,6 @@
 """Decisoes da coleta; nao depende de imagem, navegador ou mouse do Windows."""
 from dataclasses import dataclass
-from math import hypot
+from math import hypot, isfinite
 
 def inside(point, area, margin=0):
     x, y = point
@@ -118,3 +118,72 @@ class CollectionState:
         if self.target:
             self.blocked.append((self.target.point, now + (2 if failed else .8)))
         self.target = None
+
+
+class DataFarmPlanner:
+    """Motor por identidade e coordenadas; emite decisoes, nunca envia comandos."""
+    def __init__(self, arrival_radius=100.):
+        self.arrival_radius = arrival_radius
+        self.reset()
+
+    def reset(self):
+        self.target = None
+        self.map_id = None
+        self.respawn = None
+        self.started = None
+        self.last_progress = None
+        self.best_distance = float("inf")
+        self.last_distance = float("inf")
+        self.baseline = None
+
+    @staticmethod
+    def key(box):
+        return box["id"], box.get("revision")
+
+    def step(self, snapshot, now):
+        if not snapshot.get("fresh"):
+            self.reset()
+            return {"phase":"paused","reason":snapshot.get("status","Aguardando dados atuais.")}
+        map_id, respawn = snapshot["map"], snapshot.get("respawn_revision")
+        if self.map_id is not None and (map_id!=self.map_id or respawn!=self.respawn):
+            self.reset()
+            return {"phase":"paused","reason":"Mapa ou renascimento mudou. Plano anterior descartado."}
+        self.map_id, self.respawn = map_id, respawn
+        if snapshot.get("hp_percent") is not None and snapshot["hp_percent"]<=25:
+            self.target=None
+            return {"phase":"recover","reason":"Vida baixa. Recuperacao automatica ainda nao configurada."}
+        position=snapshot["position"]
+        boxes=snapshot.get("candidates",[])
+        if self.target is None:
+            if not boxes:
+                return {"phase":"search","reason":"Nenhuma box disponivel nos dados."}
+            self.target=dict(min(boxes,key=lambda b:distance(position,(b["x"],b["y"]))))
+            self.started=self.last_progress=now
+            self.best_distance=float("inf")
+            self.baseline=snapshot.get("box_counter")
+        current=next((b for b in boxes if self.key(b)==self.key(self.target)),None)
+        if current is None:
+            counter=snapshot.get("box_counter")
+            confirmed=(self.baseline is not None and counter is not None and counter>self.baseline
+                       and self.last_distance<=self.arrival_radius)
+            previous=self.target["id"]
+            self.target=None
+            return {"phase":"confirmed" if confirmed else "unconfirmed",
+                    "reason":"Recompensa e desaparecimento observados." if confirmed else
+                             "Alvo desapareceu ou mudou sem prova de coleta.",
+                    "target_id":previous}
+        self.target=dict(current)
+        current_distance=distance(position,(current["x"],current["y"]))
+        self.last_distance=current_distance
+        if current_distance<self.best_distance-5:
+            self.best_distance=current_distance
+            self.last_progress=now
+        speed=snapshot.get("speed")
+        eta=current_distance/speed if type(speed) in (int,float) and isfinite(speed) and speed>0 else None
+        result={"target_id":current["id"],"revision":current.get("revision"),
+                "destination":(current["x"],current["y"]),"distance":current_distance,"eta":eta}
+        if now-self.last_progress>=8:
+            return dict(result,phase="stalled",reason="Sem aproximacao observada; nao trocar de box.")
+        if current_distance<=self.arrival_radius:
+            return dict(result,phase="collect",reason="Perto do alvo; aguardar coleta e confirmacao.")
+        return dict(result,phase="approach",reason="Aproximar da box selecionada; manter o mesmo ID.")

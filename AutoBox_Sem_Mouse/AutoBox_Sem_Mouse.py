@@ -16,7 +16,7 @@ from PIL import Image, ImageTk
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
 from collector import Collector
-from controller import inside, detection_area, visible_box
+from controller import inside, detection_area, visible_box, DataFarmPlanner
 from vision import locate_boxes
 import updater
 
@@ -82,6 +82,9 @@ class AutoBoxSemMouse:
                            ("status","map","position","hp","counts","nearest","distance","sequence")}
         self.world_vars["status"].set("Abra o Opera dedicado e entre no mapa.")
         self.last_world_refresh = -100.
+        self.data_planner = DataFarmPlanner()
+        self.farm_plan = tk.StringVar(value="Aguardando dados para planejar.")
+        self.manual_probe_status = tk.StringVar(value="Registre uma coleta manual para validar o comando.")
         root.title("AutoBox Sem Mouse — beta " + updater.CURRENT_VERSION)
         root.geometry("1000x" + str(min(820, root.winfo_screenheight()-90)))
         root.minsize(760,min(620,root.winfo_screenheight()-80))
@@ -245,27 +248,67 @@ class AutoBoxSemMouse:
     def _draw_world_page(self):
         body = self._scroll_page(self.pages["data"])
         ttk.Label(body,text="Dados ao vivo do jogo",style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(body,text="Etapa 1: leitura e comparação. Os dados desta aba ainda não comandam a coleta.",
+        ttk.Label(body,text="Novo motor por ID e coordenadas em validação. O plano abaixo ainda não envia comandos.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=(4,12))
         group=ttk.LabelFrame(body,text="Estado recebido pela janela dedicada",padding=14)
         group.pack(fill="x")
         for row,(key,label) in enumerate((("status","Leitura"),("map","Mapa"),("position","Posição da nave"),
                                           ("hp","Vida"),("counts","Objetos"),("nearest","Box mais próxima"),
-                                          ("distance","Distância até a box"),("sequence","Atualização"))):
+                                          ("distance","Distância da mais próxima"),("sequence","Atualização"))):
             ttk.Label(group,text=label).grid(row=row,column=0,sticky="nw",padx=(0,18),pady=5)
             ttk.Label(group,textvariable=self.world_vars[key],wraplength=520).grid(row=row,column=1,sticky="w",pady=5)
         group.columnconfigure(1,weight=1)
+        plan=ttk.LabelFrame(body,text="Plano do novo motor",padding=12)
+        plan.pack(fill="x",pady=10)
+        ttk.Label(plan,textvariable=self.farm_plan,wraplength=650).pack(anchor="w")
+        ttk.Button(plan,text="Registrar uma coleta manual (30 segundos)",
+                   command=self.record_manual_collect).pack(fill="x",pady=(10,4))
+        ttk.Button(plan,text="Copiar diagnóstico da coleta",
+                   command=self.copy_collect_diagnostic).pack(fill="x",pady=4)
+        ttk.Label(plan,textvariable=self.manual_probe_status,wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=4)
         ttk.Label(body,text="Abra o jogo pela aba Navegador e entre no mapa. A leitura é automática. Se pedir um estado completo, recarregue a janela dedicada uma vez com o bot pausado.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=12)
+
+
+    def record_manual_collect(self):
+        self.stop_event.set()
+        if self.worker is not None and self.worker.is_alive():
+            self.root.after(100,self.record_manual_collect)
+            return
+        try:
+            self.session.arm_manual_probe()
+            self.say("Coleta visual pausada. Clique manualmente em uma box no jogo e espere coletar.")
+            self.manual_probe_status.set("Registro por 30 segundos. Depois clique em Copiar diagnóstico.")
+        except ValueError as exc:
+            self.say(str(exc))
+
+    def copy_collect_diagnostic(self):
+        report=self.session.get_manual_probe_report()
+        self.root.clipboard_clear()
+        self.root.clipboard_append(json.dumps(report,ensure_ascii=False,indent=2))
+        self.say("Diagnóstico copiado. Pode colar aqui no chat para validar a coleta.")
 
     def _update_world_panel(self):
         now=time.monotonic()
         if now-self.last_world_refresh<.5: return
         self.last_world_refresh=now
-        data=self.session.get_world_summary() if self.session.ready.is_set() else {
+        data=self.session.get_world_snapshot() if self.session.ready.is_set() else {
             "fresh":False,"status":"Abra o Opera dedicado e entre no mapa."}
         for key,var in self.world_vars.items():
             var.set(data.get("status","Aguardando dados.") if key=="status" else "—")
+        decision=self.data_planner.step(data,now)
+        labels={"paused":"Aguardando", "recover":"Recuperação necessária", "search":"Procurar boxes",
+                "approach":"Aproximar", "collect":"Verificar coleta", "confirmed":"Coleta observada",
+                "unconfirmed":"Sem confirmação", "stalled":"Sem aproximação"}
+        text=labels[decision["phase"]]+": "+decision.get("reason","")
+        if decision.get("target_id"):
+            text+="\nAlvo: "+decision["target_id"]
+        if decision.get("distance") is not None:
+            text+="  |  Distância do alvo: %.1f" % decision["distance"]
+        if decision.get("eta") is not None:
+            text+="  |  Tempo estimado: %.1f s" % decision["eta"]
+        self.farm_plan.set(text)
+        self.manual_probe_status.set(self.session.get_manual_probe_report()["status"])
         if not data.get("fresh"): return
         self.world_vars["map"].set(data["map"])
         self.world_vars["position"].set("X %.1f  /  Y %.1f" % data["position"])

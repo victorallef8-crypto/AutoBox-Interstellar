@@ -35,3 +35,9 @@ Validacao: 91 testes, incluindo callbacks CDP simulados, reconexao, sequencia, a
 Referencias da observacao: [CDP Network eventSourceMessageReceived](https://chromedevtools.github.io/devtools-protocol/tot/Network/#event-eventSourceMessageReceived), [Playwright CDPSession](https://playwright.dev/python/docs/api/class-cdpsession).
 
 Beta 0.3.1: a janela dedicada inicia em https://interstellar-verse.com/ para permitir login e entrada no mapa pelo site. O reconhecimento da pagina de jogo continua separado do endereco inicial.
+
+Beta 0.4.0: motor de decisao por ID/revisao e coordenadas em validacao. Seleciona a box mais proxima, preserva o alvo, estima viagem, detecta falta de progresso e exige proximidade + desaparecimento + aumento do contador para indicar coleta observada. O plano ainda nao envia comandos ao jogo. A chegada usa raio inicial estimado de 100 unidades, ainda nao validado no jogo.
+
+A aba Dados inclui registro passivo de uma coleta manual (30 s) e copia de diagnostico com nomes de campos, destino, referencias a boxes conhecidas e aumento observado do contador. Ignora comandos cumulativos antigos e nao grava tokens, chat ou valores de campos desconhecidos. O registro e necessario para validar o adaptador de execucao antes de automatizar farm por dados. A coleta visual continua sendo o unico modo automatico.
+
+Validacao: 108 testes passaram, alem do replay das 22 mensagens. A observacao do EventSource nao exige mais que a pagina ja esteja em /play no instante da requisicao. A recepcao ao vivo, o comando manual e a execucao futura por dados ainda precisam de validacao no jogo.

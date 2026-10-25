@@ -29,7 +29,7 @@ class WorldFeed:
     """Reconstrucao somente de campos de navegacao; nao guarda tokens nem chat."""
     ROOT = {"map", "world", "me", "boxes", "npcs"}
     ME = {"x","y","speed","hp","maxHp","shield","maxShield","moving","destination",
-          "mapId","deadUntil","respawnRevision","targetId","attacking","repairing"}
+          "mapId","deadUntil","respawnRevision","targetId","attacking","repairing","inputSeq","achievements"}
     MAP = {"id","width","height","gates"}
     ENTITY = {"id","revision","x","y","type","hp","maxHp"}
     def __init__(self, clock=None):
@@ -66,6 +66,8 @@ class WorldFeed:
         if path == ("map",): return cls.MAP
         if path == ("world",): return {"width","height"}
         if path == ("me","destination"): return {"x","y"}
+        if path == ("me","achievements"): return {"counters"}
+        if path == ("me","achievements","counters"): return {"bonusboxes"}
         return None
 
     @classmethod
@@ -174,6 +176,97 @@ class WorldFeed:
                     "portals":len(game_map.get("gates",[])),
                     "nearest":dict(nearest,distance=math.hypot(nearest["x"]-x,nearest["y"]-y)) if nearest else None}
 
+
+    def navigation_snapshot(self):
+        with self.lock:
+            result=self.summary()
+            if not result.get("fresh"): return result
+            me=self.state["me"]
+            result["candidates"]=[dict(b) for b in self.state.get("boxes",[]) if
+                isinstance(b.get("id"),str) and self._number(b.get("x")) and self._number(b.get("y")) and
+                0<=b["x"]<=self.state["map"].get("width",self.state.get("world",{}).get("width",0)) and
+                0<=b["y"]<=self.state["map"].get("height",self.state.get("world",{}).get("height",0))]
+            result["gates"]=[dict(g) for g in self.state["map"].get("gates",[])]
+            result["respawn_revision"]=me.get("respawnRevision")
+            result["destination"]=dict(me["destination"]) if isinstance(me.get("destination"),dict) else None
+            result["box_counter"]=me.get("achievements",{}).get("counters",{}).get("bonusboxes")
+            return result
+
+
+class ManualCollectProbe:
+    """Amostra limitada de comandos ja enviados pelo cliente; nunca reenvia."""
+    def __init__(self, feed, clock=None):
+        self.feed=feed
+        self.clock=clock or time.monotonic
+        self.lock=threading.RLock()
+        self.until=0
+        self.baseline=None
+        self.highest=None
+        self.samples=[]
+        self.counter_before=None
+        self.status="Registre uma coleta manual para conferir o comando do jogo."
+
+    def arm(self):
+        with self.lock, self.feed.lock:
+            if not self.feed.summary().get("fresh"):
+                raise ValueError("Aguarde dados ao vivo antes de registrar.")
+            server_seq=self.feed.state.get("me",{}).get("inputSeq")
+            known=[v for v in (server_seq,self.highest) if type(v) is int]
+            self.baseline=max(known) if known else None
+            self.samples=[]
+            self.counter_before=self.feed.navigation_snapshot().get("box_counter")
+            self.until=self.clock()+30
+            self.status="Gravando por 30 segundos. Clique manualmente em uma box e espere coletar."
+            return True
+
+    def observe(self, text):
+        try:
+            if not isinstance(text,str) or len(text)>200000: return
+            packet=json.loads(text)
+            if packet.get("inputTransport")!="cumulative-input-v1": return
+            commands=packet.get("commands",[])
+            if not isinstance(commands,list): return
+            with self.lock, self.feed.lock:
+                seqs=[c.get("inputSeq") for c in commands if isinstance(c,dict) and type(c.get("inputSeq")) is int]
+                if seqs: self.highest=max(seqs+[self.highest] if self.highest is not None else seqs)
+                if not self.until or self.clock()>self.until: return
+                if self.baseline is None:
+                    self.baseline=self.highest
+                    self.status="Referencia capturada. Clique agora em uma box para registrar."
+                    return
+                boxes=self.feed.state.get("boxes",[]) if self.feed.state else []
+                ids={b.get("id") for b in boxes}
+                for cmd in commands:
+                    if not isinstance(cmd,dict): continue
+                    seq=cmd.get("inputSeq")
+                    if type(seq) is not int or seq<=self.baseline: continue
+                    self.baseline=seq
+                    sample={"fields":sorted(k for k in cmd if k not in ("inputSeq","respawnRevision"))[:32]}
+                    dest=cmd.get("destination")
+                    if isinstance(dest,dict) and all(WorldFeed._number(dest.get(k)) for k in ("x","y")):
+                        sample["destination"]={k:dest[k] for k in ("x","y")}
+                        close=min(boxes,key=lambda b:math.hypot(b.get("x",1e30)-dest["x"],b.get("y",1e30)-dest["y"]),default=None)
+                        if close and math.hypot(close["x"]-dest["x"],close["y"]-dest["y"])<=50:
+                            sample["near_box_id"]=close["id"]
+                    sample["box_references"]={k:v for k,v in cmd.items() if isinstance(v,str) and v in ids}
+                    self.samples=(self.samples+[sample])[-8:]
+                if self.samples: self.status="Comando observado. Espere a coleta e copie o diagnostico."
+        except (ValueError,TypeError,AttributeError,OverflowError):
+            return
+
+    def report(self):
+        with self.lock:
+            active=self.until>self.clock()
+            if self.until and not active and not self.samples:
+                self.status="Nenhum comando registrado. Inicie o registro novamente e clique em uma box."
+            current=self.feed.navigation_snapshot()
+            counter=current.get("box_counter") if current.get("fresh") else None
+            increment=(counter-self.counter_before if type(counter) is int and
+                       type(self.counter_before) is int and counter>=self.counter_before else None)
+            return {"status":self.status,"recording":active,"commands":json.loads(json.dumps(self.samples)),
+                    "data_fresh":current.get("fresh",False),"observed_box_increment":increment,
+                    "automatic_commands_sent":0}
+
 class BrowserSession:
     """Dono unico do navegador. Captura e cliques nao passam pelo mouse do Windows."""
     def __init__(self, folder, viewport, factory=None):
@@ -191,6 +284,7 @@ class BrowserSession:
         self.capture_page = None
         self.last_click = None
         self.world_feed = WorldFeed()
+        self.probe = ManualCollectProbe(self.world_feed)
 
     def start(self, executable):
         if self.thread is not None and self.thread.is_alive():
@@ -201,6 +295,7 @@ class BrowserSession:
         self.capture_page = None
         self.last_click = None
         self.world_feed.begin(None)
+        self.probe = ManualCollectProbe(self.world_feed)
         self.ready.clear()
         self.closed.clear()
         self.thread = threading.Thread(target=self._run, args=(executable,), daemon=True)
@@ -304,16 +399,17 @@ class BrowserSession:
         try:
             client = context.new_cdp_session(page)
             def started(event):
-                url = urlsplit(event.get("request",{}).get("url",""))
+                request=event.get("request",{})
+                url = urlsplit(request.get("url",""))
+                if (url.scheme=="https" and url.hostname=="interstellar-verse.com"
+                        and url.path.rstrip("/").endswith("/input")):
+                    self.probe.observe(request.get("postData"))
                 if (url.scheme=="https" and url.hostname=="interstellar-verse.com"
                         and url.path.rstrip("/").endswith("/events")):
-                    try:
-                        if self._game_page(context) is not page: return
-                    except RuntimeError:
-                        return
                     self.world_feed.begin((id(page),event.get("requestId")))
+                    self.probe = ManualCollectProbe(self.world_feed)
             def received(event):
-                if event.get("eventName") not in ("message",""): return
+                if event.get("eventName") not in (None,"message",""): return
                 self.world_feed.ingest((id(page),event.get("requestId")),event.get("data"))
             def ended(event):
                 self.world_feed.end((id(page),event.get("requestId")))
@@ -330,6 +426,15 @@ class BrowserSession:
 
     def get_world_summary(self):
         return self.world_feed.summary()
+
+    def get_world_snapshot(self):
+        return self.world_feed.navigation_snapshot()
+
+    def arm_manual_probe(self):
+        return self.probe.arm()
+
+    def get_manual_probe_report(self):
+        return self.probe.report()
 
     def _run(self, executable):
         context = None
