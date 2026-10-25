@@ -375,13 +375,16 @@ class AutoBoxSemMouse:
         if self.last_preview is None:
             self.say("Ainda nao foi enviado um clique de box nesta sessao.")
             return
-        frame, point = self.last_preview
+        frame, point, click_info = self.last_preview
         image=Image.fromarray(cv2.cvtColor(frame,cv2.COLOR_BGR2RGB))
         original=image.size
         image.thumbnail((self.root.winfo_screenwidth()-80,self.root.winfo_screenheight()-160))
         sx,sy=image.width/original[0],image.height/original[1]
         window=tk.Toplevel(self.root); window.title("Ultimo clique — cruz vermelha")
         ttk.Label(window,text="Confira se a cruz vermelha esta no centro da box. Coleta pausada.",padding=8).pack()
+        if click_info:
+            px,py=click_info["image"]; cx,cy=click_info["css"]
+            ttk.Label(window,text="Imagem: (%.1f, %.1f) | Clique no navegador: (%.1f, %.1f)" % (px,py,cx,cy)).pack()
         canvas=tk.Canvas(window,width=image.width,height=image.height,highlightthickness=0); canvas.pack()
         photo=ImageTk.PhotoImage(image); canvas._photo=photo
         canvas.create_image(0,0,anchor="nw",image=photo)

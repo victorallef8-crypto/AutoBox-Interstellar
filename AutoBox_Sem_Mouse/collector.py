@@ -66,7 +66,7 @@ class Collector:
         if not self.session.request("click", point, allowed=self.ready):
             return False
         self.state.clicked(point, time.monotonic())
-        self.emit("preview", (frame.copy(), point))
+        self.emit("preview", (frame.copy(), point, getattr(self.session, "last_click", None)))
         self.status("Aproximando do mesmo box — clique %s/6" % self.state.target.clicks)
         return True
 

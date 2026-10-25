@@ -1,6 +1,6 @@
 {
-  "version": "0.1.1",
+  "version": "0.1.2",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "ced833502d8caed9ab5aba3e334e008d093c8a47ef4df7e193ac0a22ab116aa3",
-  "notes": "Deteccao em mais escalas (incluindo boxes pequenas), teste visual sem cliques, patrulha limitada e retorno a zona marcada ao detectar radiacao."
+  "sha256": "17726ee4017356adb58e9eb2ac8e7b6e69d7f45ee443a677b40ae49e36e43ecb",
+  "notes": "Corrige a conversao do ponto detectado na captura para o clique em pixels CSS, inclusive no minimapa com zoom de 33%. Valida mudancas de zoom e mostra coordenadas na previa."
 }

@@ -1,4 +1,4 @@
-AUTOBOX SEM MOUSE — BETA 0.1.1
+AUTOBOX SEM MOUSE — BETA 0.1.2
 
 Programa novo e independente, exclusivo de coleta no Interstellar.
 Nao importa nem executa o AutoBox antigo. Nao tem Krypton ou combate a NPC.
@@ -34,6 +34,11 @@ COMO COLETA
 - O historico e a previa mostram o que o bot tentou fazer.
 
 DIAGNOSTICO
+Beta 0.1.2: os cliques convertem pixels da captura em coordenadas CSS do navegador,
+medidas a cada captura. Isso tambem se aplica ao minimapa no zoom de 33%.
+Se o zoom mudar entre captura e clique, o comando e recusado.
+Na previa do ultimo clique aparecem o ponto da imagem e o ponto enviado ao navegador.
+
 Use Testar deteccao (sem mover a nave) antes de iniciar: os retangulos cianos
 mostram os candidatos reconhecidos. Se mostrar zero, envie um print dessa imagem.
 Mantenha o zoom desejado (inclusive 33%) ao aprender e testar.
@@ -54,6 +59,6 @@ Use Verificar atualizacoes deste bot nas proximas versoes.
 O atualizador verifica SHA-256 e substitui somente os arquivos conhecidos.
 
 ESTADO DESTA BETA
-48 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
+56 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
 A coleta real dentro do jogo ainda depende de validacao.
 Nao ha garantia contra banimento. Nenhum mecanismo de ocultacao de automacao foi adicionado.

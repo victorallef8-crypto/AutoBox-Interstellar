@@ -1,4 +1,5 @@
 import ast
+import struct
 import queue
 import os
 import tempfile
@@ -19,13 +20,17 @@ class FakePage:
         self.mouse = SimpleNamespace(click=Mock())
         self.closed = False
         self.threads = []
+        self.metrics = {"width":1280,"height":720,"dpr":1,"offset_x":0,"offset_y":0,"scale":1}
+        self.png = b"\x89PNG\r\n\x1a\n" + b"\x00"*8 + struct.pack(">II",1280,720)
     def goto(self, url, **kwargs):
         self.url = url
     def is_closed(self):
         return self.closed
     def screenshot(self, **kwargs):
         self.threads.append(threading.get_ident())
-        return b"fake-png"
+        return self.png
+    def evaluate(self, script):
+        return dict(self.metrics)
     def wait_for_timeout(self, milliseconds):
         time.sleep(.001)
 
@@ -43,6 +48,7 @@ class BrowserSessionTests(unittest.TestCase):
                                       {"width": 1280, "height": 720}, factory=self.factory)
         self.session.start("opera-gx.exe")
         self.assertTrue(self.session.ready.wait(2))
+        self.session.request("screenshot")
     def tearDown(self):
         self.session.close()
         self.temp.cleanup()
@@ -57,7 +63,7 @@ class BrowserSessionTests(unittest.TestCase):
         self.assertTrue(args["chromium_sandbox"])
 
     def test_capture_returns_browser_pixels(self):
-        self.assertEqual(self.session.request("screenshot"), b"fake-png")
+        self.assertEqual(self.session.request("screenshot"), self.page.png)
         self.assertNotEqual(self.page.threads[0], threading.get_ident())
 
     def test_click_uses_page_mouse_with_viewport_coordinates(self):
@@ -86,6 +92,63 @@ class BrowserSessionTests(unittest.TestCase):
     def test_outside_viewport_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "fora"):
             self.session.request("click", (1280, 200))
+        self.page.mouse.click.assert_not_called()
+
+    def test_browser_zoom_33_maps_image_pixels_to_css_pixels(self):
+        self.page.metrics.update(width=3840,height=2160,dpr=1/3)
+        self.session.request("screenshot")
+        self.assertTrue(self.session.request("click",(781,371)))
+        self.page.mouse.click.assert_called_once_with(2343,1113,button="left",delay=40)
+        self.assertEqual(self.session.last_click["image"],(781,371))
+        self.assertEqual(self.session.last_click["css"],(2343,1113))
+
+    def test_zoom_50_and_hidpi_use_actual_image_size(self):
+        self.page.metrics.update(width=2560,height=1440,dpr=1)
+        self.page.png=b"\x89PNG\r\n\x1a\n"+b"\x00"*8+struct.pack(">II",2560,1440)
+        self.session.request("screenshot")
+        self.session.request("click",(700,400))
+        self.page.mouse.click.assert_called_once_with(700,400,button="left",delay=40)
+
+    def test_minimap_click_uses_the_same_zoom_mapping(self):
+        self.page.metrics.update(width=3840,height=2160,dpr=1/3)
+        self.session.request("screenshot")
+        self.session.request("click",(766,684))
+        self.page.mouse.click.assert_called_once_with(2298,2052,button="left",delay=40)
+
+    def test_zoom_changed_after_screenshot_blocks_stale_click(self):
+        self.page.metrics.update(width=3840,height=2160,dpr=1/3)
+        with self.assertRaisesRegex(RuntimeError,"mudou apos"):
+            self.session.request("click",(120,240))
+        self.page.mouse.click.assert_not_called()
+
+    def test_wrong_page_cannot_reuse_capture_coordinates(self):
+        old=self.context.pages[0]
+        new=FakePage(); new.url=old.url
+        self.context.pages.append(new)
+        with self.assertRaisesRegex(RuntimeError,"Capture a imagem"):
+            self.session.request("click",(120,240))
+        new.mouse.click.assert_not_called()
+
+    def test_pause_during_geometry_check_still_blocks_click(self):
+        count=[0]
+        def allowed():
+            count[0]+=1
+            return count[0]==1
+        self.assertFalse(self.session.request("click",(120,240),allowed=allowed))
+        self.page.mouse.click.assert_not_called()
+
+    def test_invalid_geometry_does_not_send_click(self):
+        self.page.metrics["width"]=float("nan")
+        with self.assertRaisesRegex(RuntimeError,"Medidas"):
+            self.session.request("click",(120,240))
+        self.page.mouse.click.assert_not_called()
+
+    def test_failed_capture_cannot_reuse_old_mapping(self):
+        self.page.screenshot=Mock(side_effect=RuntimeError("capture failed"))
+        with self.assertRaises(RuntimeError):
+            self.session.request("screenshot")
+        with self.assertRaisesRegex(RuntimeError,"Capture a imagem"):
+            self.session.request("click",(120,240))
         self.page.mouse.click.assert_not_called()
 
     def test_close_ends_session_and_browser(self):
