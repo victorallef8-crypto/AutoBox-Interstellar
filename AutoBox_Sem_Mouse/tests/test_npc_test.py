@@ -261,6 +261,37 @@ class NpcWorkerTests(unittest.TestCase):
             self.assertNotIn("não aceito",engine.report["status"])
             self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
 
+    def test_custom_ammo_selection_confirmed_then_missile_uses_choice(self):
+        stop=Stop();session=Session(stop);original=session.request
+        def request(op,payload,allowed):
+            if payload["action"]=="attack" and session.state["combat"]["selectedAmmo"]!="mcb50":
+                session.calls.append((op,dict(payload)))
+                session.state["combat"].update(selectedAmmo="mcb50",attacking=True)
+                return {"action":"ammo_sent"}
+            if payload["action"]=="rocket":
+                self.assertEqual(payload["rocket"],"plt2021")
+                self.assertEqual(session.state["combat"]["selectedAmmo"],"mcb50")
+                session.calls.append((op,dict(payload)));return {"action":"rocket_sent"}
+            return original(op,payload,allowed)
+        session.request=request
+        engine=NpcTestWorker(session,stop,lambda *e:None,clock=lambda:stop.now,ammo="mcb50",rocket="plt2021")
+        engine.run()
+        self.assertTrue(engine.report["kill_confirmed"])
+        self.assertTrue(any(p["action"]=="rocket" for _,p in session.calls))
+        self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
+
+    def test_ammo_selection_without_echo_is_not_repeated(self):
+        stop=Stop();session=Session(stop,damage=False);original=session.request
+        def request(op,payload,allowed):
+            if payload["action"]=="attack":
+                session.calls.append((op,dict(payload)));return {"action":"ammo_sent"}
+            return original(op,payload,allowed)
+        session.request=request
+        engine=NpcTestWorker(session,stop,lambda *e:None,clock=lambda:stop.now,ammo="mcb50")
+        engine.run()
+        self.assertIn("não foi confirmado",engine.report["status"])
+        self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
+
     def test_lost_attack_ack_does_not_repeat_ctrl(self):
         stop=Stop();session=Session(stop,ack=False);engine=self.engine(session,stop);engine.run()
         self.assertFalse(engine.report["kill_confirmed"])
@@ -272,7 +303,7 @@ class NpcWorkerTests(unittest.TestCase):
         self.assertIn("Sem aproximação ou dano",engine.report["status"])
         self.assertTrue(engine.report["stop_confirmed"])
     def test_low_start_hp_and_wrong_ammo_send_no_attack(self):
-        for changes in ({"hp_percent":55},{"combat":{"selectedAmmo":"mcb50","attacking":False}}):
+        for changes in ({"hp_percent":55},):
             stop=Stop();session=Session(stop);session.state.update(changes)
             engine=self.engine(session,stop);engine.run()
             self.assertEqual(session.calls,[])

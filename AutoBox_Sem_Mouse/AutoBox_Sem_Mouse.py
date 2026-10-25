@@ -67,11 +67,13 @@ class AutoBoxSemMouse:
         self.npc_kind_vars={}
         self.npc_min_hp=tk.StringVar(value=str(self.cfg.get("npc_min_hp",40)))
         self.npc_orbit=tk.BooleanVar(value=self.cfg.get("npc_orbit",True))
+        self.npc_ammo=tk.StringVar(value=self.cfg.get("npc_ammo","lcb10"))
+        self.npc_rocket=tk.StringVar(value=self.cfg.get("npc_rocket","none"))
         self.npc_radius=tk.StringVar(value=str(self.cfg.get("npc_radius",450)))
         self.npc_repair=tk.BooleanVar(value=self.cfg.get("npc_repair",False))
         self.npc_portal_fight=tk.BooleanVar(value=self.cfg.get("npc_portal_fight",False))
         self.last_npc_report=None
-        self.combat_status=tk.StringVar(value="Teste automático: um NPC por execução, usando LCB-10.")
+        self.combat_status=tk.StringVar(value="Teste automático: um NPC por execução, usando as munições escolhidas.")
         self.combat_report_status=tk.StringVar(value="Registro ainda não iniciado.")
         self.map_boxes=[]
         self.green = tk.BooleanVar(value=self.cfg.get("green",False))
@@ -320,11 +322,15 @@ class AutoBoxSemMouse:
         ttk.Spinbox(test,from_=150,to=800,textvariable=self.npc_radius,width=8).grid(row=3,column=1,sticky="w")
         ttk.Checkbutton(test,text="Vida no limite: ir ao portal e ativar reparador",variable=self.npc_repair).grid(row=4,column=0,columnspan=2,sticky="w")
         ttk.Checkbutton(test,text="Levar o NPC ao portal e lutar ao redor (experimental)",variable=self.npc_portal_fight).grid(row=5,column=0,columnspan=2,sticky="w")
-        ttk.Button(test,text="Testar 1 NPC com LCB-10",command=self.start_npc_test,style="Start.TButton").grid(
-            row=6,column=0,columnspan=2,sticky="ew",pady=8)
-        ttk.Label(test,text="Comece com pelo menos 80% de vida e LCB-10 selecionada no jogo. "
+        ttk.Label(test,text="Laser").grid(row=6,column=0,sticky="w")
+        ttk.Combobox(test,textvariable=self.npc_ammo,state="readonly",values=("lcb10","mcb25","mcb50","ucb100","sab50","rsb75")).grid(row=6,column=1,sticky="w")
+        ttk.Label(test,text="Míssil (none = desativado)").grid(row=7,column=0,sticky="w")
+        ttk.Combobox(test,textvariable=self.npc_rocket,state="readonly",values=("none","r310","plt2026","plt2021","plt3030")).grid(row=7,column=1,sticky="w")
+        ttk.Button(test,text="Testar 1 NPC",command=self.start_npc_test,style="Start.TButton").grid(
+            row=8,column=0,columnspan=2,sticky="ew",pady=8)
+        ttk.Label(test,text="Comece com pelo menos 80% de vida e estoque das munições escolhidas. Laser sem confirmação de seleção encerra o teste; míssil vazio não é comprado. "
             "F9/F10 interrompem o teste. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal nem retoma o ataque.",
-            wraplength=680,style="Muted.TLabel").grid(row=7,column=0,columnspan=2,sticky="w")
+            wraplength=680,style="Muted.TLabel").grid(row=9,column=0,columnspan=2,sticky="w")
         ttk.Label(body,text="NPCs presentes no mapa",style="Heading.TLabel").pack(anchor="w",pady=6)
         self.npc_table=ttk.Treeview(body,columns=("kind","hp","distance"),show="headings",height=5)
         for name,title,width in (("kind","Tipo de NPC",230),("hp","Vida",140),("distance","Distância",140)):
@@ -363,13 +369,11 @@ class AutoBoxSemMouse:
             self.say("Aguarde dados ao vivo com a nave viva."); return
         if snapshot.get("hp_percent") is None or snapshot["hp_percent"]<80:
             self.say("Recupere a vida para pelo menos 80% antes do teste."); return
-        if snapshot.get("combat",{}).get("selectedAmmo")!="lcb10":
-            self.say("Selecione LCB-10 no jogo antes do teste."); return
         self.session.combat_probe.stop("Registro manual encerrado para teste automático.")
         self.last_npc_report=None
         self.stop_event=threading.Event()
         engine=NpcTestWorker(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
-            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get())
+            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get())
         self.worker=threading.Thread(target=engine.run,daemon=True)
         self.worker.start()
 
@@ -577,6 +581,9 @@ class AutoBoxSemMouse:
             selected_kinds=sorted(kind for kind,var in self.npc_kind_vars.items() if var.get())
             if not selected_kinds: raise ValueError("Marque pelo menos um tipo de NPC.")
             self.cfg["npc_kinds"]=selected_kinds
+            if self.npc_ammo.get() not in ("lcb10","mcb25","mcb50","ucb100","sab50","rsb75") or self.npc_rocket.get() not in ("none","r310","plt2026","plt2021","plt3030"):
+                raise ValueError("Selecione laser e míssil válidos.")
+            self.cfg.update(npc_ammo=self.npc_ammo.get(),npc_rocket=self.npc_rocket.get())
             radius=int(self.npc_radius.get())
             if not 150<=radius<=800: raise ValueError("Distância do NPC: 150 a 800 unidades.")
             self.cfg.update(npc_kind=self.npc_kind.get(),npc_min_hp=min_hp,npc_radius=radius,npc_orbit=self.npc_orbit.get(),npc_repair=self.npc_repair.get(),npc_portal_fight=self.npc_portal_fight.get())

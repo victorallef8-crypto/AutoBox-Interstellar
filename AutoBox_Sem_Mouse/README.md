@@ -1,6 +1,6 @@
 # AutoBox Interstellar
 
-AUTOBOX INTERSTELLAR — BETA 0.9.8
+AUTOBOX INTERSTELLAR — BETA 0.10.0
 
 ATUALIZAÇÃO
 No Painel, use Verificar atualizações deste bot. Configurações e sessão do Opera são preservadas.
@@ -8,15 +8,15 @@ A coleta usa somente dados do jogo. OpenCV, NumPy e Pillow não são necessário
 
 KILL NPC: PRIMEIRO TESTE AUTOMÁTICO
 1. Abra o jogo pelo bot e recupere a nave para pelo menos 80% de vida.
-2. Selecione LCB-10 no próprio jogo. Pause a coleta com F9.
+2. Escolha laser e míssil na aba Kill NPC. Pause a coleta com F9.
 3. Na aba Kill NPC, marque um ou mais tipos de NPC.
 4. Deixe o mapa vazio para testar onde está, ou informe um destino normal.
-5. Clique Testar 1 NPC com LCB-10.
+5. Clique Testar 1 NPC.
 6. Acompanhe a primeira luta. Depois copie o diagnóstico da luta e envie no chat.
 
 Este modo executa UMA luta e encerra. Ainda não existe repetição de NPCs.
 Seleciona o NPC mais próximo do conjunto de tipos marcados, conserva ID e revisão, aproxima até o alcance e verifica ataque/dano.
-Não envia ordens de míssil, não compra munição e não escolhe jogadores como alvo.
+Usa laser e míssil escolhidos no bot; none desativa o envio de mísseis pelo bot. Não compra munição nem escolhe jogadores como alvo.
 Não repete Ctrl enquanto espera confirmação do ataque.
 A parada usa a seleção explícita do mesmo NPC com ataque desligado pelo cliente, evitando alternar Ctrl novamente.
 F9/F10 encerram o teste e tentam desligar os tiros; confira a mensagem de confirmação.
@@ -65,31 +65,33 @@ Vida em 25% ou menos pausa coleta. Renascimento local pode exigir recuperação 
 Essas retomadas automáticas são da coleta; o teste de NPC encerra se morrer ou perder leitura.
 
 VALIDAÇÃO
-123 testes Python, testes simulados da navegação e da integração de combate.
+125 testes Python, testes simulados da navegação e da integração de combate.
 A integração de combate foi exercitada com os handlers de seleção, Ctrl e ataque do cliente fornecido.
 Isso não substitui o primeiro teste acompanhado na sua partida.
 
 Instalação nova: Python 3.11+; execute INSTALAR_E_ABRIR.bat.
 
-Beta 0.9.8: se o NPC ainda não puder ser selecionado na tela, aproxima mais do mesmo alvo e tenta novamente, com limite de tempo.
+Beta 0.10.0: se o NPC ainda não puder ser selecionado na tela, aproxima mais do mesmo alvo e tenta novamente, com limite de tempo.
 
 MOVIMENTO CIRCULAR E REPARO (EXPERIMENTAL)
 Circular ao redor do NPC: distância desejada de 150 a 800 unidades, padrão 450. Compara os sentidos para preferir maior distância dos outros NPCs. Não garante evitar dano; o alcance inimigo ainda não foi medido.
 Vida no limite: ir ao portal e ativar reparador é opcional e começa desmarcado. Requer CPU/robô equipado. Movimento e proximidade do portal não garantem proteção nem início do reparo. Sem confirmação de ativação, encerra sem alternar novamente o botão. A recuperação tem limite de 3 minutos.
 Validado com testes simulados; acompanhe a primeira luta na partida.
 
-Beta 0.9.8: ativa ataque pelo cliente após confirmação da seleção, mesmo se o NPC se afastar; continua aproximando sem alternar Ctrl. O jogo controla o alcance efetivo. Aproximação busca um ponto mais próximo para perseguir alvos móveis. Diagnóstico inclui distância.
+Beta 0.10.0: ativa ataque pelo cliente após confirmação da seleção, mesmo se o NPC se afastar; continua aproximando sem alternar Ctrl. O jogo controla o alcance efetivo. Aproximação busca um ponto mais próximo para perseguir alvos móveis. Diagnóstico inclui distância.
 
-Beta 0.9.8: seleção de múltiplos tipos por caixas de marcação; escolhe o NPC mais próximo entre os tipos marcados. Continua uma luta por teste. Corrige contraste de listas, campos numéricos e tabelas.
+Beta 0.10.0: seleção de múltiplos tipos por caixas de marcação; escolhe o NPC mais próximo entre os tipos marcados. Continua uma luta por teste. Corrige contraste de listas, campos numéricos e tabelas.
 
-Beta 0.9.8: aproximação direta e atualizada antes de selecionar; confirma ataque antes de afastar. Persegue o mesmo NPC ao sair da distância configurada, inclusive com pouca vida. Movimento circular opcional, distância de combate preservada também sem circular. Não garante ausência de dano; teste de uma luta.
+Beta 0.10.0: aproximação direta e atualizada antes de selecionar; confirma ataque antes de afastar. Persegue o mesmo NPC ao sair da distância configurada, inclusive com pouca vida. Movimento circular opcional, distância de combate preservada também sem circular. Não garante ausência de dano; teste de uma luta.
 
-Beta 0.9.8: distância configurável até 800. Padrão continua 450; valores acima do alcance da arma podem interromper o dano e encerrar por falta de progresso.
+Beta 0.10.0: distância configurável até 800. Padrão continua 450; valores acima do alcance da arma podem interromper o dano e encerrar por falta de progresso.
 
-Beta 0.9.8: retorno por vida baixa não depende da confirmação inicial de parada; o reparo continua condicionado ao fim dos tiros. Opção experimental Levar NPC ao portal: após atacar, segue ao portal normal mais próximo e circula a 100 unidades do portal, mantendo o mesmo alvo. Este modo substitui o círculo em torno do NPC e pode sair do alcance se ele não acompanhar. Não pula portal. Não garante proteção contra NPCs provocados. Teste acompanhado.
+Beta 0.10.0: retorno por vida baixa não depende da confirmação inicial de parada; o reparo continua condicionado ao fim dos tiros. Opção experimental Levar NPC ao portal: após atacar, segue ao portal normal mais próximo e circula a 100 unidades do portal, mantendo o mesmo alvo. Este modo substitui o círculo em torno do NPC e pode sair do alcance se ele não acompanhar. Não pula portal. Não garante proteção contra NPCs provocados. Teste acompanhado.
 
-Beta 0.9.8: antecipa o próximo ponto da curva pela velocidade e atualiza o trajeto com mais frequência para reduzir paradas. Aplicado ao círculo do NPC e do portal. Diagnóstico de recuperação mostra distância ao portal e estado atual dos tiros.
+Beta 0.10.0: antecipa o próximo ponto da curva pela velocidade e atualiza o trajeto com mais frequência para reduzir paradas. Aplicado ao círculo do NPC e do portal. Diagnóstico de recuperação mostra distância ao portal e estado atual dos tiros.
 
-Beta 0.9.8: vida baixa detectada pelo cliente entre a leitura e o comando também aciona a recuperação, quando habilitada, em vez de encerrar como erro de movimento.
+Beta 0.10.0: vida baixa detectada pelo cliente entre a leitura e o comando também aciona a recuperação, quando habilitada, em vez de encerrar como erro de movimento.
 
-Beta 0.9.8: alvo removido durante comando passa pela confirmação de recompensa por até 2 segundos; não é tratado como erro de aproximação e não conta derrota sem evidência.
+Beta 0.10.0: alvo removido durante comando passa pela confirmação de recompensa por até 2 segundos; não é tratado como erro de aproximação e não conta derrota sem evidência.
+
+Beta 0.10.0: lasers LCB-10, MCB-25, MCB-50, UCB-100, SAB-50 e RSB-75. Mísseis R-310, PLT-2026, PLT-2021 e PLT-3030, ou none (desativado). Seleciona pelos controles nativos, aguarda confirmação e respeita alcance e recarga do míssil. Sem estoque, não compra; laser encerra, míssil é omitido. Para usar somente o escolhido, desative a troca automática de munição e CPUs automáticas de disparo no próprio jogo. Se o jogo não aceitar a seleção do laser pela barra, selecione o mesmo laser manualmente antes do teste. SAB-50 absorve escudo e pode não finalizar o NPC sozinho.

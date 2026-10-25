@@ -1,6 +1,6 @@
 {
-  "version": "0.9.8",
+  "version": "0.10.0",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "18e44dd467fb89fb0cb7b111f00e69a49998eaa33e5b12c659a3bd5ff17467e5",
-  "notes": "Confere recompensa quando o alvo desaparece durante comando; evita falso erro de aproximação no fim da luta."
+  "sha256": "9005a4eb2beda1196df3f3537831207aff74e069d4f41b16042a9d2e87f506bc",
+  "notes": "Seleção de laser e míssil no Kill NPC; confirmação de seleção, alcance e recarga dos mísseis, sem compras automáticas."
 }

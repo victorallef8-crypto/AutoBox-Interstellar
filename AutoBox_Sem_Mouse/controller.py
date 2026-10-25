@@ -310,17 +310,18 @@ class CombatLowHealth(Exception):
 
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
-    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False):
+    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none"):
         self.session=session; self.stop=stop; self.emit=emit
         self.kinds=set(kind if isinstance(kind,(list,tuple,set)) else [kind])
         self.kind=", ".join(sorted(self.kinds))
         self.destination=destination; self.min_hp=min_hp; self.clock=clock or time.monotonic
         self.orbit=orbit; self.radius=max(150,min(800,radius)); self.repair_portal=repair_portal; self.direction=1
+        self.ammo=ammo; self.rocket=rocket; self.next_rocket=0
         self.portal_fight=portal_fight; self.fight_gate=None; self.gate_best=float("inf")
         self.target=None; self.context=None; self.pending=None; self.next_move=0
         self.started=None; self.progress=None; self.best_distance=float("inf"); self.lowest=None
         self.damage=False; self.baseline_xp=None; self.last_phase=None; self.previous_distance=None
-        self.report={"mode":"single_npc_test","kind":self.kind,"allowed_kinds":sorted(self.kinds),"status":"Preparando","actions":[],
+        self.report={"mode":"single_npc_test","kind":self.kind,"allowed_kinds":sorted(self.kinds),"laser":ammo,"missile":rocket,"status":"Preparando","actions":[],
                      "damage_observed":False,"kill_confirmed":False,"stop_confirmed":False}
 
     def publish(self,status):
@@ -332,7 +333,7 @@ class NpcTestWorker:
 
     def action(self,name,**options):
         payload=dict(self.context,id=self.target["id"],revision=self.target.get("respawnRevision"),
-                     min_hp=self.min_hp,action=name,**options)
+                     min_hp=self.min_hp,action=name,ammo=self.ammo,rocket=self.rocket,**options)
         result=self.session.request("npc_action",payload,allowed=lambda:not self.stop.is_set())
         if not isinstance(result,dict): return {"action":"cancelled"}
         self.report["actions"].append({"seconds":round(self.clock()-self.started,2),"action":name,"result":result.get("action"),"distance":self.report.get("target_distance")})
@@ -447,7 +448,7 @@ class NpcTestWorker:
                     if hp<80: raise ValueError("Recupere a vida para pelo menos 80% antes do teste.")
                     combat=snap.get("combat",{})
                     if combat.get("attacking"): raise ValueError("Pare o ataque atual antes do teste.")
-                    if combat.get("selectedAmmo")!="lcb10": raise ValueError("Selecione LCB-10 no jogo antes do teste.")
+
                     candidates=[n for n in snap.get("npc_candidates",[]) if
                                 (n.get("kind") or n.get("type")) in self.kinds and
                                 type(n.get("hp")) in (int,float) and n["hp"]>0 and
@@ -487,7 +488,7 @@ class NpcTestWorker:
                 selected=str(combat.get("target_id"))==str(current["id"])
                 if self.pending:
                     name,sent=self.pending
-                    confirmed=(name=="select" and selected) or (name=="attack" and combat.get("attacking") is True)
+                    confirmed=(name=="select" and selected) or (name=="attack" and combat.get("attacking") is True) or (name=="ammo" and combat.get("selectedAmmo")==self.ammo)
                     if confirmed:
                         self.pending=None
                         self.progress=now
@@ -495,11 +496,17 @@ class NpcTestWorker:
                     else:
                         if self.stop.wait(.1): break
                         continue
+                if selected and combat.get("attacking") is True and combat.get("selectedAmmo")!=self.ammo:
+                    raise ValueError("O jogo trocou a munição escolhida. Teste encerrado.")
+                if selected and combat.get("attacking") is True and self.rocket!="none" and now>=self.next_rocket:
+                    missile=self.action("rocket")
+                    self.report["rocket_status"]=missile.get("action")
+                    self.next_rocket=now+(3.2 if missile.get("action")=="rocket_sent" else 1)
                 if selected and combat.get("attacking") is not True:
                     result=self.action("attack")
-                    if result.get("action") not in ("attack_sent","attacking"):
+                    if result.get("action") not in ("attack_sent","attacking","ammo_sent"):
                         raise ValueError("Ataque não aceito: "+result.get("action","?"))
-                    self.pending=("attack",now)
+                    self.pending=("ammo" if result.get("action")=="ammo_sent" else "attack",now)
                     self.publish("Aguardando confirmação do ataque; mantendo o mesmo NPC.")
                 elif selected and self.portal_fight:
                     if now>=self.next_move:
@@ -534,7 +541,7 @@ class NpcTestWorker:
                         if result.get("action")!="orbiting":
                             raise ValueError("Movimento circular não aceito: "+result.get("action","?"))
                         self.direction=result.get("direction",self.direction)
-                    self.publish(("Circulando e atacando " if self.orbit else "Atacando ")+self.kind+" com LCB-10. F9 interrompe o teste.")
+                    self.publish(("Circulando e atacando " if self.orbit else "Atacando ")+self.kind+" com "+self.ammo.upper()+". F9 interrompe o teste.")
                 if self.stop.wait(.1): break
         except CombatTargetGone:
             self.confirm_target_end()
