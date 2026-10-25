@@ -1,6 +1,6 @@
 {
-  "version": "3.4",
+  "version": "3.4.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "7dc66561669c4b1be3a8d59839b3932f8006b439bbe2686c92027aead0da986f",
-  "notes": "Mantem o mesmo alvo durante a aproximacao, com espera adaptativa e limite para tentativas sem progresso."
+  "sha256": "981acee47e65b0610e827d96bc948bce4210ab2a0299f1712396d632602c2089",
+  "notes": "Reduz a espera pelo proximo alvo quando o box desaparece perto da nave, preservando a aproximacao dos alvos distantes."
 }

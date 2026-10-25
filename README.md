@@ -3,6 +3,12 @@
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
+## Beta 3.4.1
+
+- Reduz a espera quando o alvo desaparece perto da nave em verificacoes consecutivas.
+- Mantem tolerancia para notificacao e cancela a saida se o alvo reaparecer.
+- Nao considera desaparecimento como recompensa confirmada.
+
 ## Beta 3.4
 
 - Mantem o alvo durante a aproximacao, estendendo a espera quando ha progresso.

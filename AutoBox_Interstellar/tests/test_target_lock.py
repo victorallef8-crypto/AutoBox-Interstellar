@@ -64,6 +64,53 @@ class TargetTests(unittest.TestCase):
         self.assertGreater(self.clock.now, 2)
         self.mouse.click.assert_not_called()
 
+    def test_departed_box_near_ship_releases_before_full_wait(self):
+        self.bot.wait_seconds = 5
+        self.bot._track_box.side_effect = lambda *args: ((max(500, 900 - self.clock.now * 200), 300)
+                                                       if self.clock.now < 2.2 else None)
+        self.assertEqual(self.wait(), "unconfirmed")
+        self.assertGreater(self.clock.now, 2.5)
+        self.assertLess(self.clock.now, 3.8)
+        self.mouse.click.assert_not_called()
+
+    def test_departure_far_from_ship_does_not_release_early(self):
+        self.bot.wait_seconds = 5
+        self.bot._track_box.side_effect = lambda *args: ((850, 300) if self.clock.now < .8 else None)
+        self.assertEqual(self.wait(), "timeout")
+        self.assertGreater(self.clock.now, 5)
+        self.assertLess(self.clock.now, 6)
+
+    def test_single_missed_detection_near_ship_does_not_release(self):
+        self.bot.wait_seconds = 2
+        self.target = (530, 300)
+        self.bot._track_box.side_effect = lambda *args: (None if self.clock.now < .3 else (530, 300))
+        self.assertEqual(self.wait(), "timeout")
+        self.assertGreaterEqual(self.clock.now, 2)
+
+    def test_reward_during_departure_grace_is_still_confirmed(self):
+        self.bot.wait_seconds = 5
+        self.target = (530, 300)
+        self.bot._track_box.return_value = None
+        self.ns["reward_notice_visible"].side_effect = lambda *args: self.clock.now >= .7
+        self.assertEqual(self.wait(), "confirmed")
+        self.assertLess(self.clock.now, 1.1)
+
+    def test_reappearing_target_cancels_early_departure(self):
+        self.bot.wait_seconds = 2
+        self.target = (530, 300)
+        self.bot._track_box.side_effect = lambda *args: (None if self.clock.now < .7 else (530, 300))
+        self.assertEqual(self.wait(), "timeout")
+        self.assertGreaterEqual(self.clock.now, 2)
+
+    def test_calibrated_notice_path_also_releases_departed_target(self):
+        self.bot.wait_seconds = 5
+        self.target = (530, 300)
+        self.bot.notice_region = {"left": 0}
+        self.bot._screen_area = Mock(return_value=Mock())
+        self.bot._track_box.return_value = None
+        self.assertEqual(self.wait(), "unconfirmed")
+        self.assertLess(self.clock.now, 1.3)
+
     def test_tracker_follows_nearest_not_highest_confidence(self):
         del self.bot._track_box
         self.bot._screen_area = Mock(return_value=object())

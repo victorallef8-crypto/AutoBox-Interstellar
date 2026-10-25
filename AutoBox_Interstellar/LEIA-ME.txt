@@ -1,3 +1,12 @@
+BETA 3.4.1 - PROXIMA BOX COM MENOS ESPERA
+
+Se o box ja estava perto do centro da area espacial e deixa de ser detectado
+em duas verificacoes consecutivas, o bot espera uma breve tolerancia de
+notificacao e busca o proximo alvo. Se o box reaparecer, cancela essa saida.
+O desaparecimento sozinho NAO e registrado como coleta confirmada.
+Durante a aproximacao de um alvo distante, mantem a espera adaptativa.
+Validacao em testes simulados; comportamento no jogo ainda precisa ser conferido.
+
 BETA 3.4 - MANTER O ALVO NA APROXIMACAO
 
 A espera deixa de ser apenas um prazo fixo. O bot acompanha o box selecionado

@@ -231,7 +231,7 @@ def repair_click_points(panel: tuple[int, int, int, int],
 class AutoBoxApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title(APP_NAME + " - beta 3.4")
+        root.title(APP_NAME + " - beta 3.4.1")
         root.geometry("600x885")
         root.minsize(545, 735)
 
@@ -300,7 +300,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | Interstellar Verse",
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.4 • Posicao do box conferida antes do clique",
+        ttk.Label(frame, text="Beta 3.4.1 • Posicao do box conferida antes do clique",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -787,6 +787,8 @@ class AutoBoxApp:
                          if target is not None and region is not None else None)
         next_track = began
         announced = False
+        missing_near_ship = 0
+        departure_deadline = None
         consecutive = 0
         while time.monotonic() < deadline and self._ready_to_click():
             self._sleep_interruptible(0.18)
@@ -802,7 +804,15 @@ class AutoBoxApp:
                 if now >= next_track:
                     next_track = now + .3
                     current_target = self._track_box(frame, current_monitor, sample, region, tracked)
-                    if current_target is not None:
+                    if current_target is None:
+                        # Ausencia so libera cedo se o alvo ja chegou perto da nave.
+                        # Duas verificacoes evitam reagir a uma unica falha visual.
+                        missing_near_ship = missing_near_ship + 1 if best_distance <= 70 else 0
+                        if missing_near_ship >= 2 and departure_deadline is None:
+                            departure_deadline = now + .35
+                    else:
+                        missing_near_ship = 0
+                        departure_deadline = None
                         tracked = current_target
                         target_x = region["left"] + tracked[0] - current_monitor["left"]
                         distance = ((tracked[0] - region["width"] / 2) ** 2 +
@@ -815,12 +825,18 @@ class AutoBoxApp:
                             if not announced:
                                 self.events.put(("status", "Mantendo o mesmo box enquanto a nave se aproxima..."))
                                 announced = True
+            # Recompensa ainda tem prioridade durante uma pequena janela de tolerancia.
+            # Desaparecimento nao e contado como coleta confirmada.
+            departed = departure_deadline is not None and now >= departure_deadline
             if baseline is not None and self.notice_region:
                 current = self._screen_area(frame, current_monitor, self.notice_region)
                 consecutive = consecutive + 1 if new_reward_message(baseline, current) else 0
                 if consecutive >= 2 and time.monotonic() - began >= 0.3:
                     self.events.put(("status", "Novo YOU RECEIVED! Procurando a proxima box..."))
                     return "confirmed"
+                if departed:
+                    self.events.put(("status", "Box saiu de vista perto da nave. Procurando a proxima (sem confirmacao)..."))
+                    return "unconfirmed"
                 continue
             # Compatibilidade com a versao anterior ate marcar a area.
             present = reward_notice_visible(frame, target_x)
@@ -829,6 +845,9 @@ class AutoBoxApp:
             elif saw_clear and time.monotonic() - began >= 0.55:
                 self.events.put(("status", "Recompensa detectada! Procurando a proxima box..."))
                 return "confirmed"
+            if departed:
+                self.events.put(("status", "Box saiu de vista perto da nave. Procurando a proxima (sem confirmacao)..."))
+                return "unconfirmed"
         return "timeout" if self._ready_to_click() else "interrupted"
 
     def _recover_collection(self):
