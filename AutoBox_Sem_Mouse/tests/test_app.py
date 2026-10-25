@@ -58,6 +58,41 @@ class AppTests(unittest.TestCase):
     def test_pause_cancels_clicks(self):
         self.app.stop_event.clear(); self.app.pause()
         self.assertTrue(self.app.stop_event.is_set())
+    def test_only_implemented_modes_are_available(self):
+        self.assertEqual(len(self.app.notebook.tabs()),6)
+        for key in ("dashboard","collection","browser","diagnostics"):
+            self.assertEqual(self.app.notebook.tab(self.app.pages[key],"state"),"normal")
+        for key in ("combat","recovery"):
+            self.assertEqual(self.app.notebook.tab(self.app.pages[key],"state"),"disabled")
+
+    def test_active_time_excludes_pauses_and_repeated_start_events(self):
+        previous=(self.app.running,self.app.active_started,self.app.active_elapsed)
+        self.app.running=False; self.app.active_elapsed=0
+        try:
+            with patch.object(self.module.time,"monotonic",side_effect=[10,12,17.5,100,104]):
+                self.app._set_running(True)
+                self.app._set_running(True)
+                self.app._set_running(False)
+                self.app._set_running(True)
+                self.app._set_running(False)
+            self.assertEqual(self.app.active_elapsed,11.5)
+            self.assertFalse(self.app.running)
+        finally:
+            self.app.running,self.app.active_started,self.app.active_elapsed=previous
+
+    def test_dashboard_displays_event_counters(self):
+        previous=(self.app.attempts,self.app.confirmed,self.app.failed)
+        try:
+            self.app.attempts=9; self.app.confirmed=3; self.app.failed=2
+            self.app._update_panel()
+            self.assertEqual(self.app.counter_vars["attempts"].get(),"9")
+            self.assertEqual(self.app.counter_vars["confirmed"].get(),"3")
+            self.assertEqual(self.app.counter_vars["failed"].get(),"2")
+            self.assertEqual(self.app.session_label.get(),"Opera desconectado")
+        finally:
+            self.app.attempts,self.app.confirmed,self.app.failed=previous
+            self.app._update_panel()
+
     def test_area_bounds_validation(self):
         viewport={"width":1280,"height":720}
         self.assertTrue(self.module.valid_area({"left":0,"top":0,"width":500,"height":300},viewport))

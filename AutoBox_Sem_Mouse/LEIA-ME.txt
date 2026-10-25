@@ -1,4 +1,4 @@
-AUTOBOX SEM MOUSE — BETA 0.1.4
+AUTOBOX SEM MOUSE — BETA 0.2.0
 
 Programa novo e independente, exclusivo de coleta no Interstellar.
 Nao importa nem executa o AutoBox antigo. Nao tem Krypton ou combate a NPC.
@@ -8,11 +8,20 @@ INSTALAR
 2. Extraia a pasta AutoBox_Sem_Mouse e execute INSTALAR_E_ABRIR.bat.
 3. E necessario Python 3.11+ instalado. As dependencias ficam na .venv desta pasta.
 
+INTERFACE
+- Painel: contadores, tempo ativo, historico e botao de atualizacao.
+- Coleta: modelo de box, areas e precisao da deteccao.
+- Navegador: abrir a sessao dedicada e localizar o Opera.
+- Diagnostico: testar deteccao e conferir o ultimo clique.
+- Combate e Recuperacao: abas desativadas; funcoes ainda nao implementadas.
+Os controles de coleta ficam sempre visiveis. Os atalhos continuam F8/F9/F10.
+Configuracoes, modelo de box e perfil do Opera continuam na mesma pasta.
+
 PREPARAR
-1. Clique em Abrir Opera GX e entrar no jogo.
+1. Na aba Navegador, clique em Abrir Opera GX e entrar no jogo.
 2. Se nao localizar o navegador, selecione opera.exe ou launcher.exe do Opera GX.
 3. Faca o login manualmente nessa sessao separada.
-4. Marque o mapa, aprenda uma box clicando precisamente no centro e marque apenas a nave.
+4. Na aba Coleta, marque o mapa, aprenda uma box clicando precisamente no centro e marque apenas a nave.
    A opcao Incluir boxes na faixa inferior vem ligada: cobre a parte espacial abaixo da
    marcacao antiga e ignora o minimapa marcado. Desative se essa faixa contiver outra interface.
 5. Marque uma zona segura NO MINIMAPA para patrulhar e tentar retornar em caso de radiacao.
@@ -47,7 +56,7 @@ medidas a cada captura. Isso tambem se aplica ao minimapa no zoom de 33%.
 Se o zoom mudar entre captura e clique, o comando e recusado.
 Na previa do ultimo clique aparecem o ponto da imagem e o ponto enviado ao navegador.
 
-Use Testar deteccao (sem mover a nave) antes de iniciar: os retangulos cianos
+Na aba Diagnostico, use Testar deteccao (sem mover a nave) antes de iniciar: os retangulos cianos
 mostram os candidatos reconhecidos. Se mostrar zero, envie um print dessa imagem.
 Mantenha o zoom desejado (inclusive 33%) ao aprender e testar.
 A calibracao usa imagem congelada; ESC cancela.
@@ -63,10 +72,10 @@ Nao copia a sessao pessoal do Opera nem importa calibracoes do bot antigo.
 
 ATUALIZACOES
 Este bot tem manifesto e pacote proprios no GitHub.
-Use Verificar atualizacoes deste bot nas proximas versoes.
+Na aba Painel, use Verificar atualizacoes deste bot nas proximas versoes.
 O atualizador verifica SHA-256 e substitui somente os arquivos conhecidos.
 
 ESTADO DESTA BETA
-67 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
+70 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
 A coleta real dentro do jogo ainda depende de validacao.
 Nao ha garantia contra banimento. Nenhum mecanismo de ocultacao de automacao foi adicionado.

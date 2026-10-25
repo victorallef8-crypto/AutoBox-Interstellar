@@ -23,3 +23,7 @@ Validacao: 64 testes passaram. Na analise local do print fornecido, a area antig
 Beta 0.1.4: rejeita um candidato quando seu brilho faz parte de um objeto conectado muito maior que o modelo, como a borda do portal. O filtro vale na busca, no rastreamento e no teste de deteccao.
 
 Validacao: o falso positivo da borda no print fornecido foi removido; boxes reais dos prints anteriores foram preservadas. 67 testes passaram, incluindo estrutura grande com brilho que a versao anterior aceitava com 0.998 de correlacao e uma box isolada ao lado da estrutura. A coleta em movimento ainda depende de validacao no jogo.
+
+Beta 0.2.0: primeira etapa da interface inspirada em organizacao por modos. Tema escuro, abas Painel/Coleta/Navegador/Diagnostico, controles de coleta permanentes, contadores e tempo ativo. Combate e Recuperacao estao desativados e ainda nao executam acoes. Preserva o motor de coleta da 0.1.4, incluindo a rejeicao do falso positivo do portal; configuracao, modelo e perfil existentes usam os mesmos caminhos.
+
+Validacao desta etapa: 70 testes passaram, incluindo interface Tk, estados das abas, tempo ativo sem contar pausas, contadores, deteccao e servico de navegador simulado. A nova interface nao acrescenta leitura de memoria nem validacao real de combate.
