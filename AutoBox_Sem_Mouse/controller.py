@@ -302,9 +302,10 @@ class SessionEarnings:
 
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
-    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None):
+    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False):
         self.session=session; self.stop=stop; self.emit=emit; self.kind=kind
         self.destination=destination; self.min_hp=min_hp; self.clock=clock or time.monotonic
+        self.orbit=orbit; self.radius=max(150,min(500,radius)); self.repair_portal=repair_portal; self.direction=1
         self.target=None; self.context=None; self.pending=None; self.next_move=0
         self.started=None; self.progress=None; self.best_distance=float("inf"); self.lowest=None
         self.damage=False; self.baseline_xp=None; self.last_phase=None
@@ -348,6 +349,38 @@ class NpcTestWorker:
         except Exception:
             pass
 
+    def recover_at_portal(self):
+        self.cease_fire()
+        if not self.report["stop_confirmed"]:
+            raise ValueError("Parada dos tiros não confirmada; recuperação cancelada.")
+        started=self.clock(); next_move=0; gate=None; repair_sent=None
+        while not self.stop.is_set():
+            snap=self.session.get_world_snapshot(); now=self.clock()
+            if (not snap.get("fresh") or snap.get("dead") or snap.get("map")!=self.context["map"]
+                or snap.get("respawn_revision")!=self.context["life"]):
+                raise ValueError("Recuperação interrompida: leitura, mapa ou vida mudou.")
+            combat=snap.get("combat",{})
+            if combat.get("attacking") or combat.get("secondaryVolley"):
+                raise ValueError("Tiros ainda ativos; recuperação interrompida.")
+            self.report["hp_percent"]=snap.get("hp_percent")
+            self.report["repair_active"]=combat.get("repairActive",False)
+            if now-started>180: raise ValueError("Recuperação excedeu 3 minutos; confira o jogo.")
+            if repair_sent is not None and not combat.get("repairing") and now-repair_sent>5:
+                raise ValueError("CPU de reparo não confirmou ativação; confira equipamento e jogo.")
+            if now>=next_move:
+                result=self.action("retreat",gate=gate,enable_repair=repair_sent is None)
+                next_move=now+1.5
+                if result.get("action")!="retreating":
+                    raise ValueError("Retorno ao portal não aceito: "+result.get("action","?"))
+                gate=result.get("gate"); self.report["recovery_gate"]=gate
+                if result.get("repair")=="unavailable": raise ValueError("Equipe uma CPU/robô de reparo no jogo.")
+                if result.get("repair") in ("sent","enabled") and repair_sent is None: repair_sent=now
+                if result.get("distance",99999)<=80 and (snap.get("hp_percent") or 0)>=90:
+                    self.publish("Recuperada no portal. Teste encerrado; ataque não será retomado.")
+                    return
+            self.publish("Indo ao portal; reparo aguarda as condições de combate do jogo.")
+            if self.stop.wait(.2): break
+
     def run(self):
         travel=MapTravel(self.session,self.stop,self.emit,self.destination,self.clock)
         self.started=self.clock()
@@ -358,6 +391,9 @@ class NpcTestWorker:
                 if snap.get("dead"): raise ValueError("Nave destruída. Teste encerrado.")
                 hp=snap.get("hp_percent")
                 self.report["hp_percent"]=hp
+                if hp is not None and hp<=self.min_hp and self.repair_portal and self.target is not None:
+                    self.recover_at_portal()
+                    break
                 if hp is None or hp<=self.min_hp:
                     raise ValueError("Vida no limite. Interrompendo tiros; recupere a nave manualmente.")
                 if self.destination and snap["map"]!=self.destination:
@@ -437,7 +473,12 @@ class NpcTestWorker:
                     self.pending=("attack",now)
                     self.publish("Aguardando confirmação do ataque.")
                 else:
-                    self.publish("Atacando "+self.kind+" com LCB-10. F9 interrompe o teste.")
+                    if self.orbit and now>=self.next_move:
+                        result=self.action("orbit",radius=self.radius,direction=self.direction); self.next_move=now+.8
+                        if result.get("action")!="orbiting":
+                            raise ValueError("Movimento circular não aceito: "+result.get("action","?"))
+                        self.direction=result.get("direction",self.direction)
+                    self.publish(("Circulando e atacando " if self.orbit else "Atacando ")+self.kind+" com LCB-10. F9 interrompe o teste.")
                 if self.stop.wait(.2): break
         except Exception as exc:
             self.publish(str(exc))

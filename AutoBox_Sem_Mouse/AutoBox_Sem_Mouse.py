@@ -64,6 +64,9 @@ class AutoBoxSemMouse:
         self.npc_map=tk.StringVar(value=self.cfg.get("npc_map",""))
         self.npc_kind=tk.StringVar(value=self.cfg.get("npc_kind","mordon"))
         self.npc_min_hp=tk.StringVar(value=str(self.cfg.get("npc_min_hp",40)))
+        self.npc_orbit=tk.BooleanVar(value=self.cfg.get("npc_orbit",True))
+        self.npc_radius=tk.StringVar(value=str(self.cfg.get("npc_radius",450)))
+        self.npc_repair=tk.BooleanVar(value=self.cfg.get("npc_repair",False))
         self.last_npc_report=None
         self.combat_status=tk.StringVar(value="Teste automático: um NPC por execução, usando LCB-10.")
         self.combat_report_status=tk.StringVar(value="Registro ainda não iniciado.")
@@ -295,11 +298,15 @@ class AutoBoxSemMouse:
         self.npc_kind_box.grid(row=0,column=1,sticky="ew",pady=4)
         ttk.Label(test,text="Interromper tiros com vida em (%)").grid(row=1,column=0,sticky="w")
         ttk.Spinbox(test,from_=25,to=75,textvariable=self.npc_min_hp,width=8).grid(row=1,column=1,sticky="w",pady=4)
+        ttk.Checkbutton(test,text="Circular ao redor do NPC",variable=self.npc_orbit).grid(row=2,column=0,columnspan=2,sticky="w")
+        ttk.Label(test,text="Distância desejada (150 a 500)").grid(row=3,column=0,sticky="w")
+        ttk.Spinbox(test,from_=150,to=500,textvariable=self.npc_radius,width=8).grid(row=3,column=1,sticky="w")
+        ttk.Checkbutton(test,text="Vida no limite: ir ao portal e ativar reparador",variable=self.npc_repair).grid(row=4,column=0,columnspan=2,sticky="w")
         ttk.Button(test,text="Testar 1 NPC com LCB-10",command=self.start_npc_test,style="Start.TButton").grid(
-            row=2,column=0,columnspan=2,sticky="ew",pady=8)
+            row=5,column=0,columnspan=2,sticky="ew",pady=8)
         ttk.Label(test,text="Comece com pelo menos 80% de vida e LCB-10 selecionada no jogo. "
-            "F9/F10 interrompem o teste. Ainda não há fuga nem recuperação automática de combate.",
-            wraplength=680,style="Muted.TLabel").grid(row=3,column=0,columnspan=2,sticky="w")
+            "F9/F10 interrompem o teste. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal nem retoma o ataque.",
+            wraplength=680,style="Muted.TLabel").grid(row=6,column=0,columnspan=2,sticky="w")
         ttk.Label(body,text="NPCs presentes no mapa",style="Heading.TLabel").pack(anchor="w",pady=6)
         self.npc_table=ttk.Treeview(body,columns=("kind","hp","distance"),show="headings",height=5)
         for name,title,width in (("kind","Tipo de NPC",230),("hp","Vida",140),("distance","Distância",140)):
@@ -335,7 +342,7 @@ class AutoBoxSemMouse:
         self.last_npc_report=None
         self.stop_event=threading.Event()
         engine=NpcTestWorker(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
-            kind=self.npc_kind.get(),destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"])
+            kind=self.npc_kind.get(),destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get())
         self.worker=threading.Thread(target=engine.run,daemon=True)
         self.worker.start()
 
@@ -542,7 +549,9 @@ class AutoBoxSemMouse:
             if not 25<=min_hp<=75: raise ValueError("Limite de vida do teste: 25 a 75%.")
             if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",self.npc_kind.get()):
                 raise ValueError("Selecione um tipo de NPC válido.")
-            self.cfg.update(npc_kind=self.npc_kind.get(),npc_min_hp=min_hp)
+            radius=int(self.npc_radius.get())
+            if not 150<=radius<=500: raise ValueError("Distância do NPC: 150 a 500 unidades.")
+            self.cfg.update(npc_kind=self.npc_kind.get(),npc_min_hp=min_hp,npc_radius=radius,npc_orbit=self.npc_orbit.get(),npc_repair=self.npc_repair.get())
             deaths=int(self.max_deaths.get()); cost=int(self.max_cost.get())
             if not 1<=deaths<=100 or not 0<=cost<=100000:
                 raise ValueError("Mortes: 1 a 100; custo: 0 a 100000.")

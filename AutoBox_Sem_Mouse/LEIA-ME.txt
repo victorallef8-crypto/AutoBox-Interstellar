@@ -1,4 +1,4 @@
-AUTOBOX INTERSTELLAR — BETA 0.8.1
+AUTOBOX INTERSTELLAR — BETA 0.9.0
 
 ATUALIZAÇÃO
 No Painel, use Verificar atualizações deste bot. Configurações e sessão do Opera são preservadas.
@@ -18,8 +18,8 @@ Não envia ordens de míssil, não compra munição e não escolhe jogadores com
 Não repete Ctrl enquanto espera confirmação do ataque.
 A parada usa a seleção explícita do mesmo NPC com ataque desligado pelo cliente, evitando alternar Ctrl novamente.
 F9/F10 encerram o teste e tentam desligar os tiros; confira a mensagem de confirmação.
-Vida mínima padrão: 40%. O limite INTERROMPE TIROS; ainda não há fuga nem recuperação automática de combate.
-Sem dados, sem dano/progresso, alvo alterado ou vida baixa, o teste encerra.
+Vida mínima padrão: 40%. Sem a opção de reparo, o limite interrompe tiros. Com ela, confirma a parada, vai ao portal normal mais próximo e liga o reparador equipado. Aguarda as condições do jogo (15 segundos sem combate). Encerra ao chegar ao portal com pelo menos 90% de vida; não pula nem reinicia o ataque. F9/F10 cancelam a recuperação.
+Sem dados, sem dano/progresso ou alvo alterado, o teste encerra.
 Confirma derrota quando observa dano, desaparecimento/vida zero do alvo e ganho de XP.
 Não há garantia de confirmação quando outra nave mata o NPC ou a leitura se perde.
 O diagnóstico inclui as ações do teste e se a parada foi confirmada.
@@ -63,10 +63,15 @@ Vida em 25% ou menos pausa coleta. Renascimento local pode exigir recuperação 
 Essas retomadas automáticas são da coleta; o teste de NPC encerra se morrer ou perder leitura.
 
 VALIDAÇÃO
-112 testes Python, testes simulados da navegação e da integração de combate.
+116 testes Python, testes simulados da navegação e da integração de combate.
 A integração de combate foi exercitada com os handlers de seleção, Ctrl e ataque do cliente fornecido.
 Isso não substitui o primeiro teste acompanhado na sua partida.
 
 Instalação nova: Python 3.11+; execute INSTALAR_E_ABRIR.bat.
 
-Beta 0.8.1: se o NPC ainda não puder ser selecionado na tela, aproxima mais do mesmo alvo e tenta novamente, com limite de tempo.
+Beta 0.9.0: se o NPC ainda não puder ser selecionado na tela, aproxima mais do mesmo alvo e tenta novamente, com limite de tempo.
+
+MOVIMENTO CIRCULAR E REPARO (EXPERIMENTAL)
+Circular ao redor do NPC: distância desejada de 150 a 500 unidades, padrão 450. Compara os sentidos para preferir maior distância dos outros NPCs. Não garante evitar dano; o alcance inimigo ainda não foi medido.
+Vida no limite: ir ao portal e ativar reparador é opcional e começa desmarcado. Requer CPU/robô equipado. Movimento e proximidade do portal não garantem proteção nem início do reparo. Sem confirmação de ativação, encerra sem alternar novamente o botão. A recuperação tem limite de 3 minutos.
+Validado com testes simulados; acompanhe a primeira luta na partida.
