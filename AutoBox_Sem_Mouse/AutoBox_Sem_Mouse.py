@@ -1,7 +1,6 @@
 """AutoBox Sem Mouse — aplicativo independente, exclusivo de coleta no Interstellar."""
 from __future__ import annotations
 import ctypes
-import io
 import json
 import os
 import queue
@@ -10,19 +9,13 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
-import cv2
-import numpy as np
-from PIL import Image, ImageTk
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
-from collector import Collector
-from controller import inside, detection_area, visible_box, DataFarmPlanner, DataCollector, SessionEarnings
-from vision import locate_boxes
+from controller import DataFarmPlanner, DataCollector, SessionEarnings
 import updater
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxSemMouse"
 CONFIG_PATH = APP_DIR / "config.json"
-MODEL_PATH = APP_DIR / "box.png"
 if os.name == "nt":
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -36,26 +29,14 @@ def read_config():
     except (OSError, ValueError):
         return {}
 
-def valid_area(area, viewport):
-    try:
-        return (all(isinstance(area[k], (int, float)) for k in ("left", "top", "width", "height"))
-                and area["left"] >= 0 and area["top"] >= 0 and area["width"] > 0 and area["height"] > 0
-                and area["left"] + area["width"] <= viewport["width"]
-                and area["top"] + area["height"] <= viewport["height"])
-    except (KeyError, TypeError):
-        return False
 
 class AutoBoxSemMouse:
     def __init__(self, root):
         self.root = root
         APP_DIR.mkdir(parents=True, exist_ok=True)
         self.cfg = read_config()
-        self.cfg.setdefault("full_map", True)
         self.viewport = {"width": max(800, min(1280, root.winfo_screenwidth()-60)),
                          "height": max(500, min(720, root.winfo_screenheight()-120))}
-        if self.cfg.get("viewport") != self.viewport:
-            for key in ("map", "ship", "notice", "minimap"):
-                self.cfg.pop(key, None)
         self.cfg["viewport"] = self.viewport
         self.session = BrowserSession(APP_DIR / "opera_session", self.viewport)
         self.events = queue.Queue()
@@ -64,7 +45,6 @@ class AutoBoxSemMouse:
         self.worker = None
         self.opening = False
         self.closing = False
-        self.last_preview = None
         self.attempts = self.confirmed = self.failed = 0
         self.running = False
         self.active_started = 0.
@@ -75,14 +55,10 @@ class AutoBoxSemMouse:
         self.running_label = tk.StringVar(value="Coleta pausada")
         self.status = tk.StringVar(value="Abra o Opera GX dedicado para comecar.")
         self.stats = tk.StringVar(value="Tentativas: 0 | Confirmadas: 0 | Sem progresso: 0")
-        self.threshold = tk.StringVar(value=str(self.cfg.get("threshold", .9)))
-        self.area_labels = {}
-        self.full_map = tk.BooleanVar(value=self.cfg["full_map"])
         self.world_vars = {key:tk.StringVar(value="—") for key in
                            ("status","map","position","hp","counts","nearest","distance","sequence")}
         self.world_vars["status"].set("Abra o Opera dedicado e entre no mapa.")
         self.last_world_refresh = -100.
-        self.collection_mode = tk.StringVar(value=self.cfg.get("collection_mode","Dados do jogo"))
         self.green = tk.BooleanVar(value=self.cfg.get("green",False))
         self.reconnect = tk.BooleanVar(value=self.cfg.get("reconnect",True))
         self.respawn = tk.StringVar(value=self.cfg.get("respawn","Desativado"))
@@ -101,7 +77,6 @@ class AutoBoxSemMouse:
         root.minsize(760,min(620,root.winfo_screenheight()-80))
         self._draw()
         self._draw_world_page()
-        self._refresh()
         self._bind_keys()
         root.after(100, self._drain)
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -185,7 +160,7 @@ class AutoBoxSemMouse:
             self.notebook.add(page,text=title)
         advanced=ttk.Notebook(self.pages["advanced"])
         advanced.pack(fill="both",expand=True)
-        for key,title in (("browser","Navegador"),("diagnostics","Diagnóstico"),("collection","Coleta por imagem")):
+        for key,title in (("browser","Navegador"),("diagnostics","Diagnóstico")):
             page=ttk.Frame(advanced)
             self.pages[key]=page
             advanced.add(page,text=title)
@@ -225,30 +200,6 @@ class AutoBoxSemMouse:
         log_scroll.pack(side="right",fill="y")
         self.log.pack(fill="both",expand=True)
 
-        collection=self._scroll_page(self.pages["collection"])
-        ttk.Label(collection,text="Coleta por imagem (modo anterior)",style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(collection,text="Use o zoom desejado no Opera antes de aprender a box. As marcações usam uma imagem congelada.",
-                  wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=(4,12))
-        calibrate=ttk.LabelFrame(collection,text="Reconhecimento e áreas",padding=12)
-        calibrate.pack(fill="x")
-        for row,(key,label) in enumerate((("map","Marcar área espacial do mapa"),("sample","Aprender uma box"),
-                                          ("ship","Marcar somente a nave"),("minimap","Marcar zona segura no minimapa"),
-                                          ("notice","Marcar mensagens de recompensa"))):
-            ttk.Button(calibrate,text=label,command=lambda k=key:self.calibrate(k)).grid(
-                row=row,column=0,sticky="ew",pady=3)
-            var=tk.StringVar(); self.area_labels[key]=var
-            ttk.Label(calibrate,textvariable=var).grid(row=row,column=1,sticky="w",padx=14)
-        calibrate.columnconfigure(0,weight=1)
-        ttk.Checkbutton(calibrate,text="Incluir boxes na faixa inferior do jogo (excluir minimapa)",
-                        variable=self.full_map,command=self.save).grid(row=5,column=0,columnspan=2,sticky="w",pady=(12,0))
-        settings=ttk.LabelFrame(collection,text="Precisão da imagem",padding=12)
-        settings.pack(fill="x",pady=12)
-        ttk.Label(settings,text="Confiança (0,60 a 0,95)").pack(side="left")
-        ttk.Entry(settings,textvariable=self.threshold,width=9).pack(side="left",padx=10)
-        ttk.Button(settings,text="Salvar ajustes",command=self.save).pack(side="left")
-        ttk.Label(collection,text="A nave mantém um alvo por vez. A patrulha só procura novas boxes quando não há coleta em andamento.",
-                  wraplength=650,style="Muted.TLabel").pack(anchor="w")
-
         browser=self._scroll_page(self.pages["browser"])
         ttk.Label(browser,text="Sessão dedicada do Opera GX",style="Heading.TLabel").pack(anchor="w",pady=(0,12))
         ttk.Button(browser,text="Abrir Opera GX e entrar no jogo",command=self.open_browser).pack(fill="x",pady=4)
@@ -259,19 +210,12 @@ class AutoBoxSemMouse:
 
         diagnostics=self._scroll_page(self.pages["diagnostics"])
         self.diagnostics_body=diagnostics
-        ttk.Label(diagnostics,text="Conferir o reconhecimento",style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(diagnostics,text="Os dois testes abaixo pausam a coleta. Confira as marcações antes de iniciar novamente.",
-                  wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=(4,12))
-        ttk.Button(diagnostics,text="Testar detecção (sem mover a nave)",command=self.test_detection).pack(fill="x",pady=4)
-        ttk.Button(diagnostics,text="Ver imagem e ponto do último clique",command=self.preview).pack(fill="x",pady=4)
-        ttk.Label(diagnostics,text="Marcação azul: candidato reconhecido. Cruz vermelha: ponto enviado para o clique. Uma tentativa só aparece como confirmada quando há uma nova mensagem de recompensa detectada.",
-                  wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=12)
-
+        ttk.Label(diagnostics,text="Diagnóstico da coleta por dados",style="Heading.TLabel").pack(anchor="w")
 
     def _draw_world_page(self):
         body = self._scroll_page(self.pages["data"])
         ttk.Label(body,text="Dados ao vivo do jogo",style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(body,text="Coleta por ID e coordenadas. Escolha Dados do jogo e use F8 para iniciar; F9 pausa.",
+        ttk.Label(body,text="Coleta por ID e coordenadas. F8 inicia; F9 pausa.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=(4,12))
         group=ttk.LabelFrame(body,text="Estado recebido pela janela dedicada",padding=14)
         group.pack(fill="x")
@@ -283,9 +227,6 @@ class AutoBoxSemMouse:
         group.columnconfigure(1,weight=1)
         plan=ttk.LabelFrame(body,text="Preferências de coleta",padding=12)
         plan.pack(fill="x",pady=10)
-        ttk.Label(plan,text="Modo de coleta (F8)").pack(anchor="w")
-        ttk.Combobox(plan,textvariable=self.collection_mode,state="readonly",
-                     values=("Dados do jogo","Imagem (anterior)")).pack(fill="x",pady=(4,10))
         ttk.Checkbutton(plan,text="Coletar caixas verdes usando minhas chaves (não compra chaves)",
                         variable=self.green,command=self.save).pack(anchor="w",pady=4)
         ttk.Checkbutton(plan,text="Reconectar e retomar após perda de conexão",
@@ -445,25 +386,17 @@ class AutoBoxSemMouse:
         self.log.see("end")
         self.log.configure(state="disabled")
 
-    def _refresh(self):
-        for key, label in self.area_labels.items():
-            ready = MODEL_PATH.is_file() if key == "sample" else valid_area(self.cfg.get(key), self.viewport)
-            label.set("Pronto" if ready else ("Opcional" if key in ("notice","minimap") else "Falta calibrar"))
 
     def save(self):
         try:
-            threshold = float(self.threshold.get().replace(",", "."))
-            if not .6 <= threshold <= .95:
-                raise ValueError("Use confianca entre 0,60 e 0,95.")
             deaths=int(self.max_deaths.get()); cost=int(self.max_cost.get())
             if not 1<=deaths<=100 or not 0<=cost<=100000:
                 raise ValueError("Mortes: 1 a 100; custo: 0 a 100000.")
             self.cfg.update(respawn=self.respawn.get(),max_deaths=deaths,max_cost=cost)
             self.cfg["green"] = self.green.get()
             self.cfg["reconnect"] = self.reconnect.get()
-            self.cfg["collection_mode"] = self.collection_mode.get()
-            self.cfg["threshold"] = threshold
-            self.cfg["full_map"] = bool(self.full_map.get())
+            for key in ("collection_mode","threshold","full_map","map","ship","notice","minimap"):
+                self.cfg.pop(key,None)
             temporary = CONFIG_PATH.with_suffix(".tmp")
             temporary.write_text(json.dumps(self.cfg, indent=2), encoding="utf-8")
             os.replace(temporary, CONFIG_PATH)
@@ -505,8 +438,6 @@ class AutoBoxSemMouse:
                 self.opening = False
         threading.Thread(target=open_session, daemon=True).start()
 
-    def _decode(self, data):
-        return cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
 
     def start(self):
         if self.closing:
@@ -520,48 +451,24 @@ class AutoBoxSemMouse:
             return
         if not self.save():
             return
-        if self.collection_mode.get()=="Dados do jogo":
-            snapshot=self.session.get_world_snapshot()
-            if not snapshot.get("fresh"):
-                self.say("Aguarde a leitura ao vivo na aba Dados antes de iniciar.")
-                return
-            if snapshot.get("hp_percent") is None or snapshot["hp_percent"]<=25 or snapshot.get("dead"):
-                self.say("Recupere a nave antes de iniciar a coleta por dados.")
-                return
-            self.stop_event=threading.Event()
-            self.earnings.observe(snapshot,False)
-            engine=DataCollector(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
-                                 settings={"green":self.green.get(),"reconnect":self.reconnect.get(),
-                                     "respawn":{"Base":"base","Portal":"portal","Local":"spot"}.get(self.respawn.get()),
-                                     "max_deaths":self.cfg["max_deaths"],"max_cost":self.cfg["max_cost"],
-                                     "death_state":self.death_state})
-            self.worker=threading.Thread(target=engine.run,daemon=True)
-            self.worker.start()
-            self.say("Coleta por dados iniciada. Mantém o alvo até a coleta; F9 pausa.")
+        snapshot=self.session.get_world_snapshot()
+        if not snapshot.get("fresh"):
+            self.say("Aguarde a leitura ao vivo na aba Dados antes de iniciar.")
             return
-        required = all(valid_area(self.cfg.get(k), self.viewport) for k in ("map","ship"))
-        if not required or not MODEL_PATH.is_file():
-            self.say("Calibre o mapa, aprenda uma box e marque somente a nave.")
+        if snapshot.get("hp_percent") is None or snapshot["hp_percent"]<=25 or snapshot.get("dead"):
+            self.say("Recupere a nave antes de iniciar a coleta por dados.")
             return
-        if (self.cfg["ship"]["width"] > self.cfg["map"]["width"]/2 or
-                self.cfg["ship"]["height"] > self.cfg["map"]["height"]/2):
-            self.say("A marcacao da nave deve envolver somente a nave, sem o mapa inteiro.")
-            return
-        if not inside((self.cfg["ship"]["left"], self.cfg["ship"]["top"]), self.cfg["map"]) or not inside(
-                (self.cfg["ship"]["left"]+self.cfg["ship"]["width"],
-                 self.cfg["ship"]["top"]+self.cfg["ship"]["height"]), self.cfg["map"]):
-            self.say("A area da nave deve ficar dentro do mapa.")
-            return
-        sample = cv2.imread(str(MODEL_PATH))
-        if sample is None:
-            self.say("Aprenda novamente uma box.")
-            return
-        self.stop_event = threading.Event()
-        engine = Collector(self.session, self.cfg, sample, self.stop_event,
-                           lambda event, data: self.events.put((event,data)), self._decode)
-        self.worker = threading.Thread(target=engine.run, daemon=True)
+        self.stop_event=threading.Event()
+        self.earnings.observe(snapshot,False)
+        engine=DataCollector(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
+                             settings={"green":self.green.get(),"reconnect":self.reconnect.get(),
+                                 "respawn":{"Base":"base","Portal":"portal","Local":"spot"}.get(self.respawn.get()),
+                                 "max_deaths":self.cfg["max_deaths"],"max_cost":self.cfg["max_cost"],
+                                 "death_state":self.death_state})
+        self.worker=threading.Thread(target=engine.run,daemon=True)
         self.worker.start()
-        self.say("Coleta iniciada. Voce pode usar outra janela; F9 pausa.")
+        self.say("Coleta por dados iniciada. Mantém o alvo até a coleta; F9 pausa.")
+        return
 
     def pause(self):
         self.stop_event.set()
@@ -571,152 +478,11 @@ class AutoBoxSemMouse:
         self.stop_event.set()
         self.say("Parado.")
 
-    def calibrate(self, mode):
-        if not self.session.ready.is_set():
-            self.say("Abra o Opera GX dedicado e entre no jogo antes de calibrar.")
-            return
-        self.stop_event.set()
-        if self.worker is not None and self.worker.is_alive():
-            self.root.after(100, lambda: self.calibrate(mode))
-            return
-        def capture():
-            try:
-                data = self.session.request("screenshot")
-                self.events.put(("calibrate", (mode,data)))
-            except Exception as exc:
-                self.events.put(("status", str(exc)))
-        threading.Thread(target=capture, daemon=True).start()
-
-    def _select(self, mode, data):
-        image = Image.open(io.BytesIO(data)).convert("RGB")
-        if image.size != (self.viewport["width"], self.viewport["height"]):
-            self.say("A imagem mudou de tamanho. Reabra e calibre novamente.")
-            return
-        overlay = tk.Toplevel(self.root)
-        overlay.title("Calibracao — imagem congelada")
-        overlay.overrideredirect(True)
-        overlay.geometry("%sx%s+0+0" % image.size)
-        overlay.attributes("-topmost", True)
-        overlay.after_idle(overlay.focus_force)
-        canvas = tk.Canvas(overlay, width=image.width, height=image.height, highlightthickness=0, cursor="crosshair")
-        canvas.pack()
-        photo = ImageTk.PhotoImage(image)
-        canvas._photo = photo
-        canvas.create_image(0,0,anchor="nw",image=photo)
-        label = {"map":"Arraste apenas a area espacial do mapa", "ship":"Arraste um retangulo justo na nave, sem boxes",
-                 "minimap":"Arraste uma zona segura DENTRO do minimapa", "notice":"Arraste somente as mensagens novas de recompensa",
-                 "sample":"Clique precisamente no CENTRO de uma box"}[mode]
-        canvas.create_rectangle(8,8,min(image.width-8,800),45,fill="#17364c",outline="cyan")
-        canvas.create_text(18,26,text="IMAGEM CONGELADA | "+label+" | ESC cancela",fill="white",anchor="w",font=("Segoe UI",12))
-        start, drawn = [None], [None]
-        def finish():
-            overlay.destroy()
-            self.root.deiconify()
-            self._refresh()
-        def down(event):
-            start[0] = (event.x,event.y)
-        def move(event):
-            if start[0] and mode != "sample":
-                if drawn[0] is not None:
-                    canvas.delete(drawn[0])
-                drawn[0] = canvas.create_rectangle(*start[0],event.x,event.y,outline="cyan",width=2)
-        def up(event):
-            if not start[0]:
-                return
-            if mode == "sample":
-                x,y=event.x,event.y
-                if 15 <= x < image.width-15 and 15 <= y < image.height-15:
-                    image.crop((x-15,y-15,x+16,y+16)).save(MODEL_PATH)
-                    self.say("Modelo de box salvo.")
-            else:
-                x1,x2=sorted((max(0,min(image.width,start[0][0])),max(0,min(image.width,event.x)))); y1,y2=sorted((max(0,min(image.height,start[0][1])),max(0,min(image.height,event.y))))
-                area={"left":x1,"top":y1,"width":x2-x1,"height":y2-y1}
-                minimum=150 if mode=="map" else 20
-                if area["width"] >= minimum and area["height"] >= minimum:
-                    self.cfg[mode]=area
-                    self.save()
-                    self.say("Area salva: "+mode)
-                else:
-                    self.say("Selecao pequena demais. Marque novamente.")
-            finish()
-        canvas.bind("<ButtonPress-1>",down)
-        canvas.bind("<B1-Motion>",move)
-        canvas.bind("<ButtonRelease-1>",up)
-        overlay.bind("<Escape>",lambda event: finish())
 
 
-    def test_detection(self):
-        self.stop_event.set()
-        if self.worker is not None and self.worker.is_alive():
-            self.root.after(100, self.test_detection)
-            return
-        if not self.session.ready.is_set():
-            self.say("Abra a sessao dedicada primeiro.")
-            return
-        if not valid_area(self.cfg.get("map"), self.viewport) or not MODEL_PATH.is_file():
-            self.say("Marque o mapa dentro da imagem e aprenda uma box primeiro.")
-            return
-        if not self.save():
-            return
-        area = detection_area(self.cfg, self.viewport)
-        config = dict(self.cfg)
-        threshold = self.cfg["threshold"]
-        def capture():
-            try:
-                data = self.session.request("screenshot")
-                frame = self._decode(data)
-                sample = cv2.imread(str(MODEL_PATH))
-                if frame is None or sample is None:
-                    raise ValueError("Imagem ou modelo indisponivel.")
-                x,y,w,h = (int(area[k]) for k in ("left","top","width","height"))
-                matches = locate_boxes(frame[y:y+h,x:x+w], sample, threshold=threshold)
-                points = [(px+x,py+y,score) for px,py,score in matches if visible_box((px+x,py+y),config)]
-                self.events.put(("detection", (data,points)))
-            except Exception as exc:
-                self.events.put(("status", "Teste interrompido: "+str(exc)))
-        threading.Thread(target=capture, daemon=True).start()
 
-    def show_detection(self, data, points):
-        image = Image.open(io.BytesIO(data)).convert("RGB")
-        original = image.size
-        image.thumbnail((self.root.winfo_screenwidth()-80,self.root.winfo_screenheight()-180))
-        sx,sy = image.width/original[0],image.height/original[1]
-        window = tk.Toplevel(self.root)
-        window.title("Teste de deteccao — coleta pausada")
-        ttk.Label(window, text="%s candidatos. As cruzes devem ficar nas boxes. Nenhum clique foi enviado." % len(points),
-                  padding=8).pack()
-        canvas = tk.Canvas(window,width=image.width,height=image.height,highlightthickness=0)
-        canvas.pack()
-        photo = ImageTk.PhotoImage(image); canvas._photo = photo
-        canvas.create_image(0,0,anchor="nw",image=photo)
-        for x,y,score in points:
-            x,y = x*sx,y*sy
-            canvas.create_rectangle(x-10,y-10,x+10,y+10,outline="cyan",width=2)
-            canvas.create_text(x+12,y,text="%.2f" % score,anchor="w",fill="cyan")
-        window.lift()
-        self.say("Teste: %s candidatos reconhecidos. Confira as marcacoes na imagem." % len(points))
 
-    def preview(self):
-        self.pause()
-        if self.last_preview is None:
-            self.say("Ainda nao foi enviado um clique de box nesta sessao.")
-            return
-        frame, point, click_info = self.last_preview
-        image=Image.fromarray(cv2.cvtColor(frame,cv2.COLOR_BGR2RGB))
-        original=image.size
-        image.thumbnail((self.root.winfo_screenwidth()-80,self.root.winfo_screenheight()-160))
-        sx,sy=image.width/original[0],image.height/original[1]
-        window=tk.Toplevel(self.root); window.title("Ultimo clique — cruz vermelha")
-        ttk.Label(window,text="Confira se a cruz vermelha esta no centro da box. Coleta pausada.",padding=8).pack()
-        if click_info:
-            px,py=click_info["image"]; cx,cy=click_info["css"]
-            ttk.Label(window,text="Imagem: (%.1f, %.1f) | Clique no navegador: (%.1f, %.1f)" % (px,py,cx,cy)).pack()
-        canvas=tk.Canvas(window,width=image.width,height=image.height,highlightthickness=0); canvas.pack()
-        photo=ImageTk.PhotoImage(image); canvas._photo=photo
-        canvas.create_image(0,0,anchor="nw",image=photo)
-        x,y=point[0]*sx,point[1]*sy
-        canvas.create_line(x-14,y,x+14,y,fill="red",width=2)
-        canvas.create_line(x,y-14,x,y+14,fill="red",width=2)
+
 
     def check_updates(self):
         self.say("Verificando atualizacoes deste bot...")
@@ -755,18 +521,12 @@ class AutoBoxSemMouse:
                 self._set_running(data)
             elif event=="status":
                 self.say(data)
-            elif event=="detection":
-                self.show_detection(*data)
-            elif event=="preview":
-                self.last_preview=data
             elif event=="attempt":
                 self.attempts+=1
             elif event=="confirmed":
                 self.confirmed+=1
             elif event=="failed":
                 self.failed+=1
-            elif event=="calibrate":
-                self._select(*data)
             elif event=="update":
                 if messagebox.askyesno("Atualizacao", "Instalar a versao "+data["version"]+" deste bot?"):
                     self._download(data)

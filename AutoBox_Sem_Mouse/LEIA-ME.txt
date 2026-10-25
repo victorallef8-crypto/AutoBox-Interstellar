@@ -1,12 +1,13 @@
-AutoBox Interstellar — Beta 0.6.0
+AutoBox Interstellar — Beta 0.6.1
 
 ATUALIZAR
+Esta versão remove os modos antigos de imagem e clique e as dependências OpenCV, NumPy e Pillow.
 No Painel, use Verificar atualizações deste bot. As preferências e a sessão do navegador ficam na pasta de dados do aplicativo.
 
 COMEÇAR
 1. No Painel, clique Iniciar jogo. O navegador dedicado abre https://interstellar-verse.com/.
 2. Faça login e entre no mapa. Em Dados e coleta, aguarde Leitura ao vivo.
-3. Use Dados do jogo como modo. F8 inicia; F9 pausa; F10 para e cancela reconexões. Um percurso já aceito pelo jogo pode terminar.
+3. F8 inicia; F9 pausa; F10 para e cancela reconexões. Um percurso já aceito pelo jogo pode terminar.
 4. A coleta por dados dispensa marcação de áreas. Mantém a box mais próxima como alvo até terminar.
 5. Mantenha o navegador aberto. O funcionamento minimizado ainda precisa de validação.
 
@@ -25,14 +26,14 @@ PREFERÊNCIAS
 - Ajustes de coleta, reconexão e renascimento são aplicados ao iniciar com F8.
 
 AVANÇADO
-Navegador, diagnóstico, exportação e calibração do modo Imagem (anterior) ficam separados do uso diário. As novas preferências de chaves, renascimento e reconexão são do modo Dados do jogo.
+Navegador, diagnóstico por dados e exportação ficam separados do uso diário. A coleta por dados é o único modo. Foram removidos calibração, aprendizado de imagem, teste visual e clique por coordenadas de captura. As preferências antigas de imagem são descartadas ao salvar; as demais configurações são preservadas.
 
 AINDA PENDENTE
 Escolher mapa e viajar automaticamente pelos portais; fugir de jogadores; recuperação automática de vida; combate/NPCs; PET e seus modos.
 O coletor atual aguarda boxes no mapa em que a nave está. Não compra chaves nem troca de mapa sozinho.
 
 VALIDAÇÃO
-140 testes Python de leitura, planejamento, interface, atualização, cancelamento, estatísticas, chaves, renascimento e reconexão.
+83 testes Python de leitura, planejamento, interface, atualização, cancelamento, estatísticas, chaves, renascimento e reconexão.
 Teste local da ponte com callbacks do cliente fornecido, incluindo zoom 33%, 100% e 200%, e caixas verdes.
 Teste do botão de renascimento com preço atual, morte diferente e painel oculto.
 Replay privado de 22 mensagens do jogo, sem publicar dados da sessão.

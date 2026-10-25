@@ -56,7 +56,6 @@ class BrowserSessionTests(unittest.TestCase):
         self.session.start("opera-gx.exe")
         self.assertTrue(self.session.ready.wait(2))
         self.page.url = GAME_URL  # Usuario entra no mapa pela pagina inicial.
-        self.session.request("screenshot")
     def tearDown(self):
         self.session.close()
         self.temp.cleanup()
@@ -166,93 +165,16 @@ class BrowserSessionTests(unittest.TestCase):
         self.assertFalse(args["headless"])
         self.assertTrue(args["chromium_sandbox"])
 
-    def test_capture_returns_browser_pixels(self):
-        self.assertEqual(self.session.request("screenshot"), self.page.png)
-        self.assertNotEqual(self.page.threads[0], threading.get_ident())
-
-    def test_click_uses_page_mouse_with_viewport_coordinates(self):
-        self.assertTrue(self.session.request("click", (120, 240), allowed=lambda: True))
-        self.page.mouse.click.assert_called_once_with(120, 240, button="left", delay=40)
-
-    def test_paused_bot_does_not_send_queued_click(self):
-        self.assertFalse(self.session.request("click", (120, 240), allowed=lambda: False))
+    def test_removed_image_operations_are_rejected(self):
+        for operation in ("screenshot","click"):
+            with self.assertRaisesRegex(RuntimeError,"desconhecido"):
+                self.session.request(operation,(10,20))
         self.page.mouse.click.assert_not_called()
 
-    def test_expired_request_is_not_executed_later(self):
-        reply = queue.Queue()
-        cancelled = threading.Event()
-        cancelled.set()
-        self.session.jobs.put(("click", (120, 240), lambda: True, reply, cancelled))
-        self.session.request("screenshot")
+    def test_expired_data_request_is_cancelled(self):
+        reply=queue.Queue(); cancelled=threading.Event(); cancelled.set()
+        self.session.jobs.put(("data_target",{},lambda:True,reply,cancelled))
         self.assertFalse(reply.get(timeout=1)[0])
-        self.page.mouse.click.assert_not_called()
-
-    def test_offsite_navigation_blocks_clicks(self):
-        self.page.url = "https://example.com/"
-        with self.assertRaisesRegex(RuntimeError, "pagina de jogo"):
-            self.session.request("click", (120, 240))
-        self.page.mouse.click.assert_not_called()
-
-    def test_outside_viewport_is_rejected(self):
-        with self.assertRaisesRegex(RuntimeError, "fora"):
-            self.session.request("click", (1280, 200))
-        self.page.mouse.click.assert_not_called()
-
-    def test_browser_zoom_33_maps_image_pixels_to_css_pixels(self):
-        self.page.metrics.update(width=3840,height=2160,dpr=1/3)
-        self.session.request("screenshot")
-        self.assertTrue(self.session.request("click",(781,371)))
-        self.page.mouse.click.assert_called_once_with(2343,1113,button="left",delay=40)
-        self.assertEqual(self.session.last_click["image"],(781,371))
-        self.assertEqual(self.session.last_click["css"],(2343,1113))
-
-    def test_zoom_50_and_hidpi_use_actual_image_size(self):
-        self.page.metrics.update(width=2560,height=1440,dpr=1)
-        self.page.png=b"\x89PNG\r\n\x1a\n"+b"\x00"*8+struct.pack(">II",2560,1440)
-        self.session.request("screenshot")
-        self.session.request("click",(700,400))
-        self.page.mouse.click.assert_called_once_with(700,400,button="left",delay=40)
-
-    def test_minimap_click_uses_the_same_zoom_mapping(self):
-        self.page.metrics.update(width=3840,height=2160,dpr=1/3)
-        self.session.request("screenshot")
-        self.session.request("click",(766,684))
-        self.page.mouse.click.assert_called_once_with(2298,2052,button="left",delay=40)
-
-    def test_zoom_changed_after_screenshot_blocks_stale_click(self):
-        self.page.metrics.update(width=3840,height=2160,dpr=1/3)
-        with self.assertRaisesRegex(RuntimeError,"mudou apos"):
-            self.session.request("click",(120,240))
-        self.page.mouse.click.assert_not_called()
-
-    def test_wrong_page_cannot_reuse_capture_coordinates(self):
-        old=self.context.pages[0]
-        new=FakePage(); new.url=old.url
-        self.context.pages.append(new)
-        with self.assertRaisesRegex(RuntimeError,"Capture a imagem"):
-            self.session.request("click",(120,240))
-        new.mouse.click.assert_not_called()
-
-    def test_pause_during_geometry_check_still_blocks_click(self):
-        count=[0]
-        def allowed():
-            count[0]+=1
-            return count[0]==1
-        self.assertFalse(self.session.request("click",(120,240),allowed=allowed))
-        self.page.mouse.click.assert_not_called()
-
-    def test_invalid_geometry_does_not_send_click(self):
-        self.page.metrics["width"]=float("nan")
-        with self.assertRaisesRegex(RuntimeError,"Medidas"):
-            self.session.request("click",(120,240))
-        self.page.mouse.click.assert_not_called()
-
-    def test_failed_capture_cannot_reuse_old_mapping(self):
-        self.page.screenshot=Mock(side_effect=RuntimeError("capture failed"))
-        with self.assertRaises(RuntimeError):
-            self.session.request("screenshot")
-        with self.assertRaisesRegex(RuntimeError,"Capture a imagem"):
-            self.session.request("click",(120,240))
         self.page.mouse.click.assert_not_called()
 
     def test_close_ends_session_and_browser(self):
@@ -260,11 +182,6 @@ class BrowserSessionTests(unittest.TestCase):
         self.assertTrue(self.session.closed.wait(1))
         self.assertFalse(self.session.ready.is_set())
         self.context.close.assert_called_once()
-
-    def test_screenshot_failure_is_reported(self):
-        self.page.screenshot = Mock(side_effect=RuntimeError("capture failed"))
-        with self.assertRaisesRegex(RuntimeError, "capture failed"):
-            self.session.request("screenshot")
 
     def test_capture_does_not_use_global_mouse(self):
         # O servico depende apenas do objeto page, sem importar PyAutoGUI.

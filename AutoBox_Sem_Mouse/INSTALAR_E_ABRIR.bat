@@ -13,7 +13,7 @@ if not exist ".venv\Scripts\python.exe" (
     py -3 -m venv .venv
     if errorlevel 1 goto :erro
 )
-".venv\Scripts\python.exe" -c "import cv2, pynput, PIL, numpy, playwright" >nul 2>&1
+".venv\Scripts\python.exe" -c "import pynput, playwright" >nul 2>&1
 if errorlevel 1 (
     echo Instalando bibliotecas que estao faltando...
     ".venv\Scripts\python.exe" -m pip install -r requirements.txt

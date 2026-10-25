@@ -2,7 +2,6 @@ from pathlib import Path
 import os
 import queue
 import threading
-import struct
 import math
 import json
 import re
@@ -369,7 +368,7 @@ class ManualCollectProbe:
                     "automatic_commands_sent":0,"reader":self.feed.diagnostic()}
 
 class BrowserSession:
-    """Dono unico do navegador. Captura e cliques nao passam pelo mouse do Windows."""
+    """Dono unico do navegador e da integracao com os dados do jogo."""
     def __init__(self, folder, viewport, factory=None):
         self.folder = Path(folder)
         self.viewport = dict(viewport)
@@ -381,9 +380,6 @@ class BrowserSession:
         self.error = None
         self.warning = None
         self.thread = None
-        self.capture_geometry = None
-        self.capture_page = None
-        self.last_click = None
         self.world_feed = WorldFeed()
         self.probe = ManualCollectProbe(self.world_feed)
         self.data_action = None
@@ -394,9 +390,6 @@ class BrowserSession:
             return
         self.error = None
         self.warning = None
-        self.capture_geometry = None
-        self.capture_page = None
-        self.last_click = None
         self.data_action = None
         self.world_feed.begin(None)
         self.probe = ManualCollectProbe(self.world_feed)
@@ -438,65 +431,8 @@ class BrowserSession:
         return pages[-1]
 
 
-    @staticmethod
-    def _measure(page):
-        # Somente medidas do navegador; nao le estado interno do jogo.
-        value = page.evaluate("""() => ({
-            width: window.innerWidth, height: window.innerHeight,
-            dpr: window.devicePixelRatio,
-            offset_x: window.visualViewport ? window.visualViewport.offsetLeft : 0,
-            offset_y: window.visualViewport ? window.visualViewport.offsetTop : 0,
-            scale: window.visualViewport ? window.visualViewport.scale : 1
-        })""")
-        keys = ("width", "height", "dpr", "offset_x", "offset_y", "scale")
-        if not isinstance(value, dict) or any(
-            not isinstance(value.get(k), (float, int)) or not math.isfinite(value[k]) for k in keys
-        ) or min(value["width"], value["height"], value["dpr"]) <= 0:
-            raise ValueError("Medidas da pagina indisponiveis. Coleta interrompida.")
-        if abs(value["scale"] - 1) > .001 or abs(value["offset_x"]) > .01 or abs(value["offset_y"]) > .01:
-            raise ValueError("Zoom por gesto nao suportado. Use o zoom normal do Opera e calibre novamente.")
-        return value
 
-    def _capture(self, page):
-        self.capture_geometry = None
-        self.capture_page = None
-        before = self._measure(page)
-        data = page.screenshot(type="png", timeout=5000)
-        after = self._measure(page)
-        if before != after:
-            raise ValueError("Zoom ou tamanho mudou durante a captura. Calibre novamente.")
-        if data[:8] != b"\x89PNG\r\n\x1a\n" or len(data) < 24:
-            raise ValueError("Captura PNG invalida.")
-        width, height = struct.unpack(">II", data[16:24])
-        if width <= 0 or height <= 0:
-            raise ValueError("Captura sem tamanho valido.")
-        self.capture_geometry = dict(after, image_width=width, image_height=height)
-        self.capture_page = page
-        return data
 
-    def _click(self, page, point, allowed):
-        geometry = self.capture_geometry
-        if geometry is None or self.capture_page is not page:
-            raise ValueError("Capture a imagem dessa pagina antes de clicar.")
-        current = self._measure(page)
-        if any(current[k] != geometry[k] for k in current):
-            self.capture_geometry = None
-            raise ValueError("Zoom ou tamanho mudou apos a captura. Pause e calibre novamente.")
-        x, y = point
-        if (not math.isfinite(x) or not math.isfinite(y) or
-                not (0 <= x < geometry["image_width"] and 0 <= y < geometry["image_height"])):
-            raise ValueError("Clique fora da imagem do jogo.")
-        # Captura em pixels da imagem; Playwright recebe pixels CSS do viewport.
-        # No zoom 33%, uma imagem de 1280 pode representar cerca de 3840 pixels CSS.
-        css_x = x * geometry["width"] / geometry["image_width"]
-        css_y = y * geometry["height"] / geometry["image_height"]
-        if allowed is not None and not allowed():
-            return False
-        page.mouse.click(css_x, css_y, button="left", delay=40)
-        self.last_click = {"image": (x,y), "css": (css_x,css_y),
-                           "image_size": (geometry["image_width"],geometry["image_height"]),
-                           "css_size": (geometry["width"],geometry["height"])}
-        return True
 
 
     @staticmethod
@@ -719,16 +655,12 @@ class BrowserSession:
                         if allowed is not None and not allowed():
                             reply.put((True, False))
                             continue
-                        if operation == "screenshot":
-                            result = self._capture(page)
-                        elif operation == "respawn":
+                        if operation == "respawn":
                             result = self._respawn(page,payload,allowed)
                         elif operation == "data_target":
                             result = self._data_target(page,payload,allowed)
                         elif operation == "client_sources":
                             result = self._client_sources(page)
-                        elif operation == "click":
-                            result = self._click(page, payload, allowed)
                         else:
                             raise ValueError("Comando de navegador desconhecido.")
                         reply.put((True, result))

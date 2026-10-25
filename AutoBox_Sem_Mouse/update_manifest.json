@@ -1,6 +1,6 @@
 {
-  "version": "0.6.0",
+  "version": "0.6.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "55b34b01bbf2dad59903c0a6adefa69d2465183605daa44ac379d52931ab5ed0",
-  "notes": "Painel compacto, saldos e Uridium/h, caixas verdes opcionais, reconexão e renascimento com limite de mortes e custo."
+  "sha256": "96f92b90737fa9e2c9617a59061b8de97e4543b2e06d0e92bf051d15456cca13",
+  "notes": "Somente coleta por dados. Removidos modo imagem, calibração, teste de clique e dependências de reconhecimento visual."
 }
