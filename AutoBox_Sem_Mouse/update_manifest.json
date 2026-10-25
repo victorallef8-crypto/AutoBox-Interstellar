@@ -1,6 +1,6 @@
 {
-  "version": "0.9.5",
+  "version": "0.9.6",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "9e7e95f2dc9b578f5b5f1b3b911b22a5fd51155746dfc8c842b85d06582be693",
-  "notes": "Corrige retorno por vida baixa sem esperar confirmação inicial da parada; opção experimental de conduzir NPC ao portal e lutar ao redor."
+  "sha256": "2062966dbd6f4a3c06f4af89af08e7f029453b10349b7628109e9e6ea06f74f4",
+  "notes": "Rotação com antecipação pela velocidade e atualização mais frequente; diagnóstico atual de tiros e distância ao portal durante reparo."
 }

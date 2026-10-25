@@ -365,6 +365,7 @@ class NpcTestWorker:
                 raise ValueError("Recuperação interrompida: leitura, mapa ou vida mudou.")
             combat=snap.get("combat",{})
             firing=bool(combat.get("attacking") or combat.get("secondaryVolley"))
+            self.report["attacking"]=combat.get("attacking")
             self.report["hp_percent"]=snap.get("hp_percent")
             self.report["repair_active"]=combat.get("repairActive",False)
             if now-started>180: raise ValueError("Recuperação excedeu 3 minutos; confira o jogo.")
@@ -376,6 +377,7 @@ class NpcTestWorker:
                 if result.get("action")!="retreating":
                     raise ValueError("Retorno ao portal não aceito: "+result.get("action","?"))
                 gate=result.get("gate"); self.report["recovery_gate"]=gate
+                self.report["portal_distance"]=result.get("distance")
                 if result.get("repair")=="unavailable": raise ValueError("Equipe uma CPU/robô de reparo no jogo.")
                 if result.get("repair") in ("sent","enabled") and repair_sent is None: repair_sent=now
                 if result.get("distance",99999)<=80 and (snap.get("hp_percent") or 0)>=90:
@@ -386,7 +388,7 @@ class NpcTestWorker:
             elif not firing:
                 self.report["stop_confirmed"]=True
             self.publish("Indo ao portal; aguardando parada dos tiros." if firing else "Indo ao portal; reparo aguarda as condições de combate do jogo.")
-            if self.stop.wait(.2): break
+            if self.stop.wait(.1): break
 
     def run(self):
         travel=MapTravel(self.session,self.stop,self.emit,self.destination,self.clock)
@@ -462,7 +464,7 @@ class NpcTestWorker:
                         self.progress=now
                     elif now-sent>5: raise ValueError("Comando "+name+" não foi confirmado pelo jogo.")
                     else:
-                        if self.stop.wait(.2): break
+                        if self.stop.wait(.1): break
                         continue
                 if selected and combat.get("attacking") is not True:
                     result=self.action("attack")
@@ -472,7 +474,7 @@ class NpcTestWorker:
                     self.publish("Aguardando confirmação do ataque; mantendo o mesmo NPC.")
                 elif selected and self.portal_fight:
                     if now>=self.next_move:
-                        result=self.action("portal_lure",gate=self.fight_gate); self.next_move=now+.35
+                        result=self.action("portal_lure",gate=self.fight_gate); self.next_move=now+.15
                         if result.get("action")!="luring": raise ValueError("Condução ao portal não aceita: "+result.get("action","?"))
                         self.fight_gate=result.get("gate"); self.report["combat_gate"]=self.fight_gate
                         gate_distance=result.get("distance")
@@ -499,12 +501,12 @@ class NpcTestWorker:
                         raise ValueError("NPC não selecionado: "+result.get("action","?"))
                 else:
                     if (self.orbit or d<self.radius-40) and now>=self.next_move:
-                        result=self.action("orbit",radius=self.radius,direction=self.direction,rotate=self.orbit); self.next_move=now+.35
+                        result=self.action("orbit",radius=self.radius,direction=self.direction,rotate=self.orbit); self.next_move=now+.15
                         if result.get("action")!="orbiting":
                             raise ValueError("Movimento circular não aceito: "+result.get("action","?"))
                         self.direction=result.get("direction",self.direction)
                     self.publish(("Circulando e atacando " if self.orbit else "Atacando ")+self.kind+" com LCB-10. F9 interrompe o teste.")
-                if self.stop.wait(.2): break
+                if self.stop.wait(.1): break
         except Exception as exc:
             self.publish(str(exc))
         finally:
