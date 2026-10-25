@@ -7,6 +7,11 @@ Nao inspeciona trafego, memoria, contas ou arquivos do jogo.
 from __future__ import annotations
 
 import ctypes
+import contextlib
+import importlib.util
+import io
+import subprocess
+import sys
 import json
 import os
 import queue
@@ -15,7 +20,7 @@ import threading
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import cv2
 import mss
@@ -37,7 +42,7 @@ PROFILES = (
 
 
 def profile_paths(profile_id):
-    if profile_id not in {profile["id"] for profile in PROFILES}:
+    if profile_id not in {profile["id"] for profile in PROFILES} | {"interstellar_browser"}:
         raise ValueError("Perfil desconhecido")
     # O Interstellar continua usando os caminhos antigos: sem perder calibracao.
     folder = APP_DIR if profile_id == "interstellar" else APP_DIR / "profiles" / profile_id
@@ -302,15 +307,15 @@ def send_windows_click(x, y, hold, ready, wait, user32=None):
 
 
 class AutoBoxApp:
-    def __init__(self, root: tk.Tk, parent=None, profile_id="interstellar", coordinator=None):
+    def __init__(self, root: tk.Tk, parent=None, profile_id="interstellar", coordinator=None, storage_id=None):
         self.root = root
         self.parent = parent if parent is not None else root
         self.profile_id = profile_id
         self.profile = next(profile for profile in PROFILES if profile["id"] == profile_id)
         self.coordinator = coordinator
-        self.settings_path, self.template_path = profile_paths(profile_id)
+        self.settings_path, self.template_path = profile_paths(storage_id or profile_id)
         if coordinator is None:
-            root.title(APP_NAME + " - beta 3.5.3")
+            root.title(APP_NAME + " - beta 3.6")
             root.geometry("640x920")
 
         APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -394,7 +399,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | " + self.profile["label"],
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.5.3 • Configuracao independente por jogo",
+        ttk.Label(frame, text="Beta 3.6 • Configuracao independente por jogo",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -438,6 +443,8 @@ class AutoBoxApp:
                 ("Espera em cada ronda (seg)", self.patrol_var),
                 ("Confianca da imagem (0,60 a 0,95)", self.threshold_var),
                 ("Titulo do jogo na janela", self.title_var))):
+            if getattr(self, "browser_mode", False) and var is self.title_var:
+                continue
             ttk.Label(settings, text=label).grid(row=row, column=0, sticky="w", pady=3)
             ttk.Entry(settings, textvariable=var, width=21).grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=3)
         settings.columnconfigure(1, weight=1)
@@ -468,10 +475,10 @@ class AutoBoxApp:
             ttk.Button(settings, text="Testar clique no jogo (3 segundos)",
                        command=self._test_click).grid(row=6, column=0, columnspan=2,
                                                       sticky="ew", pady=4)
-        ttk.Button(settings, text="Capturar titulo do jogo (3 segundos)",
-                   command=self._capture_window_title).grid(
-            row=8,
-            column=0, columnspan=2, sticky="ew", pady=4)
+        if not getattr(self, "browser_mode", False):
+            ttk.Button(settings, text="Capturar titulo do jogo (3 segundos)",
+                       command=self._capture_window_title).grid(
+                row=8, column=0, columnspan=2, sticky="ew", pady=4)
         ttk.Button(settings, text="Salvar ajustes", command=self.apply_settings).grid(
             row=7, column=0, columnspan=2, sticky="ew", pady=(8, 0))
 
@@ -493,6 +500,13 @@ class AutoBoxApp:
                 "marque as areas deste jogo, incluindo a nave. Use o titulo correto da janela. "
                 "F8 inicia; F9 pausa; F10 para. Trocar de aba interrompe a coleta. "
                 "Renascimento e deteccoes especificas do Interstellar nao sao usados aqui."
+            )
+        if getattr(self, "browser_mode", False):
+            note = (
+                "Modo experimental: F8 inicia, F9 pausa e F10 para. "
+                "A janela dedicada pode ficar atras de outras janelas. "
+                "Sua calibracao fica separada do modo que usa o mouse do Windows. "
+                "Feche este modo para retornar ao AutoBox principal."
             )
         ttk.Label(frame, text=note, foreground="#59677c", wraplength=485,
                   justify="left").pack(anchor="w", pady=(12, 0))
@@ -610,18 +624,21 @@ class AutoBoxApp:
         self.root.iconify()
         self.root.after(550, lambda: self._show_capture(mode))
 
+    def _calibration_image(self):
+        with mss.mss() as sct:
+            mon = sct.monitors[1]
+            shot = sct.grab(mon)
+        return Image.frombytes("RGB", shot.size, shot.rgb), int(mon["left"]), int(mon["top"])
+
+    def _capture_context(self):
+        return mss.mss()
+
     def _show_capture(self, mode: str):
         if self.coordinator is not None and self.coordinator.active_app is not self:
             self.root.deiconify()
             return
         try:
-            with mss.mss() as sct:
-                # O monitor principal e o usado no exemplo. Para outro monitor,
-                # configure-o como principal no Windows antes da calibracao.
-                mon = sct.monitors[1]
-                shot = sct.grab(mon)
-            image = Image.frombytes("RGB", shot.size, shot.rgb)
-            left, top = int(mon["left"]), int(mon["top"])
+            image, left, top = self._calibration_image()
             width, height = image.size
             overlay = tk.Toplevel(self.root)
             overlay.overrideredirect(True)
@@ -1229,7 +1246,7 @@ class AutoBoxApp:
         collection_timeouts = 0
         last_patrol = 0.0
         try:
-            with mss.mss() as sct:
+            with self._capture_context() as sct:
                 while not self.exit_event.is_set():
                     if not self._ready_to_click():
                         with self.state_lock:
@@ -1367,9 +1384,12 @@ class AutoBoxWindow:
         self.root = root
         self.apps = {}
         self.active_app = None
-        root.title(APP_NAME + " - beta 3.5.3")
+        root.title(APP_NAME + " - beta 3.6")
         root.geometry("660x" + str(min(970, root.winfo_screenheight() - 90)))
         root.minsize(590, min(780, root.winfo_screenheight() - 90))
+        self.background_process = None
+        ttk.Button(root, text="Interstellar: testar coleta sem ocupar o mouse",
+                   command=self._launch_background).pack(fill="x", padx=10, pady=7)
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True)
         for profile in PROFILES:
@@ -1391,6 +1411,34 @@ class AutoBoxWindow:
         self._bind_hotkeys()
         root.after(3500, lambda: self.active_app.check_updates(silent=True))
         root.protocol("WM_DELETE_WINDOW", self._close)
+
+    def _launch_background(self):
+        if self.background_process is not None and self.background_process.poll() is None:
+            return
+        self.stop_all()
+        if any(app.worker is not None and app.worker.is_alive() for app in self.apps.values()):
+            self.root.after(100, self._launch_background)
+            return
+        self.keyboard_listener.stop()
+        try:
+            self.background_process = subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve()), "--browser-mode"],
+                cwd=str(Path(__file__).resolve().parent),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except OSError as exc:
+            self._bind_hotkeys()
+            messagebox.showerror("Modo navegador", str(exc))
+            return
+        self.root.iconify()
+        self._watch_background()
+
+    def _watch_background(self):
+        if self.background_process.poll() is None:
+            self.root.after(500, self._watch_background)
+            return
+        self.background_process = None
+        self._bind_hotkeys()
+        self.root.deiconify()
 
     def stop_other_apps(self, app):
         for other in self.apps.values():
@@ -1431,9 +1479,304 @@ class AutoBoxWindow:
         self.keyboard_listener.start()
 
     def _close(self):
+        if self.background_process is not None and self.background_process.poll() is None:
+            messagebox.showinfo("Janela dedicada", "Feche primeiro a janela do modo navegador.")
+            return
         self.stop_all()
         self.keyboard_listener.stop()
         self.root.destroy()
+
+
+GAME_URL = "https://interstellar-verse.com/play/#play"
+
+
+def find_opera_gx():
+    for base in (os.environ.get("LOCALAPPDATA"), os.environ.get("PROGRAMFILES"),
+                 os.environ.get("PROGRAMFILES(X86)")):
+        if not base:
+            continue
+        base = Path(base)
+        for folder in (base / "Programs" / "Opera GX", base / "Opera GX"):
+            for name in ("opera.exe", "launcher.exe"):
+                executable = folder / name
+                if executable.is_file():
+                    return str(executable)
+    return ""
+
+
+def ensure_browser_runtime():
+    if importlib.util.find_spec("playwright") is None:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "playwright>=1.50,<2"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if result.returncode:
+            raise RuntimeError("Nao foi possivel preparar o navegador. Verifique a internet e tente novamente.")
+
+
+class BrowserSession:
+    """Dono unico do navegador. Captura e cliques nao passam pelo mouse do Windows."""
+    def __init__(self, folder, viewport, factory=None):
+        self.folder = Path(folder)
+        self.viewport = dict(viewport)
+        self.factory = factory
+        self.jobs = queue.Queue()
+        self.ready = threading.Event()
+        self.closed = threading.Event()
+        self.closed.set()
+        self.error = None
+        self.warning = None
+        self.thread = None
+
+    def start(self, executable):
+        if self.thread is not None and self.thread.is_alive():
+            return
+        self.error = None
+        self.warning = None
+        self.ready.clear()
+        self.closed.clear()
+        self.thread = threading.Thread(target=self._run, args=(executable,), daemon=True)
+        self.thread.start()
+
+    def request(self, operation, payload=None, allowed=None, timeout=8):
+        if not self.ready.is_set() and operation != "close":
+            raise RuntimeError(self.error or "Abra primeiro a sessao dedicada do Opera GX.")
+        reply = queue.Queue(maxsize=1)
+        cancelled = threading.Event()
+        self.jobs.put((operation, payload, allowed, reply, cancelled))
+        try:
+            ok, result = reply.get(timeout=timeout)
+        except queue.Empty:
+            cancelled.set()
+            raise RuntimeError("A janela do jogo demorou a responder. Coleta interrompida.")
+        if not ok:
+            raise RuntimeError(result)
+        return result
+
+    def close(self):
+        if self.thread is None or not self.thread.is_alive():
+            return
+        try:
+            self.request("close", timeout=8)
+        finally:
+            self.thread.join(timeout=3)
+
+    @staticmethod
+    def _game_page(context):
+        pages = [page for page in context.pages if not page.is_closed()
+                 and page.url.split("#")[0].split("?")[0].rstrip("/") ==
+                 GAME_URL.split("#")[0].rstrip("/")]
+        if not pages:
+            raise RuntimeError("Abra a pagina de jogo do Interstellar na sessao dedicada.")
+        return pages[-1]
+
+    def _run(self, executable):
+        context = None
+        try:
+            if self.factory is None:
+                from playwright.sync_api import sync_playwright
+                factory = sync_playwright
+            else:
+                factory = self.factory
+            self.folder.mkdir(parents=True, exist_ok=True)
+            with factory() as driver:
+                context = driver.chromium.launch_persistent_context(
+                    user_data_dir=str(self.folder), executable_path=executable,
+                    headless=False, chromium_sandbox=True, viewport=self.viewport, device_scale_factor=1,
+                    accept_downloads=False)
+                page = context.pages[0] if context.pages else context.new_page()
+                try:
+                    page.goto(GAME_URL, wait_until="domcontentloaded", timeout=45000)
+                except Exception:
+                    self.warning = "Confira a conexao e abra o jogo na janela dedicada."
+                self.ready.set()
+                while True:
+                    try:
+                        operation, payload, allowed, reply, cancelled = self.jobs.get(timeout=.1)
+                    except queue.Empty:
+                        if not context.pages:
+                            break
+                        try:
+                            context.pages[0].wait_for_timeout(30)
+                        except Exception:
+                            break
+                        continue
+                    if cancelled.is_set():
+                        reply.put((False, "Comando expirado e cancelado."))
+                        continue
+                    if operation == "close":
+                        context.close()
+                        context = None
+                        reply.put((True, None))
+                        break
+                    try:
+                        page = self._game_page(context)
+                        # Recusa cliques enfileirados se F9/F10 ja interrompeu o bot.
+                        if allowed is not None and not allowed():
+                            reply.put((True, False))
+                            continue
+                        if operation == "screenshot":
+                            result = page.screenshot(type="png", timeout=5000)
+                        elif operation == "click":
+                            x, y = payload
+                            if not (0 <= x < self.viewport["width"] and 0 <= y < self.viewport["height"]):
+                                raise ValueError("Clique fora da imagem do jogo.")
+                            page.mouse.click(x, y, button="left", delay=40)
+                            result = True
+                        else:
+                            raise ValueError("Comando de navegador desconhecido.")
+                        reply.put((True, result))
+                    except Exception as exc:
+                        reply.put((False, str(exc)))
+        except Exception as exc:
+            self.error = "Nao foi possivel abrir o Opera GX dedicado: " + str(exc)
+        finally:
+            self.ready.clear()
+            if context is not None:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+            self.closed.set()
+
+
+class BackgroundApp(AutoBoxApp):
+    """Coleta visual experimental numa sessao isolada do Opera GX."""
+    def __init__(self, root):
+        self.browser_mode = True
+        self.closing = threading.Event()
+        viewport = {"width": max(800, min(1280, root.winfo_screenwidth() - 60)),
+                    "height": max(500, min(720, root.winfo_screenheight() - 120))}
+        self.session = BrowserSession(APP_DIR / "profiles" / "interstellar_browser" / "opera_session",
+                                      viewport)
+        self.installing = False
+        canvas = tk.Canvas(root, highlightthickness=0)
+        scroll = ttk.Scrollbar(root, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        body = ttk.Frame(canvas)
+        item = canvas.create_window((0, 0), window=body, anchor="nw")
+        body.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(item, width=event.width))
+        super().__init__(root, parent=body, storage_id="interstellar_browser")
+        root.title("AutoBox - Interstellar sem mouse (teste) - beta 3.6")
+        root.geometry("680x" + str(min(950, root.winfo_screenheight() - 80)))
+        self.opera_executable = self.cfg.get("opera_executable", "") or find_opera_gx()
+        self.root.after(500, self._monitor_session)
+
+    def _draw(self):
+        box = ttk.LabelFrame(self.parent, text="Sessao dedicada do Opera GX — experimental", padding=10)
+        box.pack(fill="x", padx=14, pady=(10, 0))
+        ttk.Label(box, text=(
+            "Abra a sessao, entre no jogo e calibre pela imagem desta janela. "
+            "A coleta usa comandos do navegador e um perfil separado. "
+            "Neste primeiro teste, deixe o Opera dedicado aberto; pode ficar atras de outras janelas."),
+            wraplength=600).pack(anchor="w")
+        ttk.Button(box, text="Abrir Opera GX dedicado", command=self._open_browser).pack(
+            fill="x", pady=(8, 3))
+        ttk.Button(box, text="Localizar executavel do Opera GX", command=self._choose_opera).pack(fill="x")
+        super()._draw()
+
+    def _monitor_session(self):
+        if self.session.closed.is_set() and self.running:
+            self.stop()
+            self.status.set("A sessao dedicada foi fechada. Abra-a novamente para retomar.")
+        if not self.closing.is_set():
+            self.root.after(500, self._monitor_session)
+
+    def _choose_opera(self):
+        chosen = filedialog.askopenfilename(title="Selecione opera.exe ou launcher.exe do Opera GX",
+                                            filetypes=[("Executavel Windows", "*.exe")])
+        if chosen:
+            self.opera_executable = chosen
+            self.cfg["opera_executable"] = chosen
+            self._save_config()
+            self.status.set("Opera GX selecionado. Abra a sessao dedicada.")
+
+    def _open_browser(self):
+        if self.installing or self.session.ready.is_set():
+            return
+        executable = getattr(self, "opera_executable", "") or find_opera_gx()
+        if not executable or not Path(executable).is_file():
+            self.status.set("Nao localizei o Opera GX. Use Localizar executavel.")
+            return
+        self.installing = True
+        self.status.set("Preparando o controle do navegador. A primeira vez pode demorar...")
+        def prepare():
+            try:
+                ensure_browser_runtime()
+                if self.closing.is_set():
+                    return
+                self.session.start(executable)
+                if not self.session.ready.wait(65):
+                    raise RuntimeError(self.session.error or "O Opera GX nao respondeu. Confira o executavel.")
+                self.events.put(("status", self.session.warning or
+                    "Sessao aberta. Faca login no jogo, calibre o mapa e aprenda uma box nesta sessao."))
+            except Exception as exc:
+                self.events.put(("status", str(exc)))
+            finally:
+                self.installing = False
+        threading.Thread(target=prepare, daemon=True).start()
+
+    def start(self):
+        if not self.session.ready.is_set():
+            self.status.set("Abra primeiro o Opera GX dedicado e entre no jogo.")
+            return
+        super().start()
+
+    def _ready_to_click(self):
+        with self.state_lock:
+            return self.running and not self.stopped and self.session.ready.is_set()
+
+    def _game_click(self, x, y, test=False):
+        if not self._ready_to_click():
+            return False
+        return self.session.request("click", (x, y), allowed=self._ready_to_click)
+
+    def _screen_capture(self, sct):
+        data = self.session.request("screenshot")
+        image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise RuntimeError("Nao foi possivel capturar a janela dedicada.")
+        height, width = image.shape[:2]
+        if (width, height) != (self.session.viewport["width"], self.session.viewport["height"]):
+            raise RuntimeError("A imagem do navegador mudou de tamanho. Abra novamente e recalibre.")
+        return image, {"left": 0, "top": 0, "width": width, "height": height}
+
+    def _calibration_image(self):
+        data = self.session.request("screenshot")
+        return Image.open(io.BytesIO(data)).convert("RGB"), 0, 0
+
+    def _capture_context(self):
+        return contextlib.nullcontext(None)
+
+    def _capture_window_title(self):
+        self.status.set("Neste modo nao e preciso capturar titulo: o controle usa a sessao dedicada.")
+
+    def check_updates(self, silent=False):
+        if not silent:
+            self.status.set("Feche este modo e atualize pelo AutoBox principal.")
+
+    def _close(self):
+        self.stop()
+        if self.keyboard_listener:
+            self.keyboard_listener.stop()
+        self.closing.set()
+        self.status.set("Fechando a sessao dedicada...")
+        done = threading.Event()
+        def shutdown():
+            try:
+                self.session.close()
+            finally:
+                done.set()
+        threading.Thread(target=shutdown, daemon=True).start()
+        def finish():
+            if done.is_set():
+                self.root.destroy()
+            else:
+                self.root.after(100, finish)
+        finish()
 
 
 def main():
@@ -1442,7 +1785,10 @@ def main():
         ttk.Style().theme_use("clam")
     except tk.TclError:
         pass
-    AutoBoxWindow(root)
+    if "--browser-mode" in sys.argv:
+        BackgroundApp(root)
+    else:
+        AutoBoxWindow(root)
     root.mainloop()
 
 

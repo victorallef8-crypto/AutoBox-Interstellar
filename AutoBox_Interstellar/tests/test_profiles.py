@@ -20,7 +20,7 @@ NODES = [n for n in TREE.body if
          (isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "PROFILES"
                                            for t in n.targets)) or
          (isinstance(n, ast.FunctionDef) and n.name == "profile_paths") or
-         (isinstance(n, ast.ClassDef) and n.name in ("AutoBoxApp", "AutoBoxWindow"))]
+         (isinstance(n, ast.ClassDef) and n.name in ("AutoBoxApp", "AutoBoxWindow", "BackgroundApp"))]
 
 class ProfileTests(unittest.TestCase):
     @classmethod
@@ -42,7 +42,10 @@ class ProfileTests(unittest.TestCase):
                       REPAIR_LABELS={"base": "base", "portal": "portal", "same_place": "mesmo lugar"},
                       active_window_title=lambda: "Krypton",
                       updater=SimpleNamespace(check_for_update=lambda: None),
-                      send_windows_click=Mock(return_value=True))
+                      send_windows_click=Mock(return_value=True),
+                      find_opera_gx=lambda: "",
+                      BrowserSession=Mock(side_effect=lambda folder, viewport: SimpleNamespace(
+                          folder=folder, viewport=viewport, ready=threading.Event(), closed=threading.Event())))
         exec(compile(ast.fix_missing_locations(ast.Module(body=NODES, type_ignores=[])),
                      str(SOURCE), "exec"), cls.ns)
         cls.root = tk.Tk()
@@ -243,6 +246,28 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(self.interstellar.settings_path.read_bytes(), original)
         finally:
             self.krypton.ship_region, self.krypton.region = old_ship, old_region
+
+    def test_background_window_uses_separate_settings_and_model(self):
+        original = self.interstellar.settings_path.read_bytes()
+        original_keyboard = self.ns["keyboard"]
+        self.ns["keyboard"] = SimpleNamespace(Key=self.keyboard.Key, Listener=Mock(return_value=Mock()))
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            background = self.ns["BackgroundApp"](root)
+            root.update()
+            self.assertNotEqual(background.settings_path, self.interstellar.settings_path)
+            self.assertTrue(str(background.settings_path).endswith(
+                str(Path("interstellar_browser") / "config.json")))
+            self.assertNotEqual(background.template_path, self.interstellar.template_path)
+            self.assertIsNone(background.region)
+            self.assertEqual(self.interstellar.settings_path.read_bytes(), original)
+            self.assertFalse(background._ready_to_click())
+        finally:
+            for timer in root.tk.call("after", "info"):
+                root.after_cancel(timer)
+            root.destroy()
+            self.ns["keyboard"] = original_keyboard
 
     def test_invalid_profile_path_rejected(self):
         with self.assertRaises(ValueError):

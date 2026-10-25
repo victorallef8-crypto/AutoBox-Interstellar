@@ -3,6 +3,16 @@
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
+## Beta 3.6 — modo de navegador experimental
+
+- Botao para abrir coleta numa sessao separada do Opera GX.
+- Captura da pagina e cliques por Playwright, sem operar o cursor global do Windows.
+- Perfil de login e calibracao isolados do modo atual.
+- Atalhos do modo atual suspensos durante a sessao dedicada.
+- Mantem o sandbox e nao adiciona ocultacao de automacao.
+- Validacao com servico simulado; abertura no Opera GX e coleta real ainda pendentes.
+- Nao ha garantia de funcionamento minimizado ou de ausencia de banimento.
+
 ## Beta 3.5.3
 
 - Krypton exige marcar a area real da nave, preservada no perfil.

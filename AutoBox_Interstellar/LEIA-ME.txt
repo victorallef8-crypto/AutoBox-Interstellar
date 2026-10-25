@@ -1,3 +1,32 @@
+BETA 3.6 - MODO EXPERIMENTAL SEM OCUPAR O MOUSE
+
+No AutoBox principal, clique em Interstellar: testar coleta sem ocupar o mouse.
+O modo principal e interrompido e seus atalhos sao suspensos enquanto a janela
+dedicada estiver aberta. Feche o modo dedicado para voltar ao principal.
+
+1. Na nova janela, clique em Abrir Opera GX dedicado.
+2. Na primeira vez, o programa prepara a biblioteca Playwright pelo PyPI.
+   Usa o Opera GX instalado; nao baixa outro navegador.
+3. Faca login pessoalmente na janela dedicada e abra o jogo.
+4. Calibre o mapa, o minimapa, as mensagens e aprenda uma box usando a imagem
+   da sessao dedicada. A calibracao e separada da versao que usa mouse do Windows.
+5. Inicie pelo F8 e experimente usar outra janela. F9 pausa e F10 para.
+
+Neste primeiro teste, mantenha o Opera dedicado aberto, mesmo atras de outras
+janelas. Nao foi validado com o jogo real, com o navegador minimizado, com a
+sessao bloqueada ou em todas as versoes do Opera GX. Nao ha combate a NPCs neste modo.
+Se o executavel nao for encontrado, use Localizar executavel do Opera GX.
+
+O modo dedicado usa captura da pagina e page.mouse, sem SendInput/PyAutoGUI
+para operar o jogo. Mantem um perfil proprio em profiles/interstellar_browser
+dentro da pasta de configuracao do AutoBox. Nao copia o perfil pessoal do Opera.
+A sessao de login fica nesse perfil local do navegador, nao no pacote do GitHub.
+O sandbox do Chromium permanece habilitado e nenhum mecanismo de ocultacao
+de automacao e adicionado. O modo nao oferece garantia contra banimento.
+
+Validacao: 101 testes de logica, janela e servico simulado aprovados.
+Falta validar a abertura do Opera GX e a coleta real com a conta do usuario.
+
 BETA 3.5.3 - REFERENCIA REAL DA NAVE NO KRYPTON
 
 APOS ATUALIZAR: na aba Krypton, clique em Marcar area da nave (sem boxes).

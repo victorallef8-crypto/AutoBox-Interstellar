@@ -1,6 +1,6 @@
 {
-  "version": "3.5.3",
+  "version": "3.6",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "361d5174a5ea5be1a452740e761c625e36bf9e0ada10bf7f889205181911fa3a",
-  "notes": "Krypton usa a area real da nave para distancia e chegada e bloqueia essa area ate a ultima conferencia do clique. Marque a nave apos atualizar."
+  "sha256": "fce15b37e0aa1b1caa1168bb032f51098e0d8019b1a8b8b6e6e74744bec50cc4",
+  "notes": "Modo experimental de coleta em sessao separada do Opera GX, com captura e cliques da pagina. Requer login e calibracao proprios; validacao real pendente."
 }
