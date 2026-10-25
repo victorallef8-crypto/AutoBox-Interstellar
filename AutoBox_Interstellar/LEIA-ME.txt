@@ -1,11 +1,12 @@
-AUTOBOX INTERSTELLAR VERSE - BETA 3
+AUTOBOX INTERSTELLAR VERSE - BETA 3.1
 ===================================
 
 O que faz
 ---------
 Detecta pela imagem e clica em boxes visiveis na area do mapa que voce escolheu.
-Depois do clique, observa a mensagem "You received ..." e tenta seguir
-para a proxima box sem aguardar o tempo inteiro.
+Depois do clique, observa a area das notificacoes "You received ..." que
+voce selecionar. Ao notar uma mensagem NOVA, tenta seguir para a proxima
+box sem aguardar o tempo inteiro. Nao le o texto: identifica a mudanca visual.
 Se nenhuma box aparecer, faz ronda SOMENTE numa area segura do MINIMAPA
 que voce marcar. Sem area segura, espera novas boxes sem clicar aleatoriamente.
 Ao detectar "RADIATION ZONE", manda a nave ao centro dessa area segura.
@@ -43,8 +44,12 @@ Primeira configuracao
 5. Clique em "Marcar zona segura NO MINIMAPA" e arraste um retangulo
    SOMENTE na parte CENTRAL do minimapa (canto inferior direito do jogo).
    EVITE as bordas do minimapa: perto delas ha zona de radiacao.
-6. Clique em Iniciar (F8), e deixe a janela do jogo ativa.
-7. Se mudar o zoom no Opera, repita o passo 3 e marque outra box.
+6. Clique em "Marcar area das mensagens YOU RECEIVED". Selecione um
+   retangulo APENAS sobre o lugar onde aparecem as linhas "You received".
+   Evite barras de vida, HUD, nave e efeitos brilhantes. Inclua a regiao
+   onde surgem linhas novas, mesmo que algumas mensagens antigas sumam.
+7. Clique em Iniciar (F8), e deixe a janela do jogo ativa.
+8. Se mudar o zoom no Opera, repita os passos 3 e 6.
 
 Controles globais
 -----------------
@@ -56,6 +61,7 @@ Levar o mouse ao canto superior esquerdo tambem impede novos cliques.
 Parametros
 ----------
 - Espera depois da box: tempo maximo para a mensagem de recompensa aparecer.
+  Se detectar uma mensagem nova, parte para a proxima box antes desse tempo.
   Se sua nave demora muito, aumente de 5 para 8 ou 12 segundos.
 - Espera em cada ronda: tempo para a nave andar entre pontos seguros do minimapa.
 - Confianca: aumente (ex.: 0,94) caso clique em estrelas que nao sejam boxes;
@@ -77,7 +83,9 @@ Limites e seguranca
   terminar aquele movimento dentro do jogo.
 - O contador indica cliques em boxes provaveis, NAO caixas comprovadamente coletadas.
 - Nao recupera sozinho desconexoes, portas de login ou mudancas nos menus.
-- A detecao de morte e de recompensa ainda e experimental.
+- A deteccao de morte e de recompensa ainda e experimental. Mudancas
+  na regiao marcada podem ser confundidas com nova recompensa; teste antes
+  de deixar rodar muito tempo sem supervisionar.
 - O limite de renascimento conta TENTATIVAS, nao sucesso confirmado.
 - O programa nao contorna CAPTCHA, anticheat, limites ou protecoes do jogo.
 - A automacao pode ser proibida pelo servidor e causar sancao na conta.

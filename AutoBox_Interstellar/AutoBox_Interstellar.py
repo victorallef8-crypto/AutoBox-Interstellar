@@ -178,20 +178,52 @@ def reward_notice_visible(frame_bgr: np.ndarray, target_x: int) -> bool:
     return False
 
 
+def new_reward_message(before_bgr: np.ndarray, after_bgr: np.ndarray) -> bool:
+    """Detecta uma linha clara *nova* na area de notificacoes marcada.
+
+    Compara com a imagem feita ANTES do clique. Mensagens antigas que ainda
+    estejam na tela nao podem disparar uma segunda coleta. O jogador deve
+    selecionar apenas as linhas 'You received', sem barras nem animacoes.
+    Nao exige OCR nem leitura de memoria do jogo.
+    """
+    if (before_bgr is None or after_bgr is None or
+            before_bgr.shape != after_bgr.shape or before_bgr.ndim != 3):
+        return False
+
+    def light_text(image):
+        # O texto do print e cinza-claro/branco em fundo preto; ignora
+        # mensagens coloridas e pequenas estrelas isoladas.
+        low = np.min(image, axis=2)
+        high = np.max(image, axis=2)
+        return (low >= 125) & ((high.astype(np.int16) - low) <= 42)
+
+    added = light_text(after_bgr) & ~light_text(before_bgr)
+    if int(np.count_nonzero(added)) < 42:
+        return False
+    rows = np.flatnonzero(np.count_nonzero(added, axis=1) >= 8)
+    columns = np.flatnonzero(np.any(added, axis=0))
+    # Texto de uma notificacao ocupa varias linhas e dezenas de pixels
+    # horizontais, ao contrario de estrelas/particulas individuais.
+    return (len(rows) >= 3 and len(columns) >= 28 and
+            int(columns[-1] - columns[0]) >= 48)
+
+
 class AutoBoxApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title(APP_NAME + " - beta 3")
-        root.geometry("580x815")
+        root.title(APP_NAME + " - beta 3.1")
+        root.geometry("590x860")
         root.minsize(545, 735)
 
         APP_DIR.mkdir(parents=True, exist_ok=True)
         self.cfg = self._read_config()
         self.region: dict | None = self.cfg.get("region")
         self.safe_region: dict | None = self.cfg.get("safe_region")
+        self.notice_region: dict | None = self.cfg.get("notice_region")
         self.status = tk.StringVar(value="Aguardando configuracao")
         self.region_status = tk.StringVar(value="Nao selecionada")
         self.safe_status = tk.StringVar(value="Nao selecionada")
+        self.notice_status = tk.StringVar(value="Nao selecionada")
         self.sample_status = tk.StringVar(value="Nao aprendida")
         self.count = tk.IntVar(value=0)
         self.wait_var = tk.StringVar(value=str(self.cfg.get("wait", 5.0)))
@@ -229,6 +261,7 @@ class AutoBoxApp:
         self.cfg.update({
             "region": self.region,
             "safe_region": self.safe_region,
+            "notice_region": self.notice_region,
             "wait": self.wait_seconds,
             "patrol_wait": self.patrol_seconds,
             "threshold": self.threshold,
@@ -243,7 +276,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | Interstellar Verse",
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3 • Atualizacao automatica • Ronda segura",
+        ttk.Label(frame, text="Beta 3.1 • Coleta mais rapida • Ronda segura",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -254,9 +287,12 @@ class AutoBoxApp:
                    command=lambda: self._capture_selection("sample")).grid(row=1, column=0, sticky="ew", pady=(7, 0))
         ttk.Button(capture_box, text="Marcar zona segura NO MINIMAPA",
                    command=lambda: self._capture_selection("safe")).grid(row=2, column=0, sticky="ew", pady=(7, 0))
+        ttk.Button(capture_box, text="Marcar area das mensagens YOU RECEIVED",
+                   command=lambda: self._capture_selection("notice")).grid(row=3, column=0, sticky="ew", pady=(7, 0))
         ttk.Label(capture_box, textvariable=self.region_status).grid(row=0, column=1, sticky="w", padx=(12, 0))
         ttk.Label(capture_box, textvariable=self.sample_status).grid(row=1, column=1, sticky="w", padx=(12, 0))
         ttk.Label(capture_box, textvariable=self.safe_status).grid(row=2, column=1, sticky="w", padx=(12, 0))
+        ttk.Label(capture_box, textvariable=self.notice_status).grid(row=3, column=1, sticky="w", padx=(12, 0))
         capture_box.columnconfigure(0, weight=1)
 
         control = ttk.LabelFrame(frame, text="2. Controles", padding=10)
@@ -320,6 +356,7 @@ class AutoBoxApp:
             self.region_status.set("Nao selecionada")
         self.sample_status.set("Box aprendida ✓" if TEMPLATE_PATH.exists() else "Nao aprendida")
         self.safe_status.set("Area segura marcada ✓" if self.safe_region else "Nao selecionada")
+        self.notice_status.set("Mensagens marcadas ✓" if self.notice_region else "Nao selecionada")
 
     def apply_settings(self, silent=False):
         try:
@@ -401,6 +438,8 @@ class AutoBoxApp:
                 hint = "ARRASTE um retangulo apenas na area espacial do mapa"
             elif mode == "safe":
                 hint = "ARRASTE so no CENTRO SEGURO do minimapa (sem bordas)"
+            elif mode == "notice":
+                hint = "ARRASTE so a area do texto YOU RECEIVED (sem HUD ou nave)"
             else:
                 hint = "CLIQUE BEM NO CENTRO de uma box luminosa"
             canvas.create_rectangle(10, 10, min(width - 10, 680), 49,
@@ -420,7 +459,7 @@ class AutoBoxApp:
                 start[0] = (event.x, event.y)
 
             def move(event):
-                if mode in ("region", "safe") and start[0]:
+                if mode in ("region", "safe", "notice") and start[0]:
                     if box[0] is not None:
                         canvas.delete(box[0])
                     box[0] = canvas.create_rectangle(
@@ -431,7 +470,7 @@ class AutoBoxApp:
                 if start[0] is None:
                     return
                 x0, y0 = start[0]
-                if mode in ("region", "safe"):
+                if mode in ("region", "safe", "notice"):
                     x1, x2 = sorted((x0, event.x))
                     y1, y2 = sorted((y0, event.y))
                     if mode == "region" and x2 - x1 >= 150 and y2 - y1 >= 150:
@@ -445,6 +484,10 @@ class AutoBoxApp:
                             self.safe_region = {"left": left + x1, "top": top + y1,
                                                 "width": x2 - x1, "height": y2 - y1}
                             self._save_config()
+                    elif mode == "notice" and x2 - x1 >= 65 and y2 - y1 >= 25:
+                        self.notice_region = {"left": left + x1, "top": top + y1,
+                                              "width": x2 - x1, "height": y2 - y1}
+                        self._save_config()
                     finish()
                 else:
                     radius = 15
@@ -569,6 +612,15 @@ class AutoBoxApp:
         raw = np.asarray(sct.grab(monitor))
         return cv2.cvtColor(raw, cv2.COLOR_BGRA2BGR), monitor
 
+    @staticmethod
+    def _screen_area(frame, monitor, area):
+        x = area["left"] - monitor["left"]
+        y = area["top"] - monitor["top"]
+        w, h = area["width"], area["height"]
+        if x < 0 or y < 0 or x + w > frame.shape[1] or y + h > frame.shape[0]:
+            return None
+        return frame[y:y + h, x:x + w]
+
     def _choose_safe_point(self, center=False) -> tuple[int, int] | None:
         area = self.safe_region
         if not area:
@@ -583,17 +635,28 @@ class AutoBoxApp:
                 random.randint(area["top"] + my,
                                area["top"] + area["height"] - my))
 
-    def _reward_wait(self, sct, target_x: int):
-        """Acelera a proxima box quando surgir nova notificacao de recompensa."""
-        initial_frame, _ = self._screen_capture(sct)
-        saw_clear = not reward_notice_visible(initial_frame, target_x)
+    def _reward_wait(self, sct, before_click, monitor, target_x: int):
+        """Busca uma notificacao NOVA; a espera e apenas um prazo maximo."""
+        before_area = (self._screen_area(before_click, monitor, self.notice_region)
+                       if self.notice_region else None)
+        baseline = before_area.copy() if before_area is not None else None
+        saw_clear = not reward_notice_visible(before_click, target_x)
         deadline = time.monotonic() + self.wait_seconds
         began = time.monotonic()
+        consecutive = 0
         while time.monotonic() < deadline and self._ready_to_click():
-            self._sleep_interruptible(0.30)
-            frame, _ = self._screen_capture(sct)
+            self._sleep_interruptible(0.18)
+            frame, current_monitor = self._screen_capture(sct)
             if radiation_visible(frame) or find_death_panel(frame) is not None:
                 return
+            if baseline is not None and self.notice_region:
+                current = self._screen_area(frame, current_monitor, self.notice_region)
+                consecutive = consecutive + 1 if new_reward_message(baseline, current) else 0
+                if consecutive >= 2 and time.monotonic() - began >= 0.3:
+                    self.events.put(("status", "Novo YOU RECEIVED! Procurando a proxima box..."))
+                    return
+                continue
+            # Compatibilidade com a versao anterior ate marcar a area.
             present = reward_notice_visible(frame, target_x)
             if not present:
                 saw_clear = True
@@ -713,7 +776,8 @@ class AutoBoxApp:
                             self.events.put(("status", f"Indo ate box ({score:.0%} de confianca)..."))
                             recent.append((x, y, time.monotonic()))
                             previous = (x, y)
-                            self._reward_wait(sct, region["left"] + x - monitor["left"])
+                            self._reward_wait(sct, full_frame, monitor,
+                                              region["left"] + x - monitor["left"])
                     else:
                         missed += 1
                         if (self.safe_region and missed >= 2 and

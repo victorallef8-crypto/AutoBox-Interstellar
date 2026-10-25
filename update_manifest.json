@@ -1,6 +1,6 @@
 {
-  "version": "3.0",
+  "version": "3.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "bb92b9b78f1c6d31988091c1f2ad8bec8acf6fc9517e47ec788d9ccd26a63f11",
-  "notes": "Atualizacoes com um clique, deteccao de recompensa e ronda pelo minimapa."
+  "sha256": "70c06e2de7257944b9cfad693bcc2efaca39b7d0314d2f877273437e873e06b7",
+  "notes": "Coleta mais rapida ao detectar uma mensagem nova na area YOU RECEIVED marcada pelo usuario."
 }

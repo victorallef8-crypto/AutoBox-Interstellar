@@ -7,7 +7,8 @@ de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
 - Identificacao visual de boxes na area calibrada pelo jogador.
 - Atalhos F8 (iniciar), F9 (pausar) e F10 (parar).
-- Deteccao visual de recompensas para adiantar a proxima coleta.
+- Deteccao de mensagens **novas** na area `You received` calibrada pelo
+  jogador, para adiantar a proxima coleta sem aguardar o tempo maximo.
 - Patrulha somente numa area central do minimapa selecionada pelo usuario.
 - Reacao ao aviso de radiacao, tentando voltar ao ponto seguro do minimapa.
 - Renascimento pago opcional com limite por hora. Desativado por padrao;
@@ -19,7 +20,8 @@ de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 1. Baixe `AutoBox_Interstellar.zip` neste repositorio.
 2. Extraia a pasta `AutoBox_Interstellar`.
 3. Instale Python 3.11+ e execute `INSTALAR_E_ABRIR.bat`.
-4. Use os botoes de calibracao do proprio programa.
+4. Use os botoes de calibracao do proprio programa. Na Beta 3.1, marque
+   tambem a area onde aparecem as notificacoes `You received`.
 
 Ao abrir, o AutoBox verifica se existe versao nova. O usuario tambem pode
 clicar em **Verificar atualizacoes (GitHub)**. O atualizador so baixa arquivos
