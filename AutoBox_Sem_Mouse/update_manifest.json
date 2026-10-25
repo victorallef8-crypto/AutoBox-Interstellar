@@ -1,6 +1,6 @@
 {
-  "version": "0.8.0",
+  "version": "0.8.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "b4c5764ba13c1937f13f8b2b5cc30ec630aa8466fd7087e65c245cf6a7ab97ad",
-  "notes": "Teste automático de um NPC com LCB-10, confirmação de ataque/dano e parada; corrige registro de comandos de combate."
+  "sha256": "a44abaf28ecb5d04027e371c6992cadc6cc2ac9a6a881385333cbe6918d9404f",
+  "notes": "Corrige encerramento not_visible: aproxima mais do mesmo NPC antes de selecionar, com limite de tempo."
 }

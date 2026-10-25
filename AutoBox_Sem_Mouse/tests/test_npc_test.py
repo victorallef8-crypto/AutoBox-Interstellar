@@ -54,6 +54,31 @@ class NpcWorkerTests(unittest.TestCase):
         self.assertTrue(engine.report["damage_observed"])
         self.assertTrue(engine.report["stop_confirmed"])
         self.assertEqual([p["action"] for _,p in session.calls],["select","attack","stop"])
+    def test_hidden_target_approaches_again_before_selecting(self):
+        stop=Stop();session=Session(stop);original=session.request;visible=[False]
+        def request(op,payload,allowed):
+            if payload["action"]=="select" and not visible[0]:
+                session.calls.append((op,dict(payload)));return {"action":"not_visible"}
+            if payload["action"]=="approach" and payload.get("close_approach"):
+                visible[0]=True
+            return original(op,payload,allowed)
+        session.request=request
+        engine=self.engine(session,stop);engine.run()
+        self.assertTrue(engine.report["kill_confirmed"])
+        self.assertEqual([p["action"] for _,p in session.calls],["select","approach","select","attack","stop"])
+
+    def test_permanently_hidden_target_times_out_without_attack(self):
+        stop=Stop();session=Session(stop);original=session.request
+        def request(op,payload,allowed):
+            if payload["action"]=="select":
+                session.calls.append((op,dict(payload)));return {"action":"not_visible"}
+            return original(op,payload,allowed)
+        session.request=request
+        engine=self.engine(session,stop);engine.run()
+        self.assertIn("Sem aproximação ou dano",engine.report["status"])
+        self.assertFalse(any(p["action"]=="attack" for _,p in session.calls))
+        self.assertLessEqual(sum(p["action"]=="approach" for _,p in session.calls),11)
+
     def test_lost_attack_ack_does_not_repeat_ctrl(self):
         stop=Stop();session=Session(stop,ack=False);engine=self.engine(session,stop);engine.run()
         self.assertFalse(engine.report["kill_confirmed"])

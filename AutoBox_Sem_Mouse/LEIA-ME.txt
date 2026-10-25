@@ -1,4 +1,4 @@
-AUTOBOX INTERSTELLAR — BETA 0.8.0
+AUTOBOX INTERSTELLAR — BETA 0.8.1
 
 ATUALIZAÇÃO
 No Painel, use Verificar atualizações deste bot. Configurações e sessão do Opera são preservadas.
@@ -63,8 +63,10 @@ Vida em 25% ou menos pausa coleta. Renascimento local pode exigir recuperação 
 Essas retomadas automáticas são da coleta; o teste de NPC encerra se morrer ou perder leitura.
 
 VALIDAÇÃO
-110 testes Python, testes simulados da navegação e da integração de combate.
+112 testes Python, testes simulados da navegação e da integração de combate.
 A integração de combate foi exercitada com os handlers de seleção, Ctrl e ataque do cliente fornecido.
 Isso não substitui o primeiro teste acompanhado na sua partida.
 
 Instalação nova: Python 3.11+; execute INSTALAR_E_ABRIR.bat.
+
+Beta 0.8.1: se o NPC ainda não puder ser selecionado na tela, aproxima mais do mesmo alvo e tenta novamente, com limite de tempo.

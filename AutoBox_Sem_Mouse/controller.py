@@ -318,9 +318,9 @@ class NpcTestWorker:
         if status!=self.last_phase:
             self.emit("status",status); self.last_phase=status
 
-    def action(self,name):
+    def action(self,name,**options):
         payload=dict(self.context,id=self.target["id"],revision=self.target.get("respawnRevision"),
-                     min_hp=self.min_hp,action=name)
+                     min_hp=self.min_hp,action=name,**options)
         result=self.session.request("npc_action",payload,allowed=lambda:not self.stop.is_set())
         if not isinstance(result,dict): return {"action":"cancelled"}
         self.report["actions"].append({"seconds":round(self.clock()-self.started,2),"action":name,"result":result.get("action")})
@@ -420,9 +420,17 @@ class NpcTestWorker:
                     self.publish("Aproximando do NPC selecionado.")
                 elif not selected:
                     result=self.action("select")
-                    if result.get("action")!="select_sent": raise ValueError("NPC não selecionado: "+result.get("action","?"))
-                    self.pending=("select",now)
-                    self.publish("Aguardando confirmação do alvo NPC.")
+                    if result.get("action")=="not_visible":
+                        if now>=self.next_move:
+                            result=self.action("approach",close_approach=True); self.next_move=now+1.5
+                            if result.get("action") not in ("move_sent","in_range"):
+                                raise ValueError("Aproximação não aceita: "+result.get("action","?"))
+                        self.publish("Aproximando mais para selecionar o mesmo NPC na tela.")
+                    elif result.get("action")=="select_sent":
+                        self.pending=("select",now)
+                        self.publish("Aguardando confirmação do alvo NPC.")
+                    else:
+                        raise ValueError("NPC não selecionado: "+result.get("action","?"))
                 elif combat.get("attacking") is not True:
                     result=self.action("attack")
                     if result.get("action") not in ("attack_sent","attacking"): raise ValueError("Ataque não aceito: "+result.get("action","?"))
