@@ -1,6 +1,6 @@
 {
-  "version": "0.12.2",
+  "version": "0.13.0",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "f64fd480cf5b68a75417b615a9244ee499433dbd5879143698347f7befa983af",
-  "notes": "Corrige ataque preso ao recuperar no portal: parada alternativa controlada, confirmação antes do reparo e interrupção explícita se a parada falhar."
+  "sha256": "ba600036b3a6455f3c56dbb229525fbe51e4ab9e3f7b12326eb35995212c136c",
+  "notes": "Uridium/h em 30 segundos para coleta e NPC; reparo ao iniciar com pouca vida; reposição opcional de munições e Galaxy Gate com limites. Skylab/camuflagem aguardam integração."
 }

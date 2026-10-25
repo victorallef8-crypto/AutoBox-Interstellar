@@ -42,8 +42,25 @@ class NewFeatures(unittest.TestCase):
         earnings.observe(snap(4,petCollected=True),True)
         earnings.observe(snap(5,type="npc-killed"),True)
         self.assertEqual(earnings.total,10)
-        self.assertIsNone(earnings.hourly(59))
+        self.assertIsNone(earnings.hourly(29))
+        self.assertEqual(earnings.hourly(30),1200)
         self.assertEqual(earnings.hourly(120),300)
+
+
+    def test_npc_uridium_and_short_events_are_retained(self):
+        state=snapshot();state["me"]["id"]=10
+        state["events"]=[dict(id="own",time=1,type="kill",playerId=10,uridium=32),
+                         dict(id="other",time=1,type="kill",playerId=11,uridium=999)]
+        feed=WorldFeed();feed.begin("s")
+        feed.ingest("s",json.dumps(dict(transport="delta1",epoch="e",sequence=1,full=state)))
+        state["events"]=[]
+        feed.ingest("s",json.dumps(dict(transport="delta1",epoch="e",sequence=2,full=state)))
+        data=feed.navigation_snapshot()
+        self.assertEqual(len(data["rewards"]),1)
+        earnings=SessionEarnings();earnings.observe(dict(fresh=True,rewards=[]),False)
+        earnings.observe(data,True);earnings.observe(data,True)
+        self.assertEqual(earnings.total,32)
+        self.assertEqual(earnings.hourly(30),3840)
 
     def test_green_needs_option_and_keys_then_confirms_key_consumption(self):
         data=dict(fresh=True,map="4-3",position=(0,0),hp_percent=100,booty_keys=1,box_counter=0,

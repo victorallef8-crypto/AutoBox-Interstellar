@@ -12,7 +12,7 @@ from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
-from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker, NpcTestWorker, NpcFarmWorker
+from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker, NpcTestWorker, NpcFarmWorker, GalaxyWorker
 import updater
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxSemMouse"
@@ -44,6 +44,20 @@ class AutoBoxSemMouse:
         self.stop_event = threading.Event()
         self.stop_event.set()
         self.worker = None
+        self.gg_worker=None
+        self.gg_stop=threading.Event();self.gg_stop.set()
+        self.gg_enabled=tk.BooleanVar(value=False)
+        self.gg_uri=tk.BooleanVar(value=False)
+        self.gg_gate=tk.StringVar(value=self.cfg.get("gg_gate","alpha"))
+        self.gg_reserve=tk.StringVar(value=str(self.cfg.get("gg_reserve",50000)))
+        self.gg_limit=tk.StringVar(value=str(self.cfg.get("gg_limit",1000)))
+        self.gg_sizes={n:tk.BooleanVar(value=n in self.cfg.get("gg_sizes",[100,50,10,5,1])) for n in (100,50,10,5,1)}
+        self.gg_status=tk.StringVar(value="Parado. Apenas materialização; não entra em portais.")
+        self.buy_laser=tk.BooleanVar(value=self.cfg.get("buy_laser",False))
+        self.buy_missile=tk.BooleanVar(value=self.cfg.get("buy_missile",False))
+        self.buy_fields={key:tk.StringVar(value=str(self.cfg.get("buy_"+key,default))) for key,default in
+            (("laser_threshold",1000),("laser_quantity",5000),("missile_threshold",50),("missile_quantity",500),
+             ("reserve_uri",50000),("reserve_credits",100000))}
         self.npc_worker = None
         self.npc_engine = None
         self.npc_stop_event = threading.Event()
@@ -92,6 +106,9 @@ class AutoBoxSemMouse:
         self.death_label = tk.StringVar(value="Mortes nesta sessão: 0")
         self.repair_label = tk.StringVar(value="Custos de renascimento aparecem quando a nave morrer.")
         self.earnings = SessionEarnings()
+        self.earnings_elapsed=0.
+        self.earnings_last=None
+        self.earnings_active=False
         self.account_vars = {key:tk.StringVar(value="—") for key in ("uridium","credits","xp","honor","level","earned","hourly","booty_keys")}
         self.data_planner = DataFarmPlanner(arrival_radius=180)
         self.farm_plan = tk.StringVar(value="Aguardando dados para planejar.")
@@ -102,6 +119,7 @@ class AutoBoxSemMouse:
         self._draw()
         self._draw_world_page()
         self._draw_combat_page()
+        self._draw_services()
         self._bind_keys()
         root.after(100, self._drain)
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -192,7 +210,7 @@ class AutoBoxSemMouse:
         self.notebook = ttk.Notebook(shell)
         self.notebook.pack(fill="both", expand=True)
         self.pages = {}
-        for key, title in (("dashboard","Painel"),("data","Coleta"),("combat","Kill NPC"),("advanced","Avançado")):
+        for key, title in (("dashboard","Painel"),("data","Coleta"),("combat","Kill NPC"),("galaxy","Galaxy Gate"),("skylab","Skylab"),("advanced","Avançado")):
             page=ttk.Frame(self.notebook)
             self.pages[key]=page
             self.notebook.add(page,text=title)
@@ -219,7 +237,7 @@ class AutoBoxSemMouse:
         balances.pack(fill="x",pady=(10,0))
         for index,(key,label) in enumerate((("uridium","Uridium"),("credits","Créditos"),("xp","XP"),
                 ("honor","Honra"),("level","Nível"),("booty_keys","Chaves verdes"),
-                ("earned","Uridium das boxes nesta sessão"),("hourly","Uridium por hora"))):
+                ("earned","Uridium do farm nesta sessão"),("hourly","Uridium por hora"))):
             row,col=divmod(index,2)
             ttk.Label(balances,text=label,style="Muted.TLabel").grid(row=row,column=col*2,sticky="w",padx=6,pady=4)
             ttk.Label(balances,textvariable=self.account_vars[key]).grid(row=row,column=col*2+1,sticky="e",padx=10)
@@ -338,9 +356,20 @@ class AutoBoxSemMouse:
         ttk.Combobox(test,textvariable=self.npc_ammo,state="readonly",values=("lcb10","mcb25","mcb50","ucb100","sab50","rsb75")).grid(row=6,column=1,sticky="w")
         ttk.Label(test,text="Míssil (none = desativado)").grid(row=7,column=0,sticky="w")
         ttk.Combobox(test,textvariable=self.npc_rocket,state="readonly",values=("none","r310","plt2026","plt2021","plt3030")).grid(row=7,column=1,sticky="w")
-        ttk.Label(test,text="Comece com pelo menos 80% de vida e estoque das munições escolhidas. Laser sem confirmação de seleção encerra o farm; míssil vazio não é comprado. "
+        ttk.Label(test,text="Com pouca vida ao iniciar, o bot repara no portal antes de lutar. Tenha estoque das munições escolhidas. Laser sem confirmação de seleção encerra o farm; míssil vazio não é comprado. "
             "F9/F10 interrompem todos os modos. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal; após recuperar 90% de vida, o farm retoma.",
             wraplength=680,style="Muted.TLabel").grid(row=9,column=0,columnspan=2,sticky="w")
+        shop=ttk.LabelFrame(body,text="Reposição automática de munições",padding=10)
+        shop.pack(fill="x",pady=8)
+        ttk.Checkbutton(shop,text="Comprar o laser selecionado acima",variable=self.buy_laser).pack(anchor="w")
+        ttk.Checkbutton(shop,text="Comprar o míssil selecionado acima",variable=self.buy_missile).pack(anchor="w")
+        for key,label in (("laser_threshold","Comprar laser quando estoque ≤"),("laser_quantity","Quantidade de laser por compra"),
+                          ("missile_threshold","Comprar míssil quando estoque ≤"),("missile_quantity","Quantidade de mísseis por compra"),
+                          ("reserve_uri","Manter no mínimo este uridium"),("reserve_credits","Manter no mínimo estes créditos")):
+            row=ttk.Frame(shop);row.pack(fill="x",pady=2)
+            ttk.Label(row,text=label).pack(side="left")
+            ttk.Entry(row,textvariable=self.buy_fields[key],width=12).pack(side="right")
+        ttk.Label(shop,text="Usa o preço e a moeda da loja. Compra apenas os tipos marcados, enquanto o farm está ativo. Se o cliente não confirmar preço, moeda ou estoque, interrompe e informa o motivo.",wraplength=650).pack(anchor="w")
         ttk.Label(body,text="NPCs presentes no mapa",style="Heading.TLabel").pack(anchor="w",pady=6)
         self.npc_table=ttk.Treeview(body,columns=("kind","hp","distance"),show="headings",height=5)
         for name,title,width in (("kind","Tipo de NPC",230),("hp","Vida",140),("distance","Distância",140)):
@@ -359,6 +388,55 @@ class AutoBoxSemMouse:
         ttk.Label(body,text="O registro manual só observa. Iniciar farm de NPCs continua após cada derrota confirmada. F9/F10 encerram o farm. F8 continua iniciando a coleta de boxes.",
                   wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
 
+    def _draw_services(self):
+        body=self._scroll_page(self.pages["galaxy"])
+        ttk.Label(body,text="Galaxy Gate — energias",style="Heading.TLabel").pack(anchor="w")
+        ttk.Checkbutton(body,text="Habilitar giros automáticos nesta sessão",variable=self.gg_enabled).pack(anchor="w",pady=8)
+        ttk.Label(body,text="Gate de destino").pack(anchor="w")
+        ttk.Combobox(body,textvariable=self.gg_gate,state="readonly",values=("alpha","beta","gamma","delta","epsilon","zeta","kappa","lambda")).pack(anchor="w")
+        row=ttk.Frame(body);row.pack(fill="x",pady=8)
+        for n,var in self.gg_sizes.items():ttk.Checkbutton(row,text=str(n)+"x",variable=var).pack(side="left")
+        ttk.Label(body,text="Usa o maior lote marcado que caiba no saldo e no limite. Marque 1x para consumir sobras.").pack(anchor="w")
+        ttk.Label(body,text="Limite total de energias por execução (extras + pagas)").pack(anchor="w",pady=(10,0))
+        ttk.Entry(body,textvariable=self.gg_limit).pack(anchor="w")
+        ttk.Checkbutton(body,text="Permitir uridium após consumir as energias extras",variable=self.gg_uri).pack(anchor="w",pady=10)
+        ttk.Label(body,text="Parar antes de o uridium ficar abaixo de").pack(anchor="w")
+        ttk.Entry(body,textvariable=self.gg_reserve).pack(anchor="w")
+        ttk.Button(body,text="Iniciar giros",command=self.start_galaxy).pack(fill="x",pady=8)
+        ttk.Button(body,text="Parar giros",command=self.gg_stop.set).pack(fill="x")
+        ttk.Label(body,textvariable=self.gg_status,wraplength=650).pack(anchor="w",pady=10)
+        body=self._scroll_page(self.pages["skylab"])
+        ttk.Label(body,text="Skylab — planejamento até nível 20",style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(body,text="Automação pendente de validação dos módulos, custos, pré-requisitos e fim de cada upgrade. Não usa conclusão instantânea nem compra recursos.",wraplength=650).pack(anchor="w",pady=10)
+        ttk.Button(body,text="Exportar integração atual para validar Skylab e camuflagem",command=self.export_client_integration).pack(fill="x")
+        ttk.Label(body,text="No jogo, abra Skylab e a CPU de camuflagem antes de exportar. Envie o arquivo no chat.",wraplength=650).pack(anchor="w",pady=8)
+        ttk.Label(self.pages["data"],text="CPU de camuflagem automática: aguardando validação dos dados do cliente.",wraplength=650).pack(side="bottom",fill="x")
+
+    def gg_active(self):
+        return self.gg_worker is not None and self.gg_worker.is_alive()
+
+    def start_galaxy(self):
+        if self.closing or self.gg_active(): return
+        if not self.gg_enabled.get():
+            self.gg_status.set("Marque Habilitar giros automáticos antes de iniciar.");return
+        if self.npc_active() or (self.worker is not None and self.worker.is_alive()):
+            self.gg_status.set("Pause coleta, viagem e combate antes de girar energias.");return
+        if not self.session.ready.is_set():
+            self.gg_status.set("Abra o jogo e aguarde os dados ao vivo.");return
+        try:
+            limit=int(self.gg_limit.get());reserve=int(self.gg_reserve.get())
+            sizes=[n for n,v in self.gg_sizes.items() if v.get()]
+            if not 1<=limit<=100000 or not 0<=reserve<=1000000000 or not sizes:raise ValueError()
+        except ValueError:
+            self.gg_status.set("Informe limite de 1 a 100000, reserva válida e ao menos um lote.");return
+        self.cfg.update(gg_gate=self.gg_gate.get(),gg_reserve=reserve,gg_limit=limit,gg_sizes=sizes)
+        if not self.save():return
+        self.gg_stop.clear()
+        engine=GalaxyWorker(self.session,self.gg_stop,lambda e,d:self.events.put(("gg_status",d)),
+            dict(gate=self.gg_gate.get(),limit=limit,reserve=reserve,sizes=sizes,allow_uri=self.gg_uri.get()))
+        self.gg_worker=threading.Thread(target=engine.run,daemon=True);self.gg_worker.start()
+        self.gg_status.set("Giros iniciados. Aguardando confirmação de cada lote.")
+
     def _sync_npc_choices(self,kinds):
         for kind in sorted(set(kinds)|self.npc_kinds_saved):
             if kind in self.npc_kind_vars: continue
@@ -369,6 +447,8 @@ class AutoBoxSemMouse:
             ttk.Checkbutton(self.npc_choices,text=kind,variable=var).grid(row=index//3,column=index%3,sticky="w",padx=5,pady=2)
 
     def start_npc_test(self):
+        if self.gg_active():
+            self.say("Pare os giros do Galaxy Gate antes de iniciar o farm.");return
         if self.closing: return
         if self.npc_active():
             self.combat_status.set("Farm em execução ou encerrando o ataque. Aguarde antes de iniciar novamente.")
@@ -381,16 +461,17 @@ class AutoBoxSemMouse:
         snapshot=self.session.get_world_snapshot()
         if not snapshot.get("fresh") or snapshot.get("dead"):
             self.say("Aguarde dados ao vivo com a nave viva."); return
-        if snapshot.get("hp_percent") is None or snapshot["hp_percent"]<80:
-            self.say("Recupere a vida para pelo menos 80% antes do farm."); return
+        if snapshot.get("hp_percent") is None:
+            self.say("Aguarde a leitura da vida antes do farm."); return
         self.session.combat_probe.stop("Registro manual encerrado para farm automático.")
         self.last_npc_report=None
+        self.earnings.observe(snapshot,False)
         previous_kills=self.npc_engine.kills if self.npc_state=="paused" and self.npc_engine else 0
         self.npc_generation+=1
         generation=self.npc_generation
         self.npc_stop_event=threading.Event()
         engine=NpcFarmWorker(self.session,self.npc_stop_event,lambda event,data:self.events.put(("npc_event",(generation,event,data))),
-            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get())
+            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}))
         engine.kills=previous_kills
         self.npc_engine=engine
         self.npc_state="running"
@@ -412,14 +493,20 @@ class AutoBoxSemMouse:
         self.combat_status.set("NPC parado. Aguarde encerrar os tiros; o próximo início abre uma nova sessão.")
 
     def pause_all(self):
+        self.gg_stop.set()
         self.pause()
         self.pause_npc()
 
     def stop_all(self):
+        self.gg_stop.set()
         self.stop()
         self.stop_npc()
 
     def record_combat(self):
+        self.gg_stop.set()
+        if self.gg_active():
+            self.root.after(100,self.record_combat)
+            return
         self.npc_stop_event.set()
         if self.npc_active():
             self.root.after(100,self.record_combat)
@@ -448,6 +535,8 @@ class AutoBoxSemMouse:
         self.say("Diagnóstico da luta copiado. Cole no chat para validar o combate.")
 
     def start_trip(self,destination):
+        if self.gg_active():
+            self.say("Pare os giros do Galaxy Gate antes de viajar.");return
         if self.npc_active():
             self.say("Pause o farm na aba Kill NPC antes de iniciar uma viagem manual.")
             return
@@ -470,6 +559,10 @@ class AutoBoxSemMouse:
         self.worker.start()
 
     def record_manual_collect(self):
+        self.gg_stop.set()
+        if self.gg_active():
+            self.root.after(100,self.record_manual_collect)
+            return
         self.npc_stop_event.set()
         if self.npc_active():
             self.root.after(100,self.record_manual_collect)
@@ -486,6 +579,10 @@ class AutoBoxSemMouse:
             self.say(str(exc))
 
     def export_client_integration(self):
+        self.gg_stop.set()
+        if self.gg_active():
+            self.root.after(100,self.export_client_integration)
+            return
         self.npc_stop_event.set()
         if self.npc_active():
             self.root.after(100,self.export_client_integration)
@@ -554,7 +651,14 @@ class AutoBoxSemMouse:
         self.repair_label.set("  |  ".join(names.get(o.get("id"),"?")+": "+str(o.get("cost","—"))+" U"+
             ("" if o.get("available") and o.get("affordable") else " (indisponível)") for o in options)
             if options else "Custos de renascimento aparecem quando a nave morrer.")
-        self.earnings.observe(data, self.running and not self.stop_event.is_set())
+        earning_active=bool(data.get("fresh") and not data.get("dead") and
+            ((self.running and not self.stop_event.is_set()) or
+             (self.npc_active() and self.npc_state=="running" and not self.npc_stop_event.is_set())))
+        if self.earnings_last is not None and self.earnings_active and earning_active:
+            self.earnings_elapsed+=max(0,now-self.earnings_last)
+        self.earnings_last=now
+        self.earnings_active=earning_active
+        self.earnings.observe(data,earning_active)
         account=data.get("account",{}) if data.get("fresh") else {}
         for key in ("uridium","credits","xp","honor","level","booty_keys"):
             value=data.get(key) if key=="booty_keys" and data.get("fresh") else account.get(key)
@@ -600,8 +704,8 @@ class AutoBoxSemMouse:
         if self.running:
             elapsed += max(0,time.monotonic()-self.active_started)
         self.account_vars["earned"].set(format(self.earnings.total,",.0f").replace(",","."))
-        rate=self.earnings.hourly(elapsed)
-        self.account_vars["hourly"].set("Calculando…" if rate is None else format(rate,",.0f").replace(",",".") + " U/h")
+        rate=self.earnings.hourly(self.earnings_elapsed)
+        self.account_vars["hourly"].set("Calculando (30 s de farm)…" if rate is None else format(rate,",.0f").replace(",",".") + " U/h")
         seconds = int(elapsed)
         self.active_time.set("Tempo em coleta: %02d:%02d:%02d" % (seconds//3600,seconds//60%60,seconds%60))
         self.session_label.set("Opera conectado" if self.session.ready.is_set() else "Opera desconectado")
@@ -635,6 +739,12 @@ class AutoBoxSemMouse:
 
     def save(self):
         try:
+            for key,var in self.buy_fields.items():
+                value=int(var.get())
+                if value<0 or value>1000000000 or ("quantity" in key and not 1<=value<=100000):
+                    raise ValueError("Confira os limites de reposição de munições.")
+                self.cfg["buy_"+key]=value
+            self.cfg.update(buy_laser=self.buy_laser.get(),buy_missile=self.buy_missile.get())
             for key,var in (("collect_map",self.collect_map),("npc_map",self.npc_map)):
                 value=var.get().strip()
                 if value and not re.fullmatch(r"[0-9]{1,2}-[0-9]{1,2}",value):
@@ -702,6 +812,8 @@ class AutoBoxSemMouse:
 
 
     def start(self):
+        if self.gg_active():
+            self.say("Pare os giros do Galaxy Gate antes de iniciar a coleta.");return
         if self.npc_active():
             self.say("Pause ou pare o farm na aba Kill NPC antes de iniciar a coleta.")
             return
@@ -764,6 +876,7 @@ class AutoBoxSemMouse:
         threading.Thread(target=check,daemon=True).start()
 
     def _download(self, manifest):
+        self.gg_stop.set()
         self.stop_event.set()
         self.npc_stop_event.set()
         self.say("Baixando e verificando a atualizacao...")
@@ -784,6 +897,9 @@ class AutoBoxSemMouse:
                 break
             if event=="command":
                 {"start":self.start,"pause":self.pause_all,"stop":self.stop_all}[data]()
+            elif event=="gg_status":
+                self.gg_status.set(data)
+                self.say(data)
             elif event=="npc_event":
                 generation,kind,value=data
                 if generation!=self.npc_generation: continue
@@ -823,6 +939,7 @@ class AutoBoxSemMouse:
         if self.closing:
             return
         self.closing=True
+        self.gg_stop.set()
         self.stop_event.set()
         self.npc_stop_event.set()
         self.listener.stop()

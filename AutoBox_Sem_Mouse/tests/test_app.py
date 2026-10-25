@@ -80,7 +80,7 @@ class AppTests(unittest.TestCase):
         self.app.stop_event.clear(); self.app.pause()
         self.assertTrue(self.app.stop_event.is_set())
     def test_only_implemented_modes_are_available(self):
-        self.assertEqual(len(self.app.notebook.tabs()),4)
+        self.assertEqual(len(self.app.notebook.tabs()),6)
         for key in ("dashboard","data","combat","advanced"):
             self.assertEqual(self.app.notebook.tab(self.app.pages[key],"state"),"normal")
         self.assertIn("combat",self.app.pages)

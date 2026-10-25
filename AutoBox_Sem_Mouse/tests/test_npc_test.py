@@ -353,6 +353,22 @@ class NpcWorkerTests(unittest.TestCase):
         self.assertEqual(engine.kills,0)
         self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
 
+
+    def test_low_health_start_repairs_without_previous_target(self):
+        from unittest.mock import patch
+        stop=Stop();session=Session(stop);session.state["hp_percent"]=35
+        engine=NpcFarmWorker(session,stop,lambda *e:None,clock=lambda:stop.now)
+        def recover(worker):
+            self.assertEqual(worker.context["map"],"3-4")
+            worker.report["recovered"]=True
+            session.state["hp_percent"]=95
+            stop.set()
+        with patch.object(NpcTestWorker,"recover_at_portal",recover):
+            engine.run()
+        self.assertIsNotNone(engine.last)
+        self.assertTrue(engine.last.report["recovered"])
+        self.assertFalse(any(p["action"]=="attack" for _,p in session.calls))
+
     def test_farm_recovers_before_next_target(self):
         stop=Stop();session=Session(stop);session.state["hp_percent"]=39
         engine=NpcFarmWorker(session,stop,lambda *e:None,repair_portal=True,clock=lambda:stop.now)

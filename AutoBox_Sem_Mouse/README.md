@@ -103,3 +103,11 @@ Beta 0.11.1: farm permite até 15 minutos por luta, mantendo verificações de v
 
 Beta 0.12.0 — controles independentes de Kill NPC
 Na aba Kill NPC, Iniciar NPC mantém o farm contínuo dos tipos marcados. Pausar NPC encerra os tiros e permite retomar com o contador preservado; Parar NPC encerra a sessão e o próximo início zera o contador. Aguarde o ataque terminar antes de reiniciar. Os botões de coleta controlam somente a coleta; F9/F10 interrompem ambos os modos. Coleta e combate não rodam simultaneamente na mesma nave. Falhas de leitura, morte, limite de vida sem recuperação e falta de progresso ainda interrompem o combate.
+
+
+Beta 0.13.0
+- Uridium/h: inclui boxes e Kill NPC, preserva eventos breves e calcula após 30 segundos ativos. Conta recompensas, sem descontar compras.
+- Farm NPC com vida abaixo de 80% ao iniciar: tenta voltar ao portal e reparar até 90% antes de lutar. Exige robô de reparo equipado.
+- Reposição opcional do laser/míssil selecionado: estoque mínimo, quantidade e reservas de créditos/uridium. Só compra quando preço, moeda e saldo são confirmados pelo cliente.
+- Galaxy Gate: giros em lotes marcados de 100/50/10/5/1; limite total por execução; uridium opcional e reserva mínima. Cada lote aguarda confirmação. Pause coleta e combate para usar. Abra o painel no jogo e confirme o aviso inicial se solicitado. Não prepara nem entra nos portais.
+- Aba Skylab preparada. Upgrades automáticos e CPU de camuflagem ainda aguardam integração atual: abra esses painéis no jogo, use Exportar integração atual e envie o arquivo no chat.

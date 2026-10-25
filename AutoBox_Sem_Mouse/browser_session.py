@@ -57,11 +57,15 @@ class UnsupportedWorldPatch(ValueError):
         return "text" if isinstance(value,str) else "unsupported"
 
 
+GG_SCRIPT = "t => {\n const w=window.PeriodWindows,s=w?.renderer?.state,C=window.DarkOrbitGalaxyBuilder,b=s?.me?.galaxyBuilder;\n if(!b||!C||!w) throw Error('Abra Galaxy Gate no jogo para carregar os dados.');\n if(t.action==='inspect') return {action:'state',revision:b.revision,energy:b.energy,uridium:b.uridium};\n if(!Number.isSafeInteger(t.remaining)||t.remaining<=0||!Number.isSafeInteger(t.reserve)||t.reserve<0) throw Error('Limites inválidos.');\n if(s.me.deadUntil||s.me.attacking||s.me.secondaryVolley||!b.canUse) throw Error('Pare o combate antes de girar energias.');\n const gate=b.gates?.find(g=>g.id===t.gate);\n if(!gate||t.gate==='kronos') throw Error('Selecione um gate válido.');\n const sizes=[100,50,10,5,1].filter(n=>t.sizes?.includes(n)&&C.spinAmounts.includes(n)&&n<=t.remaining&&(b.energy<=0||n<=b.energy));\n const uri=Math.min(b.uridium,s.me.uridium);\n const count=sizes.find(n=>{const cost=C.quote(n,b.energy);return Number.isSafeInteger(cost)&&cost>=0&&(t.allow_uri||cost===0)&&(cost===0||uri-cost>=t.reserve);});\n if(!count) return {action:'limit',energy:b.energy,uridium:uri};\n w.open('galaxybuilder');\n window.DarkOrbitGalaxyBuilderUI?.update(s);\n const panel=w.panels.get('galaxybuilder');\n if(!panel||panel.hidden) throw Error('Abra o painel Galaxy Gate no jogo.');\n const warning=panel.querySelector('.gg-first-open-warning');\n if(warning&&!warning.hidden) throw Error('Confirme o aviso inicial do Galaxy Gate no jogo e inicie novamente.');\n const gateButton=panel.querySelector('[data-gg-gate=\"'+t.gate+'\"]');\n if(!gateButton||gateButton.disabled) return {action:'wait'};\n gateButton.click();\n const countInput=panel.querySelector('[data-gg-count]');\n if(!countInput||countInput.disabled) return {action:'wait'};\n countInput.value=String(count);countInput.dispatchEvent(new Event('change',{bubbles:true}));\n const button=panel.querySelector('[data-gg-spin]');\n if(!button||button.disabled) return {action:'wait'};\n const price=C.quote(count,b.energy);\n button.click();\n return {action:'sent',revision:b.revision,count,cost:price};\n}"
+
+RESTOCK_SCRIPT = "async t => {\n const s=window.PeriodWindows?.renderer?.state,me=s?.me,S=window.DarkOrbitStarter,Q=window.DarkOrbitQuickbar;\n if(!me||me.deadUntil||!S||typeof Q?.onBuy!=='function') throw Error('Loja indisponível.');\n const allowed=['lcb10','mcb25','mcb50','ucb100','sab50','rsb75','r310','plt2026','plt2021','plt3030'];\n if(!allowed.includes(t.item)||!Number.isSafeInteger(t.quantity)||t.quantity<1||t.quantity>100000||\n !Number.isSafeInteger(t.threshold)||t.threshold<0||!Number.isSafeInteger(t.reserve_uri)||t.reserve_uri<0||\n !Number.isSafeInteger(t.reserve_credits)||t.reserve_credits<0) throw Error('Limites de compra inválidos.');\n const stock=()=>{const m=window.PeriodWindows.renderer.state.me;return (t.kind==='laser'?m.ammunitionStock:m.rocketStock)?.[t.item]??(t.item==='lcb10'?m.ammo:t.item==='r310'?m.rockets:undefined);};\n const before=stock();if(!Number.isSafeInteger(before)||before<0) throw Error('Estoque da munição ainda não confirmado.');\n if(before>t.threshold) return {action:'stock',stock:before};\n const spec=S.items[t.item];\n if(!spec||!S.shopAvailable(t.item)) throw Error('Munição indisponível para compra.');\n if(!['credits','uridium'].includes(spec.currency)||!Number.isFinite(spec.price)||spec.price<=0) throw Error('Preço/moeda não confirmados. Exporte a integração atual da loja.');\n const cost=spec.price*t.quantity,reserve=spec.currency==='uridium'?t.reserve_uri:t.reserve_credits;\n if(!Number.isSafeInteger(cost)||!Number.isSafeInteger(me[spec.currency])) throw Error('Preço ou saldo inválido.');\n if(me[spec.currency]-cost<reserve) return {action:'funds',item:t.item};\n await Q.onBuy(t.item,t.quantity);\n if(!(stock()>before)) throw Error('Compra sem confirmação de estoque; confira o jogo antes de tentar novamente.');\n return {action:'bought',item:t.item,quantity:t.quantity,cost,currency:spec.currency};\n}"
+
 class WorldFeed:
     """Reconstrucao somente de campos de navegacao; nao guarda tokens nem chat."""
     ROOT = {"map", "world", "me", "boxes", "npcs", "events", "time", "inputAck"}
     LISTS = (("boxes",),("npcs",),("map","gates"),("events",),("me","repairChoices","options"))
-    ME = {"x","y","speed","hp","maxHp","shield","maxShield","moving","destination",
+    ME = {"id","x","y","speed","hp","maxHp","shield","maxShield","moving","destination",
           "mapId","deadUntil","respawnRevision","targetId","attacking","repairing","inputSeq","achievements","credits","uridium","xp","honor","galaxyGates","repairChoices","selectedAmmo","ammo","selectedRocket","rockets","autoRocket","secondaryVolley","repairActive"}
     MAP = {"id","width","height","gates"}
     ENTITY = {"id","revision","x","y","type","kind","hp","maxHp","shield","maxShield","respawnRevision"}
@@ -75,6 +79,7 @@ class WorldFeed:
         self.updated = None
         self.reason = "Aguardando dados do jogo."
         self.failure = None
+        self.reward_history = {}
 
     def begin(self, stream):
         with self.lock:
@@ -99,7 +104,7 @@ class WorldFeed:
         if not path: return cls.ROOT
         if path in (("boxes","*"),("npcs","*")): return cls.ENTITY
         if path == ("map","gates","*"): return {"id","to","x","y"}
-        if path == ("events","*"): return {"id","time","type","field","amount","petCollected"}
+        if path == ("events","*"): return {"id","time","type","field","amount","petCollected","uridium","playerId","pet"}
         if path == ("me","galaxyGates"): return {"bootyKeys"}
         if path == ("me","repairChoices"): return {"id","readyAt","baseMap","options"}
         if path == ("me","repairChoices","options","*"): return {"id","cost","available","affordable"}
@@ -195,6 +200,15 @@ class WorldFeed:
                             packet.get("base")!=self.sequence or seq!=self.sequence+1):
                         raise ValueError("sequencia interrompida")
                     updated = self._patch(self.state,packet.get("patch"))
+                old_owner=(self.state or {}).get("me",{}).get("id")
+                owner=updated.get("me",{}).get("id")
+                if old_owner!=owner: self.reward_history.clear()
+                for event in updated.get("events",[]):
+                    if event.get("type") not in ("box-collected","kill") or (owner is not None and event.get("playerId")!=owner): continue
+                    key=(event.get("id"),event.get("time"))
+                    if key[0] is not None: self.reward_history[key]=dict(event)
+                while len(self.reward_history)>2000:
+                    self.reward_history.pop(next(iter(self.reward_history)))
                 self.state, self.epoch, self.sequence = updated, epoch, seq
                 self.updated = self.clock()
                 self.reason = "Dados recebidos."
@@ -270,7 +284,7 @@ class WorldFeed:
             result["booty_keys"]=keys if type(keys) is int and keys>=0 else 0
             result["repair"]=json.loads(json.dumps(me.get("repairChoices")))
             result["server_time"]=self.state.get("time")
-            result["rewards"]=[dict(e) for e in self.state.get("events",[]) if e.get("type")=="box-collected"]
+            result["rewards"]=[dict(e) for e in self.reward_history.values()]
             result["respawn_revision"]=me.get("respawnRevision")
             result["dead"]=bool(me.get("deadUntil")) or (self._number(me.get("hp")) and me["hp"]<=0)
             result["destination"]=dict(me["destination"]) if isinstance(me.get("destination"),dict) else None
@@ -564,9 +578,9 @@ class BrowserSession:
                     return u.origin===location.origin && u.protocol==='https:' && u.pathname.endsWith('.js');
                 } catch { return false; }
             }).sort((a,b)=>{
-                const rank=v=>/star-system|maps\\.js|input|bindings|quickbar|renderer|game\\.js/i.test(new URL(v).pathname)?0:1;
+                const rank=v=>/skylab|laboratory|starter|special|galaxy|star-system|maps\\.js|input|bindings|quickbar|renderer|game\\.js/i.test(new URL(v).pathname)?0:1;
                 return rank(a)-rank(b);
-            }).slice(0,24);
+            }).slice(0,64);
             return await Promise.all(urls.map(async value=>{
                 const u=new URL(value,location.href);
                 try {
@@ -579,7 +593,7 @@ class BrowserSession:
                 } catch { return {path:u.pathname,error:'unavailable'}; }
             }));
         }""")
-        if not isinstance(raw,list) or len(raw)>24:
+        if not isinstance(raw,list) or len(raw)>64:
             raise ValueError("Resposta de arquivos do cliente invalida.")
         files=[]; total=0
         # Remove atribuicoes literais de credenciais; nao exporta cookies ou estado.
@@ -813,7 +827,14 @@ class BrowserSession:
                         if allowed is not None and not allowed():
                             reply.put((True, False))
                             continue
-                        if operation == "npc_action":
+                        if operation in ("galaxy","restock"):
+                            if not self.world_feed.navigation_snapshot().get("fresh"):
+                                raise ValueError("Aguarde os dados ao vivo.")
+                            if allowed is not None and not allowed():
+                                result={"action":"cancelled"}
+                            else:
+                                result=page.evaluate(GG_SCRIPT if operation=="galaxy" else RESTOCK_SCRIPT,payload)
+                        elif operation == "npc_action":
                             result = self._npc_action(page,payload,allowed)
                         elif operation == "travel":
                             result = self._travel(page,payload,allowed)

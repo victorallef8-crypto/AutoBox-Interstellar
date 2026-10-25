@@ -271,7 +271,7 @@ class DataCollector:
 
 
 class SessionEarnings:
-    """Conta somente eventos novos de uridium das boxes durante a coleta."""
+    """Conta recompensas novas de boxes e combate durante o farm ativo."""
     def __init__(self):
         self.seen = set()
         self.order = []
@@ -287,9 +287,9 @@ class SessionEarnings:
                 continue
             self.seen.add(key)
             self.order.append(key)
-            amount = event.get("amount")
-            if (self.primed and active and event.get("type")=="box-collected"
-                    and event.get("field")=="uridium" and not event.get("petCollected")
+            amount = event.get("uridium") if event.get("type")=="kill" else event.get("amount")
+            if (self.primed and active and (event.get("type")=="kill" or (event.get("type")=="box-collected" and event.get("field")=="uridium"))
+                    and not event.get("petCollected") and not event.get("pet")
                     and type(amount) in (int,float) and isfinite(amount) and amount>0):
                 self.total += amount
         self.primed = True
@@ -297,7 +297,7 @@ class SessionEarnings:
             self.seen.discard(self.order.pop(0))
 
     def hourly(self, seconds):
-        return self.total*3600/seconds if seconds>=60 else None
+        return self.total*3600/seconds if seconds>=30 else None
 
 
 class CombatTargetGone(Exception):
@@ -310,13 +310,14 @@ class CombatLowHealth(Exception):
 
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
-    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none"):
+    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None):
         self.session=session; self.stop=stop; self.emit=emit
         self.kinds=set(kind if isinstance(kind,(list,tuple,set)) else [kind])
         self.kind=", ".join(sorted(self.kinds))
         self.destination=destination; self.min_hp=min_hp; self.clock=clock or time.monotonic
         self.orbit=orbit; self.radius=max(150,min(800,radius)); self.repair_portal=repair_portal; self.direction=1
         self.ammo=ammo; self.rocket=rocket; self.next_rocket=0
+        self.restock=restock or {}; self.next_restock=0
         self.finish_stop=True; self.minimum_start_hp=80; self.max_fight_seconds=180
         self.portal_fight=portal_fight; self.fight_gate=None; self.gate_best=float("inf")
         self.target=None; self.context=None; self.pending=None; self.next_move=0
@@ -451,6 +452,17 @@ class NpcTestWorker:
                     if not travel.step(snap):
                         if self.stop.wait(.5): break
                         continue
+                if self.restock and now>=self.next_restock:
+                    for kind,item in (("laser",self.ammo),("missile",self.rocket)):
+                        if not self.restock.get(kind) or item=="none": continue
+                        result=self.session.request("restock",dict(self.restock,item=item,kind=kind,
+                            quantity=self.restock[kind+"_quantity"],threshold=self.restock[kind+"_threshold"]),
+                            allowed=lambda:not self.stop.is_set())
+                        if result.get("action")=="bought":
+                            self.emit("status","Compra confirmada: "+item+" x "+str(result["quantity"]))
+                        elif result.get("action")=="funds":
+                            self.emit("status","Compra não realizada: saldo/reserva insuficiente para "+item)
+                    self.next_restock=now+5
                 if self.target is None:
                     if hp<self.minimum_start_hp: raise ValueError("Recupere a vida antes de iniciar outra luta.")
                     combat=snap.get("combat",{})
@@ -597,8 +609,18 @@ class NpcFarmWorker:
                     raise ValueError("Farm interrompido: dados indisponíveis ou nave destruída.")
                 hp=snap.get("hp_percent")
                 if hp is None: raise ValueError("Vida indisponível; farm interrompido.")
-                if hp<=limit:
-                    if not self.settings.get("repair_portal") or self.last is None:
+                initial_repair=self.last is None and hp<80
+                if initial_repair:
+                    engine=NpcTestWorker(self.session,self.stop,self.relay,**self.settings)
+                    engine.context={"map":snap["map"],"life":snap.get("respawn_revision")}
+                    target_id=snap.get("combat",{}).get("target_id")
+                    engine.target=next((dict(n) for n in snap.get("npc_candidates",[]) if str(n.get("id"))==str(target_id)),
+                                       {"id":"__startup_repair__","respawnRevision":None})
+                    engine.started=engine.clock()
+                    self.last=engine
+                    self.emit("status","Vida baixa ao iniciar: indo ao portal e ativando reparador antes do farm.")
+                if hp<=limit or initial_repair:
+                    if not initial_repair and (not self.settings.get("repair_portal") or self.last is None):
                         raise ValueError("Vida no limite; habilite recuperação ou repare manualmente.")
                     self.last.report["recovered"]=False
                     self.last.recover_at_portal()
@@ -632,3 +654,37 @@ class NpcFarmWorker:
         finally:
             self.stop.set()
             self.emit("running",False)
+
+
+class GalaxyWorker:
+    """Um lote por confirmação; nunca repete um giro de resultado desconhecido."""
+    def __init__(self,session,stop,emit,settings,clock=None):
+        self.session=session;self.stop=stop;self.emit=emit;self.settings=settings
+        self.clock=clock or time.monotonic
+        self.used=0;self.pending=None
+    def run(self):
+        try:
+            while not self.stop.is_set():
+                now=self.clock()
+                if self.pending:
+                    result=self.session.request("galaxy",{"action":"inspect"},allowed=lambda:not self.stop.is_set())
+                    if result.get("revision",0)>self.pending["revision"]:
+                        self.used+=self.pending["count"];self.pending=None
+                        self.emit("status","Galaxy Gate: "+str(self.used)+" energias confirmadas.")
+                    elif now-self.pending["time"]>20:
+                        raise ValueError("Giro sem confirmação. Automação parada para evitar gasto duplicado; confira o jogo.")
+                elif self.used>=self.settings["limit"]:
+                    self.emit("status","Galaxy Gate: limite de energias atingido.");break
+                else:
+                    result=self.session.request("galaxy",dict(self.settings,action="spin",remaining=self.settings["limit"]-self.used),
+                        allowed=lambda:not self.stop.is_set())
+                    if result.get("action")=="sent": self.pending=dict(result,time=now)
+                    elif result.get("action")=="limit":
+                        self.emit("status","Galaxy Gate: energias insuficientes para os lotes marcados ou reserva de uridium atingida.");break
+                    elif result.get("action") not in ("wait","cancelled"):
+                        raise ValueError("Resposta do Galaxy Gate não reconhecida.")
+                if self.stop.wait(.5):break
+        except Exception as exc:
+            self.emit("status",str(exc))
+        finally:
+            self.stop.set()
