@@ -317,7 +317,7 @@ class NpcTestWorker:
         self.destination=destination; self.min_hp=min_hp; self.clock=clock or time.monotonic
         self.orbit=orbit; self.radius=max(150,min(800,radius)); self.repair_portal=repair_portal; self.direction=1
         self.ammo=ammo; self.rocket=rocket; self.next_rocket=0
-        self.finish_stop=True; self.minimum_start_hp=80
+        self.finish_stop=True; self.minimum_start_hp=80; self.max_fight_seconds=180
         self.portal_fight=portal_fight; self.fight_gate=None; self.gate_best=float("inf")
         self.target=None; self.context=None; self.pending=None; self.next_move=0
         self.started=None; self.progress=None; self.best_distance=float("inf"); self.lowest=None
@@ -484,7 +484,7 @@ class NpcTestWorker:
                 if self.previous_distance is not None and d<self.previous_distance-2: self.progress=now
                 self.previous_distance=d
                 self.best_distance=min(self.best_distance,d)
-                if now-self.started>180: raise ValueError("Teste excedeu 3 minutos.")
+                if now-self.started>self.max_fight_seconds: raise ValueError("Luta excedeu o limite de "+str(self.max_fight_seconds//60)+" minutos.")
                 if now-self.progress>15: raise ValueError("Sem aproximação ou dano por 15 segundos.")
                 combat=snap.get("combat",{})
                 selected=str(combat.get("target_id"))==str(current["id"])
@@ -521,7 +521,7 @@ class NpcTestWorker:
                     self.publish("Conduzindo o NPC e mantendo a luta perto do portal.")
                 elif (not selected and d>180) or (selected and d>self.radius+40):
                     if now>=self.next_move:
-                        result=self.action("approach",close_approach=not selected,radius=self.radius); self.next_move=now+.35
+                        result=self.action("approach",close_approach=not selected,radius=self.radius); self.next_move=now+.15
                         if result.get("action") not in ("move_sent","in_range"): raise ValueError("Aproximação não aceita: "+result.get("action","?"))
                     self.publish("Chegando perto para selecionar o NPC." if not selected else "Perseguindo o mesmo NPC na distância de ataque.")
                 elif not selected:
@@ -610,6 +610,7 @@ class NpcFarmWorker:
                     continue
                 engine=NpcTestWorker(self.session,self.stop,self.relay,**self.settings)
                 engine.finish_stop=False
+                engine.max_fight_seconds=900
                 engine.minimum_start_hp=80 if self.last is None else limit+.01
                 self.last=engine
                 engine.run()

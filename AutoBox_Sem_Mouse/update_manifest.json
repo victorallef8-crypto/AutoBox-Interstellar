@@ -1,6 +1,6 @@
 {
-  "version": "0.11.0",
+  "version": "0.11.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "c1f346342f804516dffc5dc6373a72a58df9d437074fe32d147bf8d572fd04d9",
-  "notes": "Farm contínuo de NPCs: verifica vida entre lutas, escolhe próximo alvo marcado e retoma após recuperação habilitada."
+  "sha256": "19e57e2a5362f1076c0c3fd989214918a84d32c164f61f778d678f236947ed97",
+  "notes": "Farm com até 15 minutos por luta e perseguição mais próxima e frequente para NPC em fuga."
 }

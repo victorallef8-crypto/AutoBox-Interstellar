@@ -329,6 +329,23 @@ class NpcWorkerTests(unittest.TestCase):
         previous.recover_at_portal.assert_called_once()
         self.assertEqual(session.calls,[])
 
+    def test_long_fight_can_continue_past_three_minutes_with_damage(self):
+        stop=Stop();session=Session(stop,damage=False);original=session.get_world_snapshot
+        def snapshot():
+            if session.state["combat"].get("attacking") and session.state["npc_candidates"]:
+                stop.now+=10
+                session.state["npc_candidates"][0]["hp"]-=20
+                if session.state["npc_candidates"][0]["hp"]<=0:
+                    session.state["npc_candidates"]=[]
+                    session.state["account"]["xp"]+=100
+                    session.state["combat"]["attacking"]=False
+            return original()
+        session.get_world_snapshot=snapshot
+        engine=self.engine(session,stop);engine.max_fight_seconds=900
+        engine.run()
+        self.assertGreater(stop.now,180)
+        self.assertTrue(engine.report["kill_confirmed"])
+
     def test_lost_attack_ack_does_not_repeat_ctrl(self):
         stop=Stop();session=Session(stop,ack=False);engine=self.engine(session,stop);engine.run()
         self.assertFalse(engine.report["kill_confirmed"])
