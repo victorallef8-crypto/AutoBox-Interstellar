@@ -1,6 +1,6 @@
 {
-  "version": "0.9.4",
+  "version": "0.9.5",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "03da9b5a037866946509a6abe5563965dfe9c6eded194942d3dd95738891cd1e",
-  "notes": "Amplia distância ajustável de combate para até 800 unidades; padrão permanece 450."
+  "sha256": "9e7e95f2dc9b578f5b5f1b3b911b22a5fd51155746dfc8c842b85d06582be693",
+  "notes": "Corrige retorno por vida baixa sem esperar confirmação inicial da parada; opção experimental de conduzir NPC ao portal e lutar ao redor."
 }

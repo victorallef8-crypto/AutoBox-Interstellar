@@ -98,8 +98,10 @@ class NpcWorkerTests(unittest.TestCase):
         stop=Stop();session=Session(stop,damage=False);original=session.request
         def request(op,payload,allowed):
             if payload["action"]=="retreat":
-                self.assertFalse(session.state["combat"]["attacking"])
                 session.calls.append((op,dict(payload)))
+                if not payload["enable_repair"]:
+                    return {"action":"retreating","gate":"portal","distance":20 if session.state["combat"].get("repairing") else 400,"repair":"waiting"}
+                self.assertFalse(session.state["combat"]["attacking"])
                 session.state["combat"]["repairing"]=True
                 session.state["hp_percent"]=95
                 return {"action":"retreating","gate":"portal","distance":20,"repair":"sent"}
@@ -119,7 +121,7 @@ class NpcWorkerTests(unittest.TestCase):
         def request(op,payload,allowed):
             if payload["action"]=="retreat":
                 session.calls.append((op,dict(payload)))
-                return {"action":"retreating","gate":"portal","distance":400,"repair":"sent"}
+                return {"action":"retreating","gate":"portal","distance":400,"repair":"sent" if payload["enable_repair"] else "waiting"}
             result=original(op,payload,allowed)
             if payload["action"]=="attack":session.state["hp_percent"]=39
             return result
@@ -191,6 +193,38 @@ class NpcWorkerTests(unittest.TestCase):
         self.assertTrue(engine.report["kill_confirmed"])
         self.assertEqual({p["id"] for _,p in session.calls},{"mordon"})
         self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
+
+    def test_unconfirmed_stop_does_not_prevent_moving_to_portal(self):
+        stop=Stop();session=Session(stop,damage=False);original=session.request
+        def request(op,payload,allowed):
+            if payload["action"]=="retreat":
+                session.calls.append((op,dict(payload)))
+                self.assertFalse(payload["enable_repair"])
+                stop.set()
+                return {"action":"retreating","gate":"near","distance":500,"repair":"waiting"}
+            result=original(op,payload,allowed)
+            if payload["action"]=="attack":session.state["hp_percent"]=39
+            return result
+        session.request=request
+        engine=NpcTestWorker(session,stop,lambda *e:None,clock=lambda:stop.now,repair_portal=True)
+        engine.run()
+        actions=[p["action"] for _,p in session.calls]
+        self.assertLess(actions.index("retreat"),actions.index("stop"))
+
+    def test_portal_fight_retains_gate_and_target_after_attack(self):
+        stop=Stop();session=Session(stop);original=session.request
+        def request(op,payload,allowed):
+            if payload["action"]=="portal_lure":
+                self.assertTrue(session.state["combat"]["attacking"])
+                session.calls.append((op,dict(payload)))
+                return {"action":"luring","gate":"near","distance":100}
+            return original(op,payload,allowed)
+        session.request=request
+        engine=NpcTestWorker(session,stop,lambda *e:None,clock=lambda:stop.now,portal_fight=True)
+        engine.run()
+        self.assertEqual(engine.report["combat_gate"],"near")
+        self.assertTrue(engine.report["kill_confirmed"])
+        self.assertFalse(any(p["action"]=="orbit" for _,p in session.calls))
 
     def test_lost_attack_ack_does_not_repeat_ctrl(self):
         stop=Stop();session=Session(stop,ack=False);engine=self.engine(session,stop);engine.run()

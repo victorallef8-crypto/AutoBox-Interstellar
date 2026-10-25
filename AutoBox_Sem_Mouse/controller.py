@@ -302,12 +302,13 @@ class SessionEarnings:
 
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
-    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False):
+    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False):
         self.session=session; self.stop=stop; self.emit=emit
         self.kinds=set(kind if isinstance(kind,(list,tuple,set)) else [kind])
         self.kind=", ".join(sorted(self.kinds))
         self.destination=destination; self.min_hp=min_hp; self.clock=clock or time.monotonic
         self.orbit=orbit; self.radius=max(150,min(800,radius)); self.repair_portal=repair_portal; self.direction=1
+        self.portal_fight=portal_fight; self.fight_gate=None; self.gate_best=float("inf")
         self.target=None; self.context=None; self.pending=None; self.next_move=0
         self.started=None; self.progress=None; self.best_distance=float("inf"); self.lowest=None
         self.damage=False; self.baseline_xp=None; self.last_phase=None; self.previous_distance=None
@@ -331,12 +332,15 @@ class NpcTestWorker:
         return result
 
     def cease_fire(self):
+        self.report["stop_confirmed"]=False
         if self.target is None or self.context is None: return
         try:
             payload=dict(self.context,id=self.target["id"],revision=self.target.get("respawnRevision"),
                          min_hp=self.min_hp,action="stop")
             before=self.session.get_world_snapshot().get("sequence")
             result=self.session.request("npc_action",payload,allowed=lambda:True)
+            self.report["actions"].append({"seconds":round(self.clock()-self.started,2),"action":"stop","result":(result or {}).get("action")})
+            self.report["actions"]=self.report["actions"][-40:]
             if result and result.get("action")=="stopped":
                 self.report["stop_confirmed"]=True; return
             # Stop is an explicit right-click selection when visible, so it never starts fire.
@@ -352,25 +356,22 @@ class NpcTestWorker:
             pass
 
     def recover_at_portal(self):
-        self.cease_fire()
-        if not self.report["stop_confirmed"]:
-            raise ValueError("Parada dos tiros não confirmada; recuperação cancelada.")
         started=self.clock(); next_move=0; gate=None; repair_sent=None
+        stop_attempts=0
         while not self.stop.is_set():
             snap=self.session.get_world_snapshot(); now=self.clock()
             if (not snap.get("fresh") or snap.get("dead") or snap.get("map")!=self.context["map"]
                 or snap.get("respawn_revision")!=self.context["life"]):
                 raise ValueError("Recuperação interrompida: leitura, mapa ou vida mudou.")
             combat=snap.get("combat",{})
-            if combat.get("attacking") or combat.get("secondaryVolley"):
-                raise ValueError("Tiros ainda ativos; recuperação interrompida.")
+            firing=bool(combat.get("attacking") or combat.get("secondaryVolley"))
             self.report["hp_percent"]=snap.get("hp_percent")
             self.report["repair_active"]=combat.get("repairActive",False)
             if now-started>180: raise ValueError("Recuperação excedeu 3 minutos; confira o jogo.")
             if repair_sent is not None and not combat.get("repairing") and now-repair_sent>5:
                 raise ValueError("CPU de reparo não confirmou ativação; confira equipamento e jogo.")
             if now>=next_move:
-                result=self.action("retreat",gate=gate,enable_repair=repair_sent is None)
+                result=self.action("retreat",gate=gate,enable_repair=not firing and repair_sent is None)
                 next_move=now+1.5
                 if result.get("action")!="retreating":
                     raise ValueError("Retorno ao portal não aceito: "+result.get("action","?"))
@@ -380,7 +381,11 @@ class NpcTestWorker:
                 if result.get("distance",99999)<=80 and (snap.get("hp_percent") or 0)>=90:
                     self.publish("Recuperada no portal. Teste encerrado; ataque não será retomado.")
                     return
-            self.publish("Indo ao portal; reparo aguarda as condições de combate do jogo.")
+            if firing and stop_attempts<3:
+                self.cease_fire(); stop_attempts+=1
+            elif not firing:
+                self.report["stop_confirmed"]=True
+            self.publish("Indo ao portal; aguardando parada dos tiros." if firing else "Indo ao portal; reparo aguarda as condições de combate do jogo.")
             if self.stop.wait(.2): break
 
     def run(self):
@@ -465,6 +470,15 @@ class NpcTestWorker:
                         raise ValueError("Ataque não aceito: "+result.get("action","?"))
                     self.pending=("attack",now)
                     self.publish("Aguardando confirmação do ataque; mantendo o mesmo NPC.")
+                elif selected and self.portal_fight:
+                    if now>=self.next_move:
+                        result=self.action("portal_lure",gate=self.fight_gate); self.next_move=now+.35
+                        if result.get("action")!="luring": raise ValueError("Condução ao portal não aceita: "+result.get("action","?"))
+                        self.fight_gate=result.get("gate"); self.report["combat_gate"]=self.fight_gate
+                        gate_distance=result.get("distance")
+                        if type(gate_distance) in (int,float) and gate_distance<self.gate_best-10:
+                            self.gate_best=gate_distance; self.progress=now
+                    self.publish("Conduzindo o NPC e mantendo a luta perto do portal.")
                 elif (not selected and d>180) or (selected and d>self.radius+40):
                     if now>=self.next_move:
                         result=self.action("approach",close_approach=not selected,radius=self.radius); self.next_move=now+.35

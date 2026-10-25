@@ -1,6 +1,6 @@
 # AutoBox Interstellar
 
-AUTOBOX INTERSTELLAR — BETA 0.9.4
+AUTOBOX INTERSTELLAR — BETA 0.9.5
 
 ATUALIZAÇÃO
 No Painel, use Verificar atualizações deste bot. Configurações e sessão do Opera são preservadas.
@@ -20,7 +20,7 @@ Não envia ordens de míssil, não compra munição e não escolhe jogadores com
 Não repete Ctrl enquanto espera confirmação do ataque.
 A parada usa a seleção explícita do mesmo NPC com ataque desligado pelo cliente, evitando alternar Ctrl novamente.
 F9/F10 encerram o teste e tentam desligar os tiros; confira a mensagem de confirmação.
-Vida mínima padrão: 40%. Sem a opção de reparo, o limite interrompe tiros. Com ela, confirma a parada, vai ao portal normal mais próximo e liga o reparador equipado. Aguarda as condições do jogo (15 segundos sem combate). Encerra ao chegar ao portal com pelo menos 90% de vida; não pula nem reinicia o ataque. F9/F10 cancelam a recuperação.
+Vida mínima padrão: 40%. Sem a opção de reparo, o limite interrompe tiros. Com ela, começa a ir ao portal normal mais próximo enquanto confirma a parada; liga o reparador equipado apenas sem tiros ativos. Aguarda as condições do jogo (15 segundos sem combate). Encerra ao chegar ao portal com pelo menos 90% de vida; não pula nem reinicia o ataque. F9/F10 cancelam a recuperação.
 Sem dados, sem dano/progresso ou alvo alterado, o teste encerra.
 Confirma derrota quando observa dano, desaparecimento/vida zero do alvo e ganho de XP.
 Não há garantia de confirmação quando outra nave mata o NPC ou a leitura se perde.
@@ -65,23 +65,25 @@ Vida em 25% ou menos pausa coleta. Renascimento local pode exigir recuperação 
 Essas retomadas automáticas são da coleta; o teste de NPC encerra se morrer ou perder leitura.
 
 VALIDAÇÃO
-119 testes Python, testes simulados da navegação e da integração de combate.
+121 testes Python, testes simulados da navegação e da integração de combate.
 A integração de combate foi exercitada com os handlers de seleção, Ctrl e ataque do cliente fornecido.
 Isso não substitui o primeiro teste acompanhado na sua partida.
 
 Instalação nova: Python 3.11+; execute INSTALAR_E_ABRIR.bat.
 
-Beta 0.9.4: se o NPC ainda não puder ser selecionado na tela, aproxima mais do mesmo alvo e tenta novamente, com limite de tempo.
+Beta 0.9.5: se o NPC ainda não puder ser selecionado na tela, aproxima mais do mesmo alvo e tenta novamente, com limite de tempo.
 
 MOVIMENTO CIRCULAR E REPARO (EXPERIMENTAL)
 Circular ao redor do NPC: distância desejada de 150 a 800 unidades, padrão 450. Compara os sentidos para preferir maior distância dos outros NPCs. Não garante evitar dano; o alcance inimigo ainda não foi medido.
 Vida no limite: ir ao portal e ativar reparador é opcional e começa desmarcado. Requer CPU/robô equipado. Movimento e proximidade do portal não garantem proteção nem início do reparo. Sem confirmação de ativação, encerra sem alternar novamente o botão. A recuperação tem limite de 3 minutos.
 Validado com testes simulados; acompanhe a primeira luta na partida.
 
-Beta 0.9.4: ativa ataque pelo cliente após confirmação da seleção, mesmo se o NPC se afastar; continua aproximando sem alternar Ctrl. O jogo controla o alcance efetivo. Aproximação busca um ponto mais próximo para perseguir alvos móveis. Diagnóstico inclui distância.
+Beta 0.9.5: ativa ataque pelo cliente após confirmação da seleção, mesmo se o NPC se afastar; continua aproximando sem alternar Ctrl. O jogo controla o alcance efetivo. Aproximação busca um ponto mais próximo para perseguir alvos móveis. Diagnóstico inclui distância.
 
-Beta 0.9.4: seleção de múltiplos tipos por caixas de marcação; escolhe o NPC mais próximo entre os tipos marcados. Continua uma luta por teste. Corrige contraste de listas, campos numéricos e tabelas.
+Beta 0.9.5: seleção de múltiplos tipos por caixas de marcação; escolhe o NPC mais próximo entre os tipos marcados. Continua uma luta por teste. Corrige contraste de listas, campos numéricos e tabelas.
 
-Beta 0.9.4: aproximação direta e atualizada antes de selecionar; confirma ataque antes de afastar. Persegue o mesmo NPC ao sair da distância configurada, inclusive com pouca vida. Movimento circular opcional, distância de combate preservada também sem circular. Não garante ausência de dano; teste de uma luta.
+Beta 0.9.5: aproximação direta e atualizada antes de selecionar; confirma ataque antes de afastar. Persegue o mesmo NPC ao sair da distância configurada, inclusive com pouca vida. Movimento circular opcional, distância de combate preservada também sem circular. Não garante ausência de dano; teste de uma luta.
 
-Beta 0.9.4: distância configurável até 800. Padrão continua 450; valores acima do alcance da arma podem interromper o dano e encerrar por falta de progresso.
+Beta 0.9.5: distância configurável até 800. Padrão continua 450; valores acima do alcance da arma podem interromper o dano e encerrar por falta de progresso.
+
+Beta 0.9.5: retorno por vida baixa não depende da confirmação inicial de parada; o reparo continua condicionado ao fim dos tiros. Opção experimental Levar NPC ao portal: após atacar, segue ao portal normal mais próximo e circula a 100 unidades do portal, mantendo o mesmo alvo. Este modo substitui o círculo em torno do NPC e pode sair do alcance se ele não acompanhar. Não pula portal. Não garante proteção contra NPCs provocados. Teste acompanhado.
