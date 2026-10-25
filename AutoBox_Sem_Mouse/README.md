@@ -33,3 +33,5 @@ Beta 0.3.0: primeira etapa de leitura de dados ao vivo. Observa EventSource pelo
 Validacao: 91 testes, incluindo callbacks CDP simulados, reconexao, sequencia, atomicidade, limpeza de campos privados e painel. Replay das 22 mensagens fornecidas reconstruiu 40 boxes, 4 portais e a box mais proxima. Nenhum dado original da sessao foi incluido no pacote ou repositorio. A recepcao no Opera conectado ao jogo ainda depende de validacao pelo usuario.
 
 Referencias da observacao: [CDP Network eventSourceMessageReceived](https://chromedevtools.github.io/devtools-protocol/tot/Network/#event-eventSourceMessageReceived), [Playwright CDPSession](https://playwright.dev/python/docs/api/class-cdpsession).
+
+Beta 0.3.1: a janela dedicada inicia em https://interstellar-verse.com/ para permitir login e entrada no mapa pelo site. O reconhecimento da pagina de jogo continua separado do endereco inicial.

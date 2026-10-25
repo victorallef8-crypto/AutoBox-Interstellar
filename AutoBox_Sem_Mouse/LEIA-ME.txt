@@ -1,4 +1,4 @@
-AUTOBOX SEM MOUSE — BETA 0.3.0
+AUTOBOX SEM MOUSE — BETA 0.3.1
 
 Programa novo e independente, exclusivo de coleta no Interstellar.
 Nao importa nem executa o AutoBox antigo. Nao tem Krypton ou combate a NPC.
@@ -20,6 +20,7 @@ Configuracoes, modelo de box e perfil do Opera continuam na mesma pasta.
 
 PREPARAR
 1. Na aba Navegador, clique em Abrir Opera GX e entrar no jogo.
+   Abre https://interstellar-verse.com/ . Entre na conta e acesse o mapa pelo site.
 2. Se nao localizar o navegador, selecione opera.exe ou launcher.exe do Opera GX.
 3. Faca o login manualmente nessa sessao separada.
 4. Na aba Coleta, marque o mapa, aprenda uma box clicando precisamente no centro e marque apenas a nave.

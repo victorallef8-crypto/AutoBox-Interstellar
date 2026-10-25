@@ -1,6 +1,6 @@
 {
-  "version": "0.3.0",
+  "version": "0.3.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "0f14d9f281f93b607d1681f48d803936563fa85021394a7741b4185e2f7d9ae5",
-  "notes": "Etapa 1 de dados ao vivo: observa o fluxo do jogo, reconstrói estado e atualizações e mostra posição, vida e box mais próxima na aba Dados. Leitura somente; F8 ainda usa coleta visual."
+  "sha256": "16de75686330ab431b7502bb6ee4fe9d1087cc84929267aae57aad9dcadba321",
+  "notes": "O navegador dedicado agora abre a pagina principal https://interstellar-verse.com/ . Entre no mapa pelo site; a pagina de jogo continua reconhecida pelo bot."
 }

@@ -8,6 +8,7 @@ import json
 import time
 from urllib.parse import urlsplit
 
+HOME_URL = "https://interstellar-verse.com/"
 GAME_URL = "https://interstellar-verse.com/play/#play"
 
 def find_opera_gx():
@@ -349,7 +350,7 @@ class BrowserSession:
                     self._attach_feed(context,existing)
                 page = context.pages[0] if context.pages else context.new_page()
                 try:
-                    page.goto(GAME_URL, wait_until="domcontentloaded", timeout=45000)
+                    page.goto(HOME_URL, wait_until="domcontentloaded", timeout=45000)
                 except Exception:
                     self.warning = "Confira a conexao e abra o jogo na janela dedicada."
                 self.ready.set()

@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from browser_session import BrowserSession
+from browser_session import BrowserSession, HOME_URL, GAME_URL
 tree=ast.parse((Path(__file__).resolve().parents[1]/"browser_session.py").read_text(encoding="utf-8"))
 nodes=[node for node in tree.body if isinstance(node,ast.ClassDef) and node.name=="BrowserSession"]
 class FakePage:
@@ -27,6 +27,7 @@ class FakePage:
     def on(self, name, callback):
         self.handlers[name] = callback
     def goto(self, url, **kwargs):
+        self.last_navigation = url
         self.url = url
     def is_closed(self):
         return self.closed
@@ -54,6 +55,7 @@ class BrowserSessionTests(unittest.TestCase):
                                       {"width": 1280, "height": 720}, factory=self.factory)
         self.session.start("opera-gx.exe")
         self.assertTrue(self.session.ready.wait(2))
+        self.page.url = GAME_URL  # Usuario entra no mapa pela pagina inicial.
         self.session.request("screenshot")
     def tearDown(self):
         self.session.close()
@@ -96,6 +98,7 @@ class BrowserSessionTests(unittest.TestCase):
         self.assertFalse(self.session.get_world_summary()["fresh"])
 
     def test_opera_uses_own_profile_and_fixed_viewport(self):
+        self.assertEqual(self.page.last_navigation,HOME_URL)
         args = self.launch.call_args.kwargs
         self.assertEqual(args["executable_path"], "opera-gx.exe")
         self.assertTrue(args["user_data_dir"].endswith("isolated"))
