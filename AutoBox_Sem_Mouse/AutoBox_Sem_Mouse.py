@@ -266,6 +266,8 @@ class AutoBoxSemMouse:
                    command=self.record_manual_collect).pack(fill="x",pady=(10,4))
         ttk.Button(plan,text="Copiar diagnóstico da coleta",
                    command=self.copy_collect_diagnostic).pack(fill="x",pady=4)
+        ttk.Button(plan,text="Exportar integração do cliente",
+                   command=self.export_client_integration).pack(fill="x",pady=4)
         ttk.Label(plan,textvariable=self.manual_probe_status,wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=4)
         ttk.Label(body,text="Abra o jogo pela aba Navegador e entre no mapa. A leitura é automática. Se pedir um estado completo, recarregue a janela dedicada uma vez com o bot pausado.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=12)
@@ -282,6 +284,28 @@ class AutoBoxSemMouse:
             self.manual_probe_status.set("Registro por 30 segundos. Depois clique em Copiar diagnóstico.")
         except ValueError as exc:
             self.say(str(exc))
+
+    def export_client_integration(self):
+        self.stop_event.set()
+        if self.worker is not None and self.worker.is_alive():
+            self.root.after(100,self.export_client_integration)
+            return
+        if not self.session.ready.is_set():
+            self.say("Abra o jogo na janela dedicada antes de exportar.")
+            return
+        filename=filedialog.asksaveasfilename(parent=self.root,title="Salvar integração do cliente",
+            initialfile="AutoBox_integracao_cliente.json",defaultextension=".json",
+            filetypes=[("Integração do cliente","*.json")])
+        if not filename: return
+        self.say("Lendo arquivos JavaScript do cliente na janela dedicada...")
+        def export():
+            try:
+                data=self.session.request("client_sources",timeout=25)
+                Path(filename).write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+                self.events.put(("status","Integração exportada: "+filename+". Anexe esse arquivo aqui no chat."))
+            except Exception as exc:
+                self.events.put(("status","Falha ao exportar integração: "+str(exc)))
+        threading.Thread(target=export,daemon=True).start()
 
     def copy_collect_diagnostic(self):
         report=self.session.get_manual_probe_report()

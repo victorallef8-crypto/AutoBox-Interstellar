@@ -5,6 +5,7 @@ import threading
 import struct
 import math
 import json
+import re
 import time
 from urllib.parse import urlsplit
 
@@ -478,6 +479,47 @@ class BrowserSession:
         return True
 
 
+    @staticmethod
+    def _client_sources(page):
+        raw=page.evaluate(r"""async () => {
+            const candidates=[...Array.from(document.scripts,s=>s.src).reverse(),
+                ...performance.getEntriesByType('resource').filter(r=>r.initiatorType==='script').map(r=>r.name)];
+            const urls=[...new Set(candidates)].filter(value=>{
+                try { const u=new URL(value,location.href);
+                    return u.origin===location.origin && u.protocol==='https:' && u.pathname.endsWith('.js');
+                } catch { return false; }
+            }).slice(0,24);
+            return await Promise.all(urls.map(async value=>{
+                const u=new URL(value,location.href);
+                try {
+                    const response=await fetch(u.href,{method:'GET',credentials:'same-origin',
+                        cache:'force-cache',redirect:'error',signal:AbortSignal.timeout(8000)});
+                    if(!response.ok || !/javascript|text\/plain/i.test(response.headers.get('content-type')||''))
+                        return {path:u.pathname,error:'unavailable'};
+                    const source=await response.text();
+                    return source.length<=1500000 ? {path:u.pathname,source} : {path:u.pathname,error:'too-large'};
+                } catch { return {path:u.pathname,error:'unavailable'}; }
+            }));
+        }""")
+        if not isinstance(raw,list) or len(raw)>24:
+            raise ValueError("Resposta de arquivos do cliente invalida.")
+        files=[]; total=0
+        # Remove atribuicoes literais de credenciais; nao exporta cookies ou estado.
+        secrets=re.compile(r'''(?i)(["']?(?:password|token|secret|authorization|cookie|inputChannel|mapSessionId|connectionId|membershipToken|sessionId)["']?\s*[:=]\s*)(["'])(?:\\.|(?!\2).)*?\2''')
+        for item in raw:
+            if not isinstance(item,dict): continue
+            name=item.get("path")
+            if not isinstance(name,str) or not name.startswith("/") or "?" in name or "#" in name or not name.endswith(".js"): continue
+            source=item.get("source")
+            if not isinstance(source,str) or len(source)>1500000: continue
+            total+=len(source)
+            if total>6000000: break
+            source=secrets.sub(lambda match:match[1]+match[2]+"<redacted>"+match[2],source)
+            files.append({"path":name,"source":source})
+        if not files:
+            raise ValueError("Nenhum arquivo JavaScript disponivel. Entre no mapa pela janela dedicada.")
+        return {"schema":"autobox-client-integration-v1","files":files}
+
     def _attach_feed(self, context, page):
         try:
             client = context.new_cdp_session(page)
@@ -569,6 +611,8 @@ class BrowserSession:
                             continue
                         if operation == "screenshot":
                             result = self._capture(page)
+                        elif operation == "client_sources":
+                            result = self._client_sources(page)
                         elif operation == "click":
                             result = self._click(page, payload, allowed)
                         else:

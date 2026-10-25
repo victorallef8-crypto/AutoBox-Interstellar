@@ -1,6 +1,6 @@
 {
-  "version": "0.4.5",
+  "version": "0.4.6",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "b39123959d80e9837d400e5176a79232116dea4653043e16e37e1363188a3e9e",
-  "notes": "Corrige omissao de collect.kind no diagnostico. Registre uma coleta manual para conferir kind, id e revision. 121 testes passaram. Ainda nao executa coleta automatica por dados."
+  "sha256": "61a4a563fd27967e92bba13a84dac00bd6f363827234add1fae3b2a921b428c2",
+  "notes": "Adiciona Exportar integracao do cliente na aba Dados: salva scripts do jogo para identificar a fila de comandos. Nao exporta cookies ou estado da sessao. Ainda nao envia comandos automaticos por dados. 123 testes passaram."
 }

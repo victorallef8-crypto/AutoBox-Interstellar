@@ -74,6 +74,7 @@ class AppTests(unittest.TestCase):
         texts=[str(w.cget("text")) for w in widgets if "text" in w.keys()]
         self.assertIn("Registrar uma coleta manual (30 segundos)",texts)
         self.assertIn("Copiar diagnóstico da coleta",texts)
+        self.assertIn("Exportar integração do cliente",texts)
         bindings=[str(w.cget("textvariable")) for w in widgets if "textvariable" in w.keys()]
         for variable in self.app.world_vars.values():
             self.assertIn(str(variable),bindings)

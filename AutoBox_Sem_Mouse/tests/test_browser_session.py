@@ -61,6 +61,30 @@ class BrowserSessionTests(unittest.TestCase):
         self.session.close()
         self.temp.cleanup()
 
+    def test_client_export_reads_scripts_without_queries_or_literal_credentials(self):
+        self.page.evaluate=Mock(return_value=[
+            {"path":"/play/client.js","source":'const inputChannel="secret-channel";const cfg={"token":"secret-token"};function queueInput(c){return c;}'},
+            {"path":"/private.js?token=hidden","source":"private"},
+            {"path":"/unavailable.js","error":"unavailable"}])
+        result=self.session.request("client_sources")
+        self.assertEqual(result["schema"],"autobox-client-integration-v1")
+        self.assertEqual(len(result["files"]),1)
+        saved=json.dumps(result)
+        self.assertNotIn("secret-channel",saved)
+        self.assertNotIn("secret-token",saved)
+        self.assertNotIn("hidden",saved)
+        self.assertIn("queueInput",saved)
+        script=self.page.evaluate.call_args.args[0]
+        self.assertIn("u.origin===location.origin",script)
+        self.assertIn("method:'GET'",script)
+        self.assertIn("redirect:'error'",script)
+        self.page.mouse.click.assert_not_called()
+
+    def test_client_export_reports_missing_scripts(self):
+        self.page.evaluate=Mock(return_value=[])
+        with self.assertRaisesRegex(RuntimeError,"Nenhum arquivo JavaScript"):
+            self.session.request("client_sources")
+
     def test_passive_reader_only_enables_network_events(self):
         self.cdp.send.assert_called_once_with("Network.enable")
         callbacks=dict(call.args for call in self.cdp.on.call_args_list)
