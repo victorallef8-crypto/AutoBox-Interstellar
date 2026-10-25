@@ -138,6 +138,20 @@ class NpcWorkerTests(unittest.TestCase):
         engine.run()
         self.assertFalse(any(p["action"]=="retreat" for _,p in session.calls))
 
+    def test_selected_moving_npc_starts_attack_before_more_approach(self):
+        stop=Stop();session=Session(stop);original=session.request
+        def request(op,payload,allowed):
+            result=original(op,payload,allowed)
+            if payload["action"]=="select":session.state["npc_candidates"][0]["x"]=650
+            return result
+        session.request=request
+        engine=self.engine(session,stop);engine.run()
+        actions=[p["action"] for _,p in session.calls]
+        self.assertEqual(actions[:2],["select","attack"])
+        self.assertIn("approach",actions)
+        self.assertEqual(actions.count("attack"),1)
+        self.assertTrue(engine.report["kill_confirmed"])
+
     def test_lost_attack_ack_does_not_repeat_ctrl(self):
         stop=Stop();session=Session(stop,ack=False);engine=self.engine(session,stop);engine.run()
         self.assertFalse(engine.report["kill_confirmed"])

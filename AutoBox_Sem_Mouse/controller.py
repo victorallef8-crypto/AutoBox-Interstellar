@@ -324,7 +324,7 @@ class NpcTestWorker:
                      min_hp=self.min_hp,action=name,**options)
         result=self.session.request("npc_action",payload,allowed=lambda:not self.stop.is_set())
         if not isinstance(result,dict): return {"action":"cancelled"}
-        self.report["actions"].append({"seconds":round(self.clock()-self.started,2),"action":name,"result":result.get("action")})
+        self.report["actions"].append({"seconds":round(self.clock()-self.started,2),"action":name,"result":result.get("action"),"distance":self.report.get("target_distance")})
         self.report["actions"]=self.report["actions"][-40:]
         return result
 
@@ -436,6 +436,8 @@ class NpcTestWorker:
                 self.lowest=health if self.lowest is None else min(self.lowest,health)
                 self.report["target_hp"]=current["hp"]; self.report["target_shield"]=current.get("shield")
                 d=distance(snap["position"],(current["x"],current["y"]))
+                self.report["target_distance"]=round(d,1)
+                self.report["attacking"]=snap.get("combat",{}).get("attacking")
                 if d<self.best_distance-10: self.best_distance=d; self.progress=now
                 if now-self.started>180: raise ValueError("Teste excedeu 3 minutos.")
                 if now-self.progress>15: raise ValueError("Sem aproximação ou dano por 15 segundos.")
@@ -449,7 +451,13 @@ class NpcTestWorker:
                     else:
                         if self.stop.wait(.2): break
                         continue
-                if d>520:
+                if selected and combat.get("attacking") is not True:
+                    result=self.action("attack")
+                    if result.get("action") not in ("attack_sent","attacking"):
+                        raise ValueError("Ataque não aceito: "+result.get("action","?"))
+                    self.pending=("attack",now)
+                    self.publish("Aguardando confirmação do ataque; mantendo o mesmo NPC.")
+                elif d>520:
                     if now>=self.next_move:
                         result=self.action("approach"); self.next_move=now+1.5
                         if result.get("action") not in ("move_sent","in_range"): raise ValueError("Aproximação não aceita: "+result.get("action","?"))
@@ -467,11 +475,6 @@ class NpcTestWorker:
                         self.publish("Aguardando confirmação do alvo NPC.")
                     else:
                         raise ValueError("NPC não selecionado: "+result.get("action","?"))
-                elif combat.get("attacking") is not True:
-                    result=self.action("attack")
-                    if result.get("action") not in ("attack_sent","attacking"): raise ValueError("Ataque não aceito: "+result.get("action","?"))
-                    self.pending=("attack",now)
-                    self.publish("Aguardando confirmação do ataque.")
                 else:
                     if self.orbit and now>=self.next_move:
                         result=self.action("orbit",radius=self.radius,direction=self.direction); self.next_move=now+.8

@@ -1,6 +1,6 @@
 {
-  "version": "0.9.0",
+  "version": "0.9.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "851193970e85117e2579973d7c9108046f8e527ba9266fdf8e86ceea8f86e807",
-  "notes": "Teste NPC com distância ajustável e movimento circular; retorno opcional ao portal com reparador ao atingir limite de vida."
+  "sha256": "fa7ba4df550ce3bf6fd9c7282413b975214be94f285a8c165523cfcb8fef85af",
+  "notes": "Corrige perseguição sem ataque: ativa tiros após confirmar seleção e mantém aproximação do mesmo alvo. Diagnóstico com distância."
 }
