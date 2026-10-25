@@ -298,3 +298,147 @@ class SessionEarnings:
 
     def hourly(self, seconds):
         return self.total*3600/seconds if seconds>=60 else None
+
+
+class NpcTestWorker:
+    """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
+    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None):
+        self.session=session; self.stop=stop; self.emit=emit; self.kind=kind
+        self.destination=destination; self.min_hp=min_hp; self.clock=clock or time.monotonic
+        self.target=None; self.context=None; self.pending=None; self.next_move=0
+        self.started=None; self.progress=None; self.best_distance=float("inf"); self.lowest=None
+        self.damage=False; self.baseline_xp=None; self.last_phase=None
+        self.report={"mode":"single_npc_test","kind":kind,"status":"Preparando","actions":[],
+                     "damage_observed":False,"kill_confirmed":False,"stop_confirmed":False}
+
+    def publish(self,status):
+        self.report["status"]=status
+        self.report["damage_observed"]=self.damage
+        self.emit("npc_report",dict(self.report,actions=list(self.report["actions"])))
+        if status!=self.last_phase:
+            self.emit("status",status); self.last_phase=status
+
+    def action(self,name):
+        payload=dict(self.context,id=self.target["id"],revision=self.target.get("respawnRevision"),
+                     min_hp=self.min_hp,action=name)
+        result=self.session.request("npc_action",payload,allowed=lambda:not self.stop.is_set())
+        if not isinstance(result,dict): return {"action":"cancelled"}
+        self.report["actions"].append({"seconds":round(self.clock()-self.started,2),"action":name,"result":result.get("action")})
+        self.report["actions"]=self.report["actions"][-40:]
+        return result
+
+    def cease_fire(self):
+        if self.target is None or self.context is None: return
+        try:
+            payload=dict(self.context,id=self.target["id"],revision=self.target.get("respawnRevision"),
+                         min_hp=self.min_hp,action="stop")
+            before=self.session.get_world_snapshot().get("sequence")
+            result=self.session.request("npc_action",payload,allowed=lambda:True)
+            if result and result.get("action")=="stopped":
+                self.report["stop_confirmed"]=True; return
+            # Stop is an explicit right-click selection when visible, so it never starts fire.
+            for _ in range(20):
+                snap=self.session.get_world_snapshot()
+                if (snap.get("fresh") and snap.get("map")==self.context["map"] and
+                    snap.get("respawn_revision")==self.context["life"] and
+                    snap.get("combat",{}).get("attacking") is False and
+                    type(before) is int and type(snap.get("sequence")) is int and snap["sequence"]>before):
+                    self.report["stop_confirmed"]=True; return
+                time.sleep(.1)
+        except Exception:
+            pass
+
+    def run(self):
+        travel=MapTravel(self.session,self.stop,self.emit,self.destination,self.clock)
+        self.started=self.clock()
+        try:
+            while not self.stop.is_set():
+                snap=self.session.get_world_snapshot(); now=self.clock()
+                if not snap.get("fresh"): raise ValueError("Leitura interrompida. Teste encerrado.")
+                if snap.get("dead"): raise ValueError("Nave destruída. Teste encerrado.")
+                hp=snap.get("hp_percent")
+                self.report["hp_percent"]=hp
+                if hp is None or hp<=self.min_hp:
+                    raise ValueError("Vida no limite. Interrompendo tiros; recupere a nave manualmente.")
+                if self.destination and snap["map"]!=self.destination:
+                    if self.target is not None: raise ValueError("Mapa mudou durante a luta.")
+                    if not travel.step(snap):
+                        if self.stop.wait(.5): break
+                        continue
+                if self.target is None:
+                    if hp<80: raise ValueError("Recupere a vida para pelo menos 80% antes do teste.")
+                    combat=snap.get("combat",{})
+                    if combat.get("attacking"): raise ValueError("Pare o ataque atual antes do teste.")
+                    if combat.get("selectedAmmo")!="lcb10": raise ValueError("Selecione LCB-10 no jogo antes do teste.")
+                    candidates=[n for n in snap.get("npc_candidates",[]) if
+                                (n.get("kind") or n.get("type"))==self.kind and
+                                type(n.get("hp")) in (int,float) and n["hp"]>0 and
+                                type(n.get("respawnRevision")) is int]
+                    if not candidates: raise ValueError("Nenhum NPC desse tipo disponível no mapa.")
+                    self.target=dict(min(candidates,key=lambda n:distance(snap["position"],(n["x"],n["y"]))))
+                    self.context={"map":snap["map"],"life":snap.get("respawn_revision")}
+                    self.baseline_xp=snap.get("account",{}).get("xp")
+                    self.progress=now
+                    self.report["target_id"]=self.target["id"]
+                    self.report["map"]=snap["map"]
+                if snap["map"]!=self.context["map"] or snap.get("respawn_revision")!=self.context["life"]:
+                    raise ValueError("Mapa ou vida da nave mudou durante o teste.")
+                current=next((n for n in snap.get("npc_candidates",[]) if str(n["id"])==str(self.target["id"])
+                             and n.get("respawnRevision")==self.target.get("respawnRevision")),None)
+                xp=snap.get("account",{}).get("xp")
+                if current is None or current.get("hp",0)<=0:
+                    confirmed=(self.damage and type(xp) in (int,float) and type(self.baseline_xp) in (int,float)
+                               and xp>self.baseline_xp)
+                    self.report["kill_confirmed"]=confirmed
+                    self.publish("NPC derrotado e recompensa observada. Teste concluído." if confirmed else
+                                 "Alvo deixou a leitura sem confirmação de recompensa. Teste encerrado.")
+                    break
+                self.target=dict(current)
+                health=current["hp"]+(current.get("shield") or 0)
+                if self.lowest is not None and health<self.lowest:
+                    self.damage=True; self.progress=now
+                self.lowest=health if self.lowest is None else min(self.lowest,health)
+                self.report["target_hp"]=current["hp"]; self.report["target_shield"]=current.get("shield")
+                d=distance(snap["position"],(current["x"],current["y"]))
+                if d<self.best_distance-10: self.best_distance=d; self.progress=now
+                if now-self.started>180: raise ValueError("Teste excedeu 3 minutos.")
+                if now-self.progress>15: raise ValueError("Sem aproximação ou dano por 15 segundos.")
+                combat=snap.get("combat",{})
+                selected=str(combat.get("target_id"))==str(current["id"])
+                if self.pending:
+                    name,sent=self.pending
+                    confirmed=(name=="select" and selected) or (name=="attack" and combat.get("attacking") is True)
+                    if confirmed: self.pending=None
+                    elif now-sent>5: raise ValueError("Comando "+name+" não foi confirmado pelo jogo.")
+                    else:
+                        if self.stop.wait(.2): break
+                        continue
+                if d>520:
+                    if now>=self.next_move:
+                        result=self.action("approach"); self.next_move=now+1.5
+                        if result.get("action") not in ("move_sent","in_range"): raise ValueError("Aproximação não aceita: "+result.get("action","?"))
+                    self.publish("Aproximando do NPC selecionado.")
+                elif not selected:
+                    result=self.action("select")
+                    if result.get("action")!="select_sent": raise ValueError("NPC não selecionado: "+result.get("action","?"))
+                    self.pending=("select",now)
+                    self.publish("Aguardando confirmação do alvo NPC.")
+                elif combat.get("attacking") is not True:
+                    result=self.action("attack")
+                    if result.get("action") not in ("attack_sent","attacking"): raise ValueError("Ataque não aceito: "+result.get("action","?"))
+                    self.pending=("attack",now)
+                    self.publish("Aguardando confirmação do ataque.")
+                else:
+                    self.publish("Atacando "+self.kind+" com LCB-10. F9 interrompe o teste.")
+                if self.stop.wait(.2): break
+        except Exception as exc:
+            self.publish(str(exc))
+        finally:
+            if self.stop.is_set(): self.publish("Teste cancelado.")
+            self.cease_fire()
+            self.stop.set()
+            if self.target is not None and not self.report["stop_confirmed"]:
+                self.report["status"]+=" Não foi possível confirmar a parada; confira o jogo."
+                self.emit("status",self.report["status"])
+            self.emit("npc_report",dict(self.report))
+            self.emit("running",False)

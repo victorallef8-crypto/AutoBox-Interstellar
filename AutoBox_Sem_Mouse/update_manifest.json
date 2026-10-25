@@ -1,6 +1,6 @@
 {
-  "version": "0.7.0",
+  "version": "0.8.0",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "2e39cfa722929ab4dc332af919e48af5a3b37e60ec5983605d97c8048d35eade",
-  "notes": "Abas Coleta e Kill NPC; viagem por portais ao mapa escolhido; registro manual de combate. Ataque automático ainda em validação."
+  "sha256": "b4c5764ba13c1937f13f8b2b5cc30ec630aa8466fd7087e65c245cf6a7ab97ad",
+  "notes": "Teste automático de um NPC com LCB-10, confirmação de ataque/dano e parada; corrige registro de comandos de combate."
 }

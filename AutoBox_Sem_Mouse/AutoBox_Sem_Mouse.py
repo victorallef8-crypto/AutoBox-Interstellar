@@ -12,7 +12,7 @@ from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
-from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker
+from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker, NpcTestWorker
 import updater
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxSemMouse"
@@ -62,7 +62,10 @@ class AutoBoxSemMouse:
         self.last_world_refresh = -100.
         self.collect_map=tk.StringVar(value=self.cfg.get("collect_map",""))
         self.npc_map=tk.StringVar(value=self.cfg.get("npc_map",""))
-        self.combat_status=tk.StringVar(value="Primeiro registre uma luta manual. Ataque automático ainda não liberado.")
+        self.npc_kind=tk.StringVar(value=self.cfg.get("npc_kind","mordon"))
+        self.npc_min_hp=tk.StringVar(value=str(self.cfg.get("npc_min_hp",40)))
+        self.last_npc_report=None
+        self.combat_status=tk.StringVar(value="Teste automático: um NPC por execução, usando LCB-10.")
         self.combat_report_status=tk.StringVar(value="Registro ainda não iniciado.")
         self.map_boxes=[]
         self.green = tk.BooleanVar(value=self.cfg.get("green",False))
@@ -282,9 +285,21 @@ class AutoBoxSemMouse:
 
     def _draw_combat_page(self):
         body=self._scroll_page(self.pages["combat"])
-        ttk.Label(body,text="Kill NPC — preparação do combate",style="Heading.TLabel").pack(anchor="w",pady=(0,8))
+        ttk.Label(body,text="Kill NPC — teste de uma luta",style="Heading.TLabel").pack(anchor="w",pady=(0,8))
         ttk.Label(body,textvariable=self.combat_status,wraplength=680).pack(anchor="w",pady=(0,10))
         self._map_controls(body,self.npc_map,"NPC")
+        test=ttk.LabelFrame(body,text="Teste automático acompanhado",padding=10)
+        test.pack(fill="x",pady=6)
+        ttk.Label(test,text="Tipo de NPC").grid(row=0,column=0,sticky="w")
+        self.npc_kind_box=ttk.Combobox(test,textvariable=self.npc_kind,state="readonly",values=("mordon",))
+        self.npc_kind_box.grid(row=0,column=1,sticky="ew",pady=4)
+        ttk.Label(test,text="Interromper tiros com vida em (%)").grid(row=1,column=0,sticky="w")
+        ttk.Spinbox(test,from_=25,to=75,textvariable=self.npc_min_hp,width=8).grid(row=1,column=1,sticky="w",pady=4)
+        ttk.Button(test,text="Testar 1 NPC com LCB-10",command=self.start_npc_test,style="Start.TButton").grid(
+            row=2,column=0,columnspan=2,sticky="ew",pady=8)
+        ttk.Label(test,text="Comece com pelo menos 80% de vida e LCB-10 selecionada no jogo. "
+            "F9/F10 interrompem o teste. Ainda não há fuga nem recuperação automática de combate.",
+            wraplength=680,style="Muted.TLabel").grid(row=3,column=0,columnspan=2,sticky="w")
         ttk.Label(body,text="NPCs presentes no mapa",style="Heading.TLabel").pack(anchor="w",pady=6)
         self.npc_table=ttk.Treeview(body,columns=("kind","hp","distance"),show="headings",height=5)
         for name,title,width in (("kind","Tipo de NPC",230),("hp","Vida",140),("distance","Distância",140)):
@@ -300,8 +315,29 @@ class AutoBoxSemMouse:
         ttk.Button(body,text="Encerrar registro",command=self.finish_combat_recording).pack(fill="x",pady=4)
         ttk.Button(body,text="Copiar diagnóstico da luta",command=self.copy_combat_report).pack(fill="x",pady=4)
         ttk.Label(body,textvariable=self.combat_report_status,wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
-        ttk.Label(body,text="O registro observa sua luta; não ataca por você. F8 continua iniciando a coleta de boxes.",
+        ttk.Label(body,text="O registro manual só observa. O botão Testar 1 NPC executa uma luta. F8 continua iniciando a coleta de boxes.",
                   wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
+
+    def start_npc_test(self):
+        if not self.save(): return
+        if not self.session.ready.is_set():
+            self.say("Abra o jogo e entre no mapa antes do teste."); return
+        if self.worker is not None and self.worker.is_alive():
+            self.say("Pause a coleta ou viagem com F9 antes do teste de NPC."); return
+        snapshot=self.session.get_world_snapshot()
+        if not snapshot.get("fresh") or snapshot.get("dead"):
+            self.say("Aguarde dados ao vivo com a nave viva."); return
+        if snapshot.get("hp_percent") is None or snapshot["hp_percent"]<80:
+            self.say("Recupere a vida para pelo menos 80% antes do teste."); return
+        if snapshot.get("combat",{}).get("selectedAmmo")!="lcb10":
+            self.say("Selecione LCB-10 no jogo antes do teste."); return
+        self.session.combat_probe.stop("Registro manual encerrado para teste automático.")
+        self.last_npc_report=None
+        self.stop_event=threading.Event()
+        engine=NpcTestWorker(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
+            kind=self.npc_kind.get(),destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"])
+        self.worker=threading.Thread(target=engine.run,daemon=True)
+        self.worker.start()
 
     def record_combat(self):
         self.stop_event.set()
@@ -321,6 +357,8 @@ class AutoBoxSemMouse:
 
     def copy_combat_report(self):
         report=self.session.combat_probe.report()
+        report["automatic_test"]=self.last_npc_report
+        report["automatic_combat_commands_sent"]=None if self.last_npc_report else 0
         self.root.clipboard_clear()
         self.root.clipboard_append(json.dumps(report,ensure_ascii=False,indent=2))
         self.say("Diagnóstico da luta copiado. Cole no chat para validar o combate.")
@@ -401,6 +439,9 @@ class AutoBoxSemMouse:
             origin=data["position"]
             npcs=sorted(data.get("npc_candidates",[]),
                         key=lambda n:math.hypot(n["x"]-origin[0],n["y"]-origin[1]))
+            kinds=sorted({n.get("kind") or n.get("type") for n in npcs
+                          if isinstance(n.get("kind") or n.get("type"),str)})
+            self.npc_kind_box.configure(values=kinds or ("mordon",))
             for npc in npcs[:30]:
                 self.npc_table.insert("","end",values=(npc.get("kind") or npc.get("type") or "NPC",
                     str(npc.get("hp","—"))+" / "+str(npc.get("maxHp","—")),
@@ -497,6 +538,11 @@ class AutoBoxSemMouse:
                 if value and not re.fullmatch(r"[0-9]{1,2}-[0-9]{1,2}",value):
                     raise ValueError("Mapa inválido. Use um código como 4-3 ou deixe vazio.")
                 self.cfg[key]=value
+            min_hp=int(self.npc_min_hp.get())
+            if not 25<=min_hp<=75: raise ValueError("Limite de vida do teste: 25 a 75%.")
+            if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",self.npc_kind.get()):
+                raise ValueError("Selecione um tipo de NPC válido.")
+            self.cfg.update(npc_kind=self.npc_kind.get(),npc_min_hp=min_hp)
             deaths=int(self.max_deaths.get()); cost=int(self.max_cost.get())
             if not 1<=deaths<=100 or not 0<=cost<=100000:
                 raise ValueError("Mortes: 1 a 100; custo: 0 a 100000.")
@@ -626,6 +672,9 @@ class AutoBoxSemMouse:
                 break
             if event=="command":
                 {"start":self.start,"pause":self.pause,"stop":self.stop}[data]()
+            elif event=="npc_report":
+                self.last_npc_report=data
+                self.combat_status.set(data["status"])
             elif event=="running":
                 self._set_running(data)
             elif event=="status":

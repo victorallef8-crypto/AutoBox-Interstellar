@@ -8,6 +8,8 @@ import re
 import time
 from urllib.parse import urlsplit
 
+NPC_SCRIPT = "t => {\n const r=window.PeriodWindows?.renderer, s=r?.state, canvas=document.getElementById('space');\n if(!s?.me||!canvas||typeof r.worldAt!=='function'||typeof r.hitTarget!=='function')\n   throw Error('Cliente de combate indisponível.');\n if(s.me.mapId!==t.map||s.me.respawnRevision!==t.life) return {action:'changed'};\n const npc=s.npcs?.find(n=>String(n.id)===String(t.id)&&n.respawnRevision===t.revision);\n const active=s.me.attacking===true;\n const pressCtrl=()=>{canvas.focus({preventScroll:true});\n   for(const type of ['keydown','keyup']) canvas.dispatchEvent(new KeyboardEvent(type,\n     {bubbles:true,cancelable:true,code:'ControlLeft',key:'Control',ctrlKey:type==='keydown'}));};\n function select(allowOffscreen=false){\n   if(!npc||npc.hp<=0) return false;\n   const rect=canvas.getBoundingClientRect(),cx=rect.left+rect.width/2,cy=rect.top+rect.height/2;\n   const a=r.worldAt(cx,cy),b=r.worldAt(cx+10,cy),c=r.worldAt(cx,cy+10);\n   const xx=(b.x-a.x)/10,xy=(c.x-a.x)/10,yx=(b.y-a.y)/10,yy=(c.y-a.y)/10,det=xx*yy-xy*yx;\n   if(![a.x,a.y,xx,xy,yx,yy,det].every(Number.isFinite)||Math.abs(det)<1e-8) return false;\n   const dx=npc.x-a.x,dy=npc.y-a.y,px=cx+(dx*yy-dy*xy)/det,py=cy+(dy*xx-dx*yx)/det;\n   for(const [ox,oy] of [[0,0],[0,-4],[0,4],[-4,0],[4,0]]){\n     const x=px+ox,y=py+oy;\n     if(!allowOffscreen&&(x<rect.left+2||x>=rect.right-2||y<rect.top+2||y>=rect.bottom-2)) continue;\n     const hit=r.hitTarget(x,y),point=r.worldAt(x,y);\n     if(!hit||String(hit.id)!==String(npc.id)||(hit.respawnRevision!==undefined&&hit.respawnRevision!==npc.respawnRevision)||\n        r.hitWorldButton?.(x,y)||!Number.isFinite(point?.x)||!Number.isFinite(point?.y)) continue;\n     canvas.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true,button:2,buttons:2,clientX:x,clientY:y}));\n     return true;\n   }\n   return false;\n }\n if(t.action==='stop'){\n   if(select(true)) return {action:'stop_sent'};\n   if(!npc&&!active) return {action:'stopped'};\n   return {action:'stop_unavailable'};\n }\n if(s.me.deadUntil||s.me.hp<=0||!s.me.maxHp||s.me.hp/s.me.maxHp*100<=t.min_hp)\n   return {action:'low_hp'};\n if(!npc||npc.hp<=0) return {action:'gone'};\n if(window.DarkOrbitGroups?.isPingArmed?.()) throw Error('Desative a marcação de grupo.');\n if(t.action==='select') return {action:select()?'select_sent':'not_visible'};\n const d=Math.hypot(npc.x-s.me.x,npc.y-s.me.y);\n if(t.action==='approach'){\n   if(typeof window.DarkOrbitGroups?.onFollow!=='function'||!Number.isFinite(d)) throw Error('Movimento indisponível.');\n   if(d<=520) return {action:'in_range'};\n   const x=npc.x+(s.me.x-npc.x)*450/d, y=npc.y+(s.me.y-npc.y)*450/d;\n   if(x<0||y<0||x>s.world.width||y>s.world.height) return {action:'blocked'};\n   window.DarkOrbitGroups.onFollow({x,y,mapId:s.me.mapId});\n   return {action:'move_sent'};\n }\n if(String(s.me.targetId)!==String(npc.id)) return {action:'not_selected'};\n if(t.action==='attack'){\n   if(d>550) return {action:'out_of_range'};\n   if(s.me.selectedAmmo!=='lcb10') throw Error('Selecione LCB-10 no jogo antes de iniciar.');\n   if(!(s.me.ammunitionStock?.lcb10??s.me.ammo)) throw Error('Munição LCB-10 esgotada.');\n   if(active) return {action:'attacking'};\n   pressCtrl();return {action:'attack_sent'};\n }\n throw Error('Ação de combate desconhecida.');\n}"
+
 TRAVEL_SCRIPT = "async t => {\n const renderer=window.PeriodWindows?.renderer;\n const s=renderer?.state, nav=window.DarkOrbitNavigation, model=window.DarkOrbitStarSystemModel;\n if(!s?.me||!s.map||typeof model?.courseState!=='function'||typeof nav?.course!=='function'||typeof nav?.jump!=='function')\n   throw Error('Navegação do cliente indisponível. Exporte a integração atual em Avançado.');\n if(s.me.mapId!==t.map||s.me.respawnRevision!==t.respawn_revision) return {action:'wait'};\n if(s.me.deadUntil||s.me.hp<=0||!s.me.maxHp||s.me.hp/s.me.maxHp<=.25) return {action:'blocked',reason:'Recupere a vida antes de viajar.'};\n if(s.me.attacking||s.me.secondaryVolley) return {action:'blocked',reason:'Pare o ataque antes de viajar.'};\n if(s.me.pendingJump) return {action:'wait'};\n if(s.me.mapId===t.destination) return {action:'arrived',map:s.me.mapId};\n const course=model.courseState(s,t.destination);\n if(!course||course.disabled||!course.nextGate)\n   return {action:'blocked',reason:String(course?.reason||'Nenhuma rota permitida para esse mapa.').slice(0,180)};\n const gate=s.map.gates?.find(g=>g.id===course.nextGate.id);\n if(!gate||gate.galaxy||!Number.isFinite(gate.x)||!Number.isFinite(gate.y)||typeof gate.to!=='string')\n   return {action:'blocked',reason:'Portal normal da rota não confirmado.'};\n const access=window.DarkOrbitMaps?.access?.(gate.to,s.me);\n if(!access?.allowed) return {action:'blocked',reason:String(access?.reason||'Acesso ao próximo mapa não confirmado.').slice(0,180)};\n const distance=Math.hypot(gate.x-s.me.x,gate.y-s.me.y);\n if(!Number.isFinite(distance)) throw Error('Posição indisponível.');\n const result={action:'route',map:s.me.mapId,next_map:gate.to,gate:gate.id,distance};\n if(!t.execute) return result;\n if(distance<=80){await nav.jump(gate.id);return {...result,action:'jump'};}\n nav.course(t.destination);\n return {...result,action:'move'};\n}"
 
 HOME_URL = "https://interstellar-verse.com/"
@@ -453,7 +455,9 @@ class CombatProbe:
                         values["destination"]=None
                     if values:
                         self.commands.append({"seconds":round(self.clock()-self.started,2),"values":values})
-                        self.commands=self.commands[-160:]
+                        if len(self.commands)>160:
+                            movement=next((i for i,c in enumerate(self.commands) if set(c["values"])=={"destination"}),0)
+                            self.commands.pop(movement)
                 self.sample()
         except (ValueError,TypeError,AttributeError,KeyError):
             return
@@ -593,6 +597,25 @@ class BrowserSession:
         if not files:
             raise ValueError("Nenhum arquivo JavaScript disponivel. Entre no mapa pela janela dedicada.")
         return {"schema":"autobox-client-integration-v1","files":files}
+
+    def _npc_action(self,page,target,allowed):
+        action=target.get("action")
+        if action not in ("select","approach","attack","stop"):
+            raise ValueError("Ação de combate inválida.")
+        if allowed is not None and not allowed(): return {"action":"cancelled"}
+        snap=self.world_feed.navigation_snapshot()
+        if action!="stop":
+            if not snap.get("fresh") or snap.get("dead"):
+                raise ValueError("Dados de combate indisponíveis.")
+            if snap["map"]!=target.get("map") or snap.get("respawn_revision")!=target.get("life"):
+                return {"action":"changed"}
+            npc=next((n for n in snap.get("npc_candidates",[]) if str(n.get("id"))==str(target.get("id"))
+                and n.get("respawnRevision")==target.get("revision")),None)
+            if npc is None: return {"action":"gone"}
+            if snap.get("hp_percent") is None or snap["hp_percent"]<=target.get("min_hp",40):
+                return {"action":"low_hp"}
+        if allowed is not None and not allowed(): return {"action":"cancelled"}
+        return page.evaluate(NPC_SCRIPT,target)
 
     def _travel(self, page, target, allowed):
         snap=self.world_feed.navigation_snapshot()
@@ -790,7 +813,9 @@ class BrowserSession:
                         if allowed is not None and not allowed():
                             reply.put((True, False))
                             continue
-                        if operation == "travel":
+                        if operation == "npc_action":
+                            result = self._npc_action(page,payload,allowed)
+                        elif operation == "travel":
                             result = self._travel(page,payload,allowed)
                         elif operation == "respawn":
                             result = self._respawn(page,payload,allowed)

@@ -1,69 +1,70 @@
-ABAS E MAPA — BETA 0.7.0
-- Coleta: mapa de destino independente, coleta por dados e preferências existentes.
-- Kill NPC: lista ao vivo dos NPCs, viagem ao mapa e registro manual do combate.
-- O ataque automático a NPCs AINDA NÃO ESTÁ DISPONÍVEL. Primeiro precisamos validar o registro da luta.
-- F8 continua sendo iniciar COLETA. Abrir a aba Kill NPC não inicia combate.
+AUTOBOX INTERSTELLAR — BETA 0.8.0
 
-VIAGEM ENTRE MAPAS
-Em Coleta ou Kill NPC, selecione/digite um código de mapa normal (ex.: 4-3) e salve. Vazio mantém o mapa atual.
-A lista mostra mapas conhecidos no estado atual; para um destino mais distante, digite seu código.
-Ir ao mapa pausa a coleta e só faz a viagem. Na aba Kill NPC, ao chegar faça o registro manual.
-Ao iniciar coleta com F8, o bot viaja primeiro ao destino da aba Coleta e então começa a coletar.
-Usa a rota calculada pelo cliente e somente portais normais; não usa CPU paga ou portais de galáxia.
-Recusa viagem com ataque ativo, vida baixa, acesso negado ou dados ausentes. Para se não houver progresso.
-F9/F10 cancelam próximos comandos, mas um percurso ou salto já aceito pelo jogo pode terminar.
-A viagem isolada para em perda de leitura; a coleta com destino mantém a opção de reconexão existente.
-Confira a primeira viagem na partida: os testes locais não substituem essa validação.
+ATUALIZAÇÃO
+No Painel, use Verificar atualizações deste bot. Configurações e sessão do Opera são preservadas.
+A coleta usa somente dados do jogo. OpenCV, NumPy e Pillow não são necessários.
 
-REGISTRAR UMA LUTA
-1. Abra o jogo pelo bot, entre no mapa e abra Kill NPC.
-2. Clique Registrar luta manual (90 segundos). O bot pausa a coleta.
-3. Selecione um NPC fraco e ataque usando munição básica.
-4. Pare o ataque uma vez e depois ataque novamente. Se puder, conclua a morte do NPC.
-5. Clique Encerrar registro e Copiar diagnóstico da luta; cole no chat.
-O painel informa se observou seleção, início, parada e dano. Não precisa abrir F12.
-O registro não envia ataques. Captura somente campos necessários, sem token, chat ou identidade de outros jogadores.
-Depois do registro, F8 volta à coleta. Combate automático, fuga e recuperação de combate ficam para a etapa seguinte.
+KILL NPC: PRIMEIRO TESTE AUTOMÁTICO
+1. Abra o jogo pelo bot e recupere a nave para pelo menos 80% de vida.
+2. Selecione LCB-10 no próprio jogo. Pause a coleta com F9.
+3. Na aba Kill NPC, selecione o tipo de NPC (por exemplo mordon).
+4. Deixe o mapa vazio para testar onde está, ou informe um destino normal.
+5. Clique Testar 1 NPC com LCB-10.
+6. Acompanhe a primeira luta. Depois copie o diagnóstico da luta e envie no chat.
 
-AutoBox Interstellar — Beta 0.7.0
+Este modo executa UMA luta e encerra. Ainda não existe repetição de NPCs.
+Seleciona o NPC mais próximo do tipo escolhido, conserva ID e revisão, aproxima até o alcance e verifica ataque/dano.
+Não envia ordens de míssil, não compra munição e não escolhe jogadores como alvo.
+Não repete Ctrl enquanto espera confirmação do ataque.
+A parada usa a seleção explícita do mesmo NPC com ataque desligado pelo cliente, evitando alternar Ctrl novamente.
+F9/F10 encerram o teste e tentam desligar os tiros; confira a mensagem de confirmação.
+Vida mínima padrão: 40%. O limite INTERROMPE TIROS; ainda não há fuga nem recuperação automática de combate.
+Sem dados, sem dano/progresso, alvo alterado ou vida baixa, o teste encerra.
+Confirma derrota quando observa dano, desaparecimento/vida zero do alvo e ganho de XP.
+Não há garantia de confirmação quando outra nave mata o NPC ou a leitura se perde.
+O diagnóstico inclui as ações do teste e se a parada foi confirmada.
 
-ATUALIZAR
-Esta versão remove os modos antigos de imagem e clique e as dependências OpenCV, NumPy e Pillow.
-No Painel, use Verificar atualizações deste bot. As preferências e a sessão do navegador ficam na pasta de dados do aplicativo.
+REGISTRO MANUAL
+Registrar luta manual pausa a coleta e observa por até 90 segundos.
+Selecione um NPC, ataque, pare uma vez e ataque novamente; depois use Encerrar registro e Copiar diagnóstico.
+O registro agora preserva seleção/ataque/parada mesmo com muitos movimentos.
+Os campos do diagnóstico excluem tokens, chat e identidade de outros jogadores.
 
-COMEÇAR
-1. No Painel, clique Iniciar jogo. O navegador dedicado abre https://interstellar-verse.com/.
-2. Faça login e entre no mapa. Em Coleta, aguarde Leitura ao vivo.
-3. F8 inicia; F9 pausa; F10 para e cancela reconexões. Um percurso já aceito pelo jogo pode terminar.
-4. A coleta por dados dispensa marcação de áreas. Mantém a box mais próxima como alvo até terminar.
-5. Mantenha o navegador aberto. O funcionamento minimizado ainda precisa de validação.
+COLETA
+F8 inicia a coleta, mesmo quando você está na aba Kill NPC. Não inicia combate.
+F9 pausa; F10 para. Um percurso já aceito pelo jogo pode terminar.
+O modo Dados seleciona a box mais próxima e mantém ID/revisão até terminar.
+Caixas verdes são opcionais, usam chaves existentes e não compram chaves.
+O coletor espera novas boxes quando o mapa não tem alvos, sem movimentação aleatória.
+A janela dedicada pode ficar atrás de outros programas; funcionamento minimizado ainda não validado.
 
-PAINEL
-Saldos: Uridium, créditos, XP, honra, nível e chaves verdes.
-Uridium da sessão: somente novos eventos de recompensa de boxes durante a coleta, excluindo PET.
-Uridium/h: recompensas contadas divididas pelo tempo ativo; começa após 60 segundos. Pausas e espera de reconexão/renascimento não entram no tempo ativo.
-Saldos indisponíveis aparecem como traço. O contador de mortes e os ganhos são zerados ao fechar o aplicativo.
+MAPAS
+Coleta e Kill NPC têm destinos independentes. Vazio mantém o mapa atual.
+Selecione um mapa da lista ou digite seu código, como 4-3.
+Ir ao mapa só viaja. F8 viaja primeiro ao destino da coleta e então coleta.
+Testar 1 NPC viaja ao destino de NPC antes de selecionar o alvo.
+Usa a rota calculada pelo próprio cliente e portais normais; não usa CPU paga nem portal de galáxia.
+Recusa acesso bloqueado, ataque ativo, vida baixa e dados ausentes. Encerra viagens sem progresso.
+Confira a primeira viagem na sua partida.
 
-PREFERÊNCIAS
-- Caixas verdes: desativadas inicialmente. Usa somente chaves existentes, sem comprar. A confirmação combina desaparecimento do alvo, proximidade e redução de chaves.
-- Reconectar: ativado inicialmente. Aguarda o fluxo voltar, usa os botões normais de entrada/tentativa do cliente e recarrega a página do mapa se necessário. Tentativas espaçadas, até 60 segundos entre elas. Só retoma após leitura atual; F9/F10 cancelam. Se exigir autenticação, faça login manualmente. Não reabre um navegador que você fechou.
-- Renascimento: desativado inicialmente. Escolha Base, Portal ou Local; custo máximo começa em zero Uridium. Confere opção disponível, saldo e preço do botão antes de confirmar.
-- Limite de mortes: padrão 3. Ao atingir o limite, encerra antes de outro renascimento. Contagem durante a coleta automática, por identificação da morte.
-- Renascimento local pode dar apenas 1% de vida. Com vida em 25% ou menos a coleta para e pede recuperação manual.
-- Ajustes de coleta, reconexão e renascimento são aplicados ao iniciar com F8.
+PAINEL E CONTADORES
+Mostra Uridium, créditos, XP, honra, nível e chaves verdes.
+Uridium da sessão e por hora contam somente eventos de boxes durante coleta ativa, excluindo PET.
+Estimativa começa após 60 segundos. Pausas, viagem e espera de reconexão/renascimento não entram no tempo ativo.
+Os ganhos de combate não são contados como ganhos de boxes.
+Saldos indisponíveis aparecem como traço. Contadores da sessão são zerados ao fechar o aplicativo.
 
-AVANÇADO
-Navegador, diagnóstico por dados e exportação ficam separados do uso diário. A coleta por dados é o único modo. Foram removidos calibração, aprendizado de imagem, teste visual e clique por coordenadas de captura. As preferências antigas de imagem são descartadas ao salvar; as demais configurações são preservadas.
-
-AINDA PENDENTE
-Fugir de jogadores; recuperação automática de vida; combate automático/NPCs; PET e seus modos.
-O coletor aguarda boxes no mapa de destino. Com destino vazio, permanece no mapa atual. Não compra chaves.
+RECONEXÃO E RENASCIMENTO DA COLETA
+Reconexão opcional: aguarda dados, usa botões normais do cliente e recarrega quando necessário.
+F9/F10 cancelam tentativas. Autenticação exige login manual; não reabre navegador fechado pelo usuário.
+Renascimento opcional: Base, Portal ou Local, com teto de gasto inicialmente zero Uridium.
+Ao atingir o limite de mortes (padrão 3), encerra antes de renascer novamente.
+Vida em 25% ou menos pausa coleta. Renascimento local pode exigir recuperação manual.
+Essas retomadas automáticas são da coleta; o teste de NPC encerra se morrer ou perder leitura.
 
 VALIDAÇÃO
-101 testes Python de leitura, planejamento, interface, atualização, cancelamento, estatísticas, chaves, renascimento e reconexão.
-Teste local da ponte com callbacks do cliente fornecido, incluindo zoom 33%, 100% e 200%, e caixas verdes.
-Teste do botão de renascimento com preço atual, morte diferente e painel oculto.
-Replay privado de 22 mensagens do jogo, sem publicar dados da sessão.
-Esses testes simulados não substituem validação das novas funções em uma partida real.
+110 testes Python, testes simulados da navegação e da integração de combate.
+A integração de combate foi exercitada com os handlers de seleção, Ctrl e ataque do cliente fornecido.
+Isso não substitui o primeiro teste acompanhado na sua partida.
 
-Instalação nova: Python 3.11+; execute INSTALAR_E_ABRIR.bat. A instalação usa uma .venv própria.
+Instalação nova: Python 3.11+; execute INSTALAR_E_ABRIR.bat.
