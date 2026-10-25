@@ -1,3 +1,22 @@
+BETA 3.5 - ABAS INTERSTELLAR E KRYPTON
+
+Cada aba guarda mapa, minimapa, mensagens, modelo de box e ajustes separados.
+O Interstellar preserva os arquivos de configuracao e modelo que voce ja usa.
+O Krypton comeca sem calibracao: abra a aba Krypton e aprenda uma box desse jogo.
+Marque o mapa e o minimapa do Krypton e use Salvar ajustes.
+Se o titulo da janela for diferente, use Capturar titulo do jogo (3 segundos),
+volte ao jogo e depois salve os ajustes.
+
+Krypton usa UM clique esquerdo com pressionamento curto de 0,12 segundo.
+A duracao e ajustavel; Interstellar mantem o clique anterior.
+A deteccao do Krypton usa o modelo aprendido sem exigir centro luminoso.
+Apenas a aba selecionada pode operar o mouse. Trocar de aba interrompe a coleta.
+F8 inicia a aba selecionada, F9 pausa e F10 para.
+
+Os detectores de radiacao/morte e os destinos de renascimento do Interstellar
+nao foram validados no Krypton e ficam exclusivos da aba Interstellar.
+A coleta no Krypton precisa ser validada dentro do jogo.
+
 BETA 3.4.2 - MAIS PERTO PRIMEIRO
 
 A cada nova coleta, escolhe o box detectado e disponivel mais proximo do

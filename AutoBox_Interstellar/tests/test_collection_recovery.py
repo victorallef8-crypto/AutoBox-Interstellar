@@ -11,7 +11,7 @@ source = Path(__file__).resolve().parents[1] / "AutoBox_Interstellar.py"
 tree = ast.parse(source.read_text(encoding="utf-8"))
 app = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "AutoBoxApp")
 methods = [n for n in app.body if isinstance(n, ast.FunctionDef)
-           and n.name in ("_reward_wait", "_recover_collection", "_collect_loop", "_track_box")]
+           and n.name in ("_reward_wait", "_recover_collection", "_collect_loop", "_track_box", "_game_click")]
 
 class Clock:
     def __init__(self):
@@ -34,6 +34,9 @@ class RecoveryTests(unittest.TestCase):
         exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])),
                      str(source), "exec"), self.ns)
         self.bot = self.ns["App"]()
+        self.bot.profile_id = "interstellar"
+        self.bot.click_hold = 0
+        self.bot.coordinator = None
         self.bot.events = queue.Queue()
         self.bot.running = True
         self.bot.state_lock = threading.Lock()
@@ -96,7 +99,7 @@ class RecoveryTests(unittest.TestCase):
 
     def run_loop(self, results, boxes=None):
         self.ns["MAX_COLLECTION_TIMEOUTS"] = 3
-        self.ns["TEMPLATE_PATH"] = SimpleNamespace(stat=lambda: SimpleNamespace(st_mtime_ns=1))
+        self.bot.template_path = SimpleNamespace(stat=lambda: SimpleNamespace(st_mtime_ns=1))
         self.ns["cv2"] = SimpleNamespace(imread=lambda _: object())
         context = Mock()
         context.__enter__ = Mock(return_value=None)

@@ -10,7 +10,7 @@ source = Path(__file__).resolve().parents[1] / "AutoBox_Interstellar.py"
 tree = ast.parse(source.read_text(encoding="utf-8"))
 app = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "AutoBoxApp")
 methods = [n for n in app.body if isinstance(n, ast.FunctionDef)
-           and n.name in ("_click_current_box", "_patrol_wait")]
+           and n.name in ("_click_current_box", "_patrol_wait", "_game_click")]
 
 class ClickTests(unittest.TestCase):
     def setUp(self):
@@ -25,6 +25,9 @@ class ClickTests(unittest.TestCase):
         exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])),
                      str(source), "exec"), self.ns)
         self.bot = self.ns["App"]()
+        self.bot.profile_id = "interstellar"
+        self.bot.click_hold = 0
+        self.bot.coordinator = None
         self.bot.region = {"left": 100, "top": 200, "width": 500, "height": 400}
         self.bot.threshold = .9
         self.bot.patrol_seconds = 7

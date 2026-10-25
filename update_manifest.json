@@ -1,6 +1,6 @@
 {
-  "version": "3.4.2",
+  "version": "3.5",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "a7479ebf54329010ed1fb4275475063bb483a0fcca04f500662c08d3eee8893a",
-  "notes": "Prioriza o box disponivel mais perto do centro atual da nave, preservando aproximacao e coleta rapida."
+  "sha256": "2a5b6ca55310b724e2268b4348e900cabb8f048b91488919985d0d066ba9dcb5",
+  "notes": "Abas Interstellar e Krypton com perfis separados, calibracao independente e clique esquerdo ajustavel no Krypton."
 }

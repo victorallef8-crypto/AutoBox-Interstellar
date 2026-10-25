@@ -26,10 +26,25 @@ from pynput import keyboard
 import updater
 
 
-APP_NAME = "AutoBox Interstellar Verse"
+APP_NAME = "AutoBox"
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxInterstellar"
 SETTINGS_PATH = APP_DIR / "config.json"
 TEMPLATE_PATH = APP_DIR / "box_modelo.png"
+PROFILES = (
+    {"id": "interstellar", "label": "Interstellar", "title": "Interstellar Verse"},
+    {"id": "krypton", "label": "Krypton", "title": "Krypton"},
+)
+
+
+def profile_paths(profile_id):
+    if profile_id not in {profile["id"] for profile in PROFILES}:
+        raise ValueError("Perfil desconhecido")
+    # O Interstellar continua usando os caminhos antigos: sem perder calibracao.
+    folder = APP_DIR if profile_id == "interstellar" else APP_DIR / "profiles" / profile_id
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / "config.json", folder / "box_modelo.png"
+
+
 MAX_COLLECTION_TIMEOUTS = 3
 
 REPAIR_COSTS = {"base": 0, "portal": 250, "same_place": 500}
@@ -60,7 +75,8 @@ def active_window_title() -> str:
 
 
 def locate_boxes(frame_bgr: np.ndarray, sample_bgr: np.ndarray,
-                 threshold: float = 0.90) -> list[tuple[int, int, float]]:
+                 threshold: float = 0.90,
+                 require_bright: bool = True) -> list[tuple[int, int, float]]:
     """Retorna candidatos (x,y,confianca) em pixels relativos a frame_bgr.
 
     Busca em algumas escalas para tolerar pequenas variacoes de renderizacao.
@@ -91,7 +107,7 @@ def locate_boxes(frame_bgr: np.ndarray, sample_bgr: np.ndarray,
             # Exige que haja um centro luminoso, nao so a mesma textura de fundo.
             patch = frame_bgr[max(0, cy - 4): min(height, cy + 5),
                               max(0, cx - 4): min(width, cx + 5)]
-            if patch.size and int(np.max(np.min(patch, axis=2))) >= 175:
+            if patch.size and (not require_bright or int(np.max(np.min(patch, axis=2))) >= 175):
                 proposals.append((cx, cy, float(scores[y, x])))
 
     proposals.sort(key=lambda p: p[2], reverse=True)
@@ -229,11 +245,16 @@ def repair_click_points(panel: tuple[int, int, int, int],
 
 
 class AutoBoxApp:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, parent=None, profile_id="interstellar", coordinator=None):
         self.root = root
-        root.title(APP_NAME + " - beta 3.4.2")
-        root.geometry("600x885")
-        root.minsize(545, 735)
+        self.parent = parent if parent is not None else root
+        self.profile_id = profile_id
+        self.profile = next(profile for profile in PROFILES if profile["id"] == profile_id)
+        self.coordinator = coordinator
+        self.settings_path, self.template_path = profile_paths(profile_id)
+        if coordinator is None:
+            root.title(APP_NAME + " - beta 3.5")
+            root.geometry("640x920")
 
         APP_DIR.mkdir(parents=True, exist_ok=True)
         self.cfg = self._read_config()
@@ -249,12 +270,16 @@ class AutoBoxApp:
         self.wait_var = tk.StringVar(value=str(self.cfg.get("wait", 5.0)))
         self.patrol_var = tk.StringVar(value=str(self.cfg.get("patrol_wait", 7.0)))
         self.threshold_var = tk.StringVar(value=str(self.cfg.get("threshold", 0.90)))
-        self.title_var = tk.StringVar(value=self.cfg.get("title", "Interstellar Verse"))
+        self.title_var = tk.StringVar(value=self.cfg.get("title", self.profile["title"]))
         self.auto_revive_var = tk.BooleanVar(value=bool(self.cfg.get("auto_revive", False)))
         previous_destination = "portal" if self.cfg.get("auto_revive", False) else "base"
         self.revive_target_var = tk.StringVar(
             value=self.cfg.get("revive_target", previous_destination))
         self.revive_limit_var = tk.StringVar(value=str(self.cfg.get("revives_per_hour", 2)))
+
+        self.click_hold_var = tk.StringVar(value=str(self.cfg.get(
+            "click_hold", .12 if profile_id == "krypton" else 0)))
+        self.click_hold = .12 if profile_id == "krypton" else 0
 
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.state_lock = threading.Lock()
@@ -267,15 +292,18 @@ class AutoBoxApp:
 
         self._draw()
         self._refresh_labels()
-        self._bind_hotkeys()
+        if coordinator is None:
+            self._bind_hotkeys()
         self.root.after(100, self._drain_events)
-        self.root.after(3500, lambda: self.check_updates(silent=True))
-        self.root.protocol("WM_DELETE_WINDOW", self._close)
+        if coordinator is None:
+            self.root.after(3500, lambda: self.check_updates(silent=True))
+            self.root.protocol("WM_DELETE_WINDOW", self._close)
 
     def _read_config(self):
-        if SETTINGS_PATH.exists():
+        if self.settings_path.exists():
             try:
-                return json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+                config = json.loads(self.settings_path.read_text(encoding="utf-8"))
+                return config if isinstance(config, dict) else {}
             except (OSError, json.JSONDecodeError):
                 pass
         return {}
@@ -292,15 +320,16 @@ class AutoBoxApp:
             "auto_revive": self.auto_revive,
             "revive_target": self.revive_target,
             "revives_per_hour": self.revives_per_hour,
+            "click_hold": self.click_hold,
         })
-        SETTINGS_PATH.write_text(json.dumps(self.cfg, indent=2), encoding="utf-8")
+        self.settings_path.write_text(json.dumps(self.cfg, indent=2), encoding="utf-8")
 
     def _draw(self):
-        frame = ttk.Frame(self.root, padding=17)
+        frame = ttk.Frame(self.parent, padding=14)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="AutoBox | Interstellar Verse",
+        ttk.Label(frame, text="AutoBox | " + self.profile["label"],
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.4.2 • Posicao do box conferida antes do clique",
+        ttk.Label(frame, text="Beta 3.5 • Configuracao independente por jogo",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -311,7 +340,7 @@ class AutoBoxApp:
                    command=lambda: self._capture_selection("sample")).grid(row=1, column=0, sticky="ew", pady=(7, 0))
         ttk.Button(capture_box, text="Marcar zona segura NO MINIMAPA",
                    command=lambda: self._capture_selection("safe")).grid(row=2, column=0, sticky="ew", pady=(7, 0))
-        ttk.Button(capture_box, text="Marcar area das mensagens YOU RECEIVED",
+        ttk.Button(capture_box, text="Marcar area das mensagens de coleta",
                    command=lambda: self._capture_selection("notice")).grid(row=3, column=0, sticky="ew", pady=(7, 0))
         ttk.Label(capture_box, textvariable=self.region_status).grid(row=0, column=1, sticky="w", padx=(12, 0))
         ttk.Label(capture_box, textvariable=self.sample_status).grid(row=1, column=1, sticky="w", padx=(12, 0))
@@ -341,20 +370,32 @@ class AutoBoxApp:
             ttk.Label(settings, text=label).grid(row=row, column=0, sticky="w", pady=3)
             ttk.Entry(settings, textvariable=var, width=21).grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=3)
         settings.columnconfigure(1, weight=1)
-        ttk.Checkbutton(settings, text="Renascer automaticamente quando morrer",
-                        variable=self.auto_revive_var).grid(row=4, column=0, columnspan=2,
-                                                            sticky="w", pady=(7, 3))
-        destinations = ttk.Frame(settings)
-        destinations.grid(row=5, column=0, columnspan=2, sticky="w", pady=3)
-        for option, label in (("base", "Base (gratis)"),
-                              ("portal", "Portal (250 U)"),
-                              ("same_place", "Mesmo lugar (500 U)")):
-            ttk.Radiobutton(destinations, text=label, value=option,
-                            variable=self.revive_target_var).pack(side="left", padx=(0, 12))
-        ttk.Label(settings, text="Maximo de renascimentos por hora (1 a 3)").grid(
-            row=6, column=0, sticky="w")
-        ttk.Entry(settings, textvariable=self.revive_limit_var, width=21).grid(
-            row=6, column=1, sticky="ew", padx=(8, 0), pady=3)
+        if self.profile_id == "interstellar":
+            ttk.Checkbutton(settings, text="Renascer automaticamente quando morrer",
+                            variable=self.auto_revive_var).grid(row=4, column=0, columnspan=2,
+                                                                sticky="w", pady=(7, 3))
+            destinations = ttk.Frame(settings)
+            destinations.grid(row=5, column=0, columnspan=2, sticky="w", pady=3)
+            for option, label in (("base", "Base (gratis)"),
+                                  ("portal", "Portal (250 U)"),
+                                  ("same_place", "Mesmo lugar (500 U)")):
+                ttk.Radiobutton(destinations, text=label, value=option,
+                                variable=self.revive_target_var).pack(side="left", padx=(0, 12))
+            ttk.Label(settings, text="Maximo de renascimentos por hora (1 a 3)").grid(
+                row=6, column=0, sticky="w")
+            ttk.Entry(settings, textvariable=self.revive_limit_var, width=21).grid(
+                row=6, column=1, sticky="ew", padx=(8, 0), pady=3)
+        else:
+            ttk.Label(settings, text="Duracao do clique esquerdo (seg)").grid(
+                row=4, column=0, sticky="w", pady=3)
+            ttk.Entry(settings, textvariable=self.click_hold_var, width=21).grid(
+                row=4, column=1, sticky="ew", padx=(8, 0), pady=3)
+            ttk.Label(settings, text="Krypton: calibre o mapa, o minimapa e um box deste jogo.",
+                      wraplength=520).grid(row=5, column=0, columnspan=2, sticky="w")
+        ttk.Button(settings, text="Capturar titulo do jogo (3 segundos)",
+                   command=self._capture_window_title).grid(
+            row=6 if self.profile_id == "krypton" else 8,
+            column=0, columnspan=2, sticky="ew", pady=4)
         ttk.Button(settings, text="Salvar ajustes", command=self.apply_settings).grid(
             row=7, column=0, columnspan=2, sticky="ew", pady=(8, 0))
 
@@ -370,13 +411,20 @@ class AutoBoxApp:
             "O jogo pode proibir automacao. Nao ha garantia de coleta, de "
             "funcionamento indefinido ou de ausencia de punicao na conta."
         )
+        if self.profile_id == "krypton":
+            note = (
+                "Perfil separado do Interstellar. Aprenda uma box do Krypton e "
+                "marque as areas deste jogo. Use o titulo correto da janela. "
+                "F8 inicia; F9 pausa; F10 para. Trocar de aba interrompe a coleta. "
+                "Renascimento e deteccoes especificas do Interstellar nao sao usados aqui."
+            )
         ttk.Label(frame, text=note, foreground="#59677c", wraplength=485,
                   justify="left").pack(anchor="w", pady=(12, 0))
 
         self.wait_seconds = 5.0
         self.patrol_seconds = 7.0
         self.threshold = 0.90
-        self.title_required = "interstellar verse"
+        self.title_required = self.profile["title"].casefold()
         self.auto_revive = False
         self.revive_target = "base"
         self.revives_per_hour = 2
@@ -387,7 +435,7 @@ class AutoBoxApp:
             self.region_status.set(f"{self.region['width']} x {self.region['height']} px")
         else:
             self.region_status.set("Nao selecionada")
-        self.sample_status.set("Box aprendida ✓" if TEMPLATE_PATH.exists() else "Nao aprendida")
+        self.sample_status.set("Box aprendida ✓" if self.template_path.exists() else "Nao aprendida")
         self.safe_status.set("Area segura marcada ✓" if self.safe_region else "Nao selecionada")
         self.notice_status.set("Mensagens marcadas ✓" if self.notice_region else "Nao selecionada")
 
@@ -395,12 +443,15 @@ class AutoBoxApp:
         try:
             wait = float(self.wait_var.get().replace(",", "."))
             patrol = float(self.patrol_var.get().replace(",", "."))
+            click_hold = float(self.click_hold_var.get().replace(",", "."))
             threshold = float(self.threshold_var.get().replace(",", "."))
             revive_limit = int(self.revive_limit_var.get())
             revive_target = self.revive_target_var.get()
             title = self.title_var.get().strip()
             if not (2.0 <= wait <= 30.0 and 3.0 <= patrol <= 30.0):
                 raise ValueError("As esperas precisam estar nos intervalos 2–30 e 3–30 segundos.")
+            if not 0 <= click_hold <= .3:
+                raise ValueError("A duracao do clique precisa estar entre 0 e 0,3 segundos.")
             if not 0.60 <= threshold <= 0.95:
                 raise ValueError("A confianca precisa estar entre 0,60 e 0,95.")
             if len(title) < 5:
@@ -413,7 +464,8 @@ class AutoBoxApp:
             changed_paid_choice = (not self.auto_revive or
                                    self.revive_target != revive_target or
                                    self.revives_per_hour != revive_limit)
-            if not silent and self.auto_revive_var.get() and spend and changed_paid_choice:
+            if (self.profile_id == "interstellar" and not silent and
+                    self.auto_revive_var.get() and spend and changed_paid_choice):
                 sure = messagebox.askyesno(
                     "Confirmar gasto automatico de Uridium",
                     f"Renascer no {REPAIR_LABELS[revive_target]} custa {spend} Uridium "
@@ -430,7 +482,8 @@ class AutoBoxApp:
             self.patrol_seconds = patrol
             self.threshold = threshold
             self.title_required = title.casefold()
-            self.auto_revive = bool(self.auto_revive_var.get())
+            self.auto_revive = self.profile_id == "interstellar" and bool(self.auto_revive_var.get())
+            self.click_hold = click_hold
             self.revive_target = revive_target
             self.revives_per_hour = revive_limit
             self._save_config()
@@ -441,6 +494,20 @@ class AutoBoxApp:
             if not silent:
                 messagebox.showerror("Ajustes invalidos", str(exc))
             return False
+
+    def _capture_window_title(self):
+        if self.running:
+            self.pause()
+        self.root.iconify()
+        def capture():
+            title = active_window_title().strip()
+            if len(title) >= 5:
+                self.title_var.set(title)
+                self.status.set("Titulo capturado. Clique em Salvar ajustes.")
+            else:
+                self.status.set("Nao foi possivel capturar o titulo. Preencha o campo manualmente.")
+            self.root.deiconify()
+        self.root.after(3000, capture)
 
     def _bind_hotkeys(self):
         def on_press(key):
@@ -455,6 +522,8 @@ class AutoBoxApp:
         self.keyboard_listener.start()
 
     def _capture_selection(self, mode: str):
+        if self.coordinator is not None:
+            self.coordinator.stop_other_apps(self)
         if self.running:
             messagebox.showinfo("Pausar primeiro", "Aperte F9 antes de selecionar a area ou box.")
             return
@@ -462,6 +531,9 @@ class AutoBoxApp:
         self.root.after(550, lambda: self._show_capture(mode))
 
     def _show_capture(self, mode: str):
+        if self.coordinator is not None and self.coordinator.active_app is not self:
+            self.root.deiconify()
+            return
         try:
             with mss.mss() as sct:
                 # O monitor principal e o usado no exemplo. Para outro monitor,
@@ -487,9 +559,9 @@ class AutoBoxApp:
             elif mode == "safe":
                 hint = "ARRASTE so no CENTRO SEGURO do minimapa (sem bordas)"
             elif mode == "notice":
-                hint = "ARRASTE so a area do texto YOU RECEIVED (sem HUD ou nave)"
+                hint = "ARRASTE so a area das mensagens de coleta (sem HUD ou nave)"
             else:
-                hint = "CLIQUE BEM NO CENTRO de uma box luminosa"
+                hint = "CLIQUE NO CENTRO de uma box do jogo desta aba"
             canvas.create_rectangle(10, 10, min(width - 10, 680), 49,
                                     fill="#162e42", outline="#24c9ed", width=2)
             canvas.create_text(23, 29, text=hint + "  |  ESC cancela",
@@ -528,7 +600,8 @@ class AutoBoxApp:
                     elif mode == "safe" and x2 - x1 >= 65 and y2 - y1 >= 45:
                         # A captura do usuario mostra o minimapa embaixo e
                         # a direita. Essa checagem evita selecionar o mapa real.
-                        if x1 >= width * .5 and y1 >= height * .35:
+                        if (self.profile_id == "krypton" or
+                                (x1 >= width * .5 and y1 >= height * .35)):
                             self.safe_region = {"left": left + x1, "top": top + y1,
                                                 "width": x2 - x1, "height": y2 - y1}
                             self._save_config()
@@ -543,7 +616,7 @@ class AutoBoxApp:
                             radius <= event.y < height - radius):
                         patch = image.crop((event.x - radius, event.y - radius,
                                             event.x + radius + 1, event.y + radius + 1))
-                        patch.save(TEMPLATE_PATH)
+                        patch.save(self.template_path)
                     finish()
 
             canvas.bind("<ButtonPress-1>", down)
@@ -556,7 +629,13 @@ class AutoBoxApp:
             messagebox.showerror("Falha na captura", str(exc))
 
     def start(self):
-        if not self.region or not TEMPLATE_PATH.exists():
+        if self.coordinator is not None and not self.coordinator.prepare_start(self):
+            return
+        # Nao reutiliza o sinal de saida enquanto o worker antigo ainda esta fechando.
+        if self.worker is not None and self.worker.is_alive() and self.exit_event.is_set():
+            self.root.after(100, self.start)
+            return
+        if not self.region or not self.template_path.exists():
             messagebox.showinfo("Falta calibrar", "Selecione a area do mapa e aprenda uma box primeiro.")
             return
         if not self.apply_settings():
@@ -603,7 +682,10 @@ class AutoBoxApp:
                     self._download_update(manifest)
             elif event == "update_ready":
                 try:
-                    self.stop()
+                    if self.coordinator is not None:
+                        self.coordinator.stop_all()
+                    else:
+                        self.stop()
                     updater.start_update(data, Path(__file__).resolve().parent)
                     self.root.destroy()
                     return
@@ -641,6 +723,8 @@ class AutoBoxApp:
         threading.Thread(target=download_worker, daemon=True).start()
 
     def _ready_to_click(self):
+        if self.coordinator is not None and self.coordinator.active_app is not self:
+            return False
         with self.state_lock:
             if not self.running or self.stopped:
                 return False
@@ -684,6 +768,23 @@ class AutoBoxApp:
                 random.randint(area["top"] + my,
                                area["top"] + area["height"] - my))
 
+    def _game_click(self, x, y):
+        """Um clique esquerdo; no Krypton usa pressionamento curto configuravel."""
+        if not self._ready_to_click():
+            return False
+        if self.profile_id == "interstellar" or self.click_hold <= 0:
+            pyautogui.click(x, y)
+            return True
+        pyautogui.moveTo(x, y, duration=0)
+        if not self._ready_to_click():
+            return False
+        pyautogui.mouseDown(button="left")
+        try:
+            self._sleep_interruptible(self.click_hold)
+        finally:
+            pyautogui.mouseUp(button="left")
+        return True
+
     def _click_current_box(self, sct, sample, region, target):
         """Revalida um alvo localmente antes de clicar; nao usa posicao antiga."""
         x, y = target
@@ -695,12 +796,13 @@ class AutoBoxApp:
 
         def near_target(expected, radius):
             frame, monitor = self._screen_capture(sct)
-            if radiation_visible(frame) or find_death_panel(frame) is not None:
+            if (self.profile_id == "interstellar" and radiation_visible(frame)) or (find_death_panel(frame) if self.profile_id == "interstellar" else None) is not None:
                 return None
             crop = self._screen_area(frame, monitor, area)
             if crop is None:
                 return None
-            matches = locate_boxes(crop, sample, threshold=self.threshold)
+            matches = locate_boxes(crop, sample, threshold=self.threshold,
+                                   require_bright=self.profile_id == "interstellar")
             nearby = [(px + left, py + top, confidence)
                       for px, py, confidence in matches
                       if (px + left - expected[0]) ** 2 +
@@ -728,7 +830,8 @@ class AutoBoxApp:
         (x, y, score), frame, monitor = current
         if not self._ready_to_click() or self.region != region:
             return None
-        pyautogui.click(region["left"] + x, region["top"] + y)
+        if not self._game_click(region["left"] + x, region["top"] + y):
+            return None
         return x, y, score, frame, monitor
 
     def _patrol_wait(self, sct, sample):
@@ -739,10 +842,11 @@ class AutoBoxApp:
             if not self._ready_to_click():
                 return
             frame, monitor = self._screen_capture(sct)
-            if radiation_visible(frame) or find_death_panel(frame) is not None:
+            if (self.profile_id == "interstellar" and radiation_visible(frame)) or (find_death_panel(frame) if self.profile_id == "interstellar" else None) is not None:
                 return
             crop = self._screen_area(frame, monitor, self.region)
-            if crop is not None and locate_boxes(crop, sample, threshold=self.threshold):
+            if crop is not None and locate_boxes(crop, sample, threshold=self.threshold,
+                                   require_bright=self.profile_id == "interstellar"):
                 self.events.put(("status", "Box encontrada durante a ronda. Conferindo a posicao..."))
                 return
 
@@ -757,7 +861,8 @@ class AutoBoxApp:
         crop = self._screen_area(frame, monitor, area)
         if crop is None:
             return None
-        matches = locate_boxes(crop, sample, threshold=self.threshold)
+        matches = locate_boxes(crop, sample, threshold=self.threshold,
+                                   require_bright=self.profile_id == "interstellar")
         nearby = sorted(((px + left, py + top, score) for px, py, score in matches
                          if (px + left - x) ** 2 + (py + top - y) ** 2 <= 60 ** 2),
                         key=lambda p: (p[0] - x) ** 2 + (p[1] - y) ** 2)
@@ -777,7 +882,7 @@ class AutoBoxApp:
         before_area = (self._screen_area(before_click, monitor, self.notice_region)
                        if self.notice_region else None)
         baseline = before_area.copy() if before_area is not None else None
-        saw_clear = not reward_notice_visible(before_click, target_x)
+        saw_clear = self.profile_id != "interstellar" or not reward_notice_visible(before_click, target_x)
         deadline = time.monotonic() + self.wait_seconds
         began = time.monotonic()
         hard_deadline = began + min(90.0, max(30.0, self.wait_seconds * 3))
@@ -795,7 +900,7 @@ class AutoBoxApp:
             if not self._ready_to_click():
                 return "interrupted"
             frame, current_monitor = self._screen_capture(sct)
-            if radiation_visible(frame) or find_death_panel(frame) is not None:
+            if (self.profile_id == "interstellar" and radiation_visible(frame)) or (find_death_panel(frame) if self.profile_id == "interstellar" else None) is not None:
                 return "interrupted"
             now = time.monotonic()
             if sample is not None and tracked is not None and region is not None:
@@ -839,7 +944,7 @@ class AutoBoxApp:
                     return "unconfirmed"
                 continue
             # Compatibilidade com a versao anterior ate marcar a area.
-            present = reward_notice_visible(frame, target_x)
+            present = self.profile_id == "interstellar" and reward_notice_visible(frame, target_x)
             if not present:
                 saw_clear = True
             elif saw_clear and time.monotonic() - began >= 0.55:
@@ -860,7 +965,7 @@ class AutoBoxApp:
             return False
         if not self._ready_to_click():
             return False
-        pyautogui.click(*destination)
+        self._game_click(*destination)
         self.events.put(("status", "Tres tentativas sem confirmacao. Ronda na zona segura para procurar outros boxes..."))
         self._sleep_interruptible(self.patrol_seconds)
         return True
@@ -872,7 +977,7 @@ class AutoBoxApp:
             return
         pos = self._choose_safe_point(center=True)
         if pos and self._ready_to_click():
-            pyautogui.click(*pos)
+            self._game_click(*pos)
             self.events.put(("status", "RADIAÇÃO! Voltando ao centro seguro do minimapa..."))
             self._sleep_interruptible(max(5.0, self.patrol_seconds))
 
@@ -890,26 +995,26 @@ class AutoBoxApp:
         selection, repair_button = repair_click_points(panel, self.revive_target)
         if self._ready_to_click():
             self.revive_attempts.append(now)
-            pyautogui.click(*selection)
+            self._game_click(*selection)
             self._sleep_interruptible(.65)
             if self._ready_to_click():
-                pyautogui.click(*repair_button)
+                self._game_click(*repair_button)
                 label = REPAIR_LABELS[self.revive_target]
                 cost = REPAIR_COSTS[self.revive_target]
                 self.events.put(("status", f"Tentando renascer: {label} ({cost} U)..."))
                 self._sleep_interruptible(4.0)
                 frame, _ = self._screen_capture(sct)
-                if find_death_panel(frame) is not None:
+                if (find_death_panel(frame) if self.profile_id == "interstellar" else None) is not None:
                     self.events.put(("command", "pause"))
                     self.events.put(("status", "A tela de morte continua aberta. "
                                      "Pausado para evitar novos gastos."))
 
     def _collect_loop(self):
-        sample = cv2.imread(str(TEMPLATE_PATH))
+        sample = cv2.imread(str(self.template_path))
         if sample is None:
             self.events.put(("status", "Erro ao abrir modelo da box. Aprenda de novo."))
             return
-        sample_modified = TEMPLATE_PATH.stat().st_mtime_ns
+        sample_modified = self.template_path.stat().st_mtime_ns
         recent: list[tuple[int, int, float]] = []
         missed = 0
         collection_timeouts = 0
@@ -921,14 +1026,14 @@ class AutoBoxApp:
                         with self.state_lock:
                             paused = not self.running
                         if not paused:
-                            self.events.put(("status", "Esperando janela do Interstellar Verse ficar ativa..."))
+                            self.events.put(("status", "Esperando a janela do jogo desta aba ficar ativa..."))
                         self.exit_event.wait(0.75)
                         continue
 
                     # Permite recalibrar durante uma pausa sem fechar o aplicativo.
-                    new_modified = TEMPLATE_PATH.stat().st_mtime_ns
+                    new_modified = self.template_path.stat().st_mtime_ns
                     if new_modified != sample_modified:
-                        new_sample = cv2.imread(str(TEMPLATE_PATH))
+                        new_sample = cv2.imread(str(self.template_path))
                         if new_sample is not None:
                             sample = new_sample
                             sample_modified = new_modified
@@ -936,14 +1041,14 @@ class AutoBoxApp:
                             collection_timeouts = 0
 
                     full_frame, monitor = self._screen_capture(sct)
-                    dead = find_death_panel(full_frame)
+                    dead = (find_death_panel(full_frame) if self.profile_id == "interstellar" else None)
                     if dead is not None:
                         self._handle_death(sct, (dead[0] + monitor["left"],
                                                  dead[1] + monitor["top"], dead[2], dead[3]))
                         recent.clear()
                         collection_timeouts = 0
                         continue
-                    if radiation_visible(full_frame):
+                    if (self.profile_id == "interstellar" and radiation_visible(full_frame)):
                         self._handle_radiation()
                         recent.clear()
                         collection_timeouts = 0
@@ -958,7 +1063,8 @@ class AutoBoxApp:
                         self.events.put(("command", "pause"))
                         self.events.put(("status", "Area selecionada fora da tela principal."))
                         continue
-                    boxes = locate_boxes(frame, sample, threshold=self.threshold)
+                    boxes = locate_boxes(frame, sample, threshold=self.threshold,
+                                   require_bright=self.profile_id == "interstellar")
                     now = time.monotonic()
                     recent = [(x, y, t) for x, y, t in recent if now - t <= 18.0]
                     candidates = [
@@ -1006,7 +1112,7 @@ class AutoBoxApp:
                                 now - last_patrol >= self.patrol_seconds):
                             destination = self._choose_safe_point()
                             if destination and self._ready_to_click():
-                                pyautogui.click(*destination)
+                                self._game_click(*destination)
                                 self.events.put(("status", "Sem boxes. Ronda na zona segura do minimapa..."))
                                 # Mantem alvos recentes para evitar repetir falhas apos a ronda.
                                 last_patrol = now
@@ -1031,13 +1137,88 @@ class AutoBoxApp:
         self.root.destroy()
 
 
+class AutoBoxWindow:
+    """Uma aba por perfil; somente a aba selecionada pode operar o mouse."""
+    def __init__(self, root):
+        self.root = root
+        self.apps = {}
+        self.active_app = None
+        root.title(APP_NAME + " - beta 3.5")
+        root.geometry("660x" + str(min(970, root.winfo_screenheight() - 90)))
+        root.minsize(590, min(780, root.winfo_screenheight() - 90))
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(fill="both", expand=True)
+        for profile in PROFILES:
+            tab = ttk.Frame(self.notebook)
+            self.notebook.add(tab, text=profile["label"])
+            canvas = tk.Canvas(tab, highlightthickness=0)
+            scrollbar = ttk.Scrollbar(tab, orient="vertical", command=canvas.yview)
+            canvas.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side="right", fill="y")
+            canvas.pack(side="left", fill="both", expand=True)
+            body = ttk.Frame(canvas)
+            item = canvas.create_window((0, 0), window=body, anchor="nw")
+            body.bind("<Configure>", lambda event, c=canvas: c.configure(scrollregion=c.bbox("all")))
+            canvas.bind("<Configure>", lambda event, c=canvas, i=item: c.itemconfigure(i, width=event.width))
+            app = AutoBoxApp(root, parent=body, profile_id=profile["id"], coordinator=self)
+            self.apps[str(tab)] = app
+        self.active_app = self.apps[self.notebook.select()]
+        self.notebook.bind("<<NotebookTabChanged>>", self._tab_changed)
+        self._bind_hotkeys()
+        root.after(3500, lambda: self.active_app.check_updates(silent=True))
+        root.protocol("WM_DELETE_WINDOW", self._close)
+
+    def stop_other_apps(self, app):
+        for other in self.apps.values():
+            if other is not app:
+                other.stop()
+
+    def prepare_start(self, app):
+        if app is not self.active_app:
+            return False
+        self.stop_other_apps(app)
+        if any(other.worker is not None and other.worker.is_alive()
+               for other in self.apps.values() if other is not app):
+            app.status.set("Aguardando encerrar a outra aba...")
+            self.root.after(100, lambda: app.start() if app is self.active_app else None)
+            return False
+        return True
+
+    def _tab_changed(self, event=None):
+        selected = self.apps.get(self.notebook.select())
+        if selected is None or selected is self.active_app:
+            return
+        self.stop_all()
+        self.active_app = selected
+        selected.status.set("Perfil " + selected.profile["label"] + " selecionado. F8 inicia.")
+
+    def stop_all(self):
+        for app in self.apps.values():
+            app.stop()
+
+    def _bind_hotkeys(self):
+        def on_press(key):
+            command = {keyboard.Key.f8: "start", keyboard.Key.f9: "pause",
+                       keyboard.Key.f10: "stop"}.get(key)
+            if command and self.active_app is not None:
+                self.active_app.events.put(("command", command))
+        self.keyboard_listener = keyboard.Listener(on_press=on_press)
+        self.keyboard_listener.daemon = True
+        self.keyboard_listener.start()
+
+    def _close(self):
+        self.stop_all()
+        self.keyboard_listener.stop()
+        self.root.destroy()
+
+
 def main():
     root = tk.Tk()
     try:
         ttk.Style().theme_use("clam")
     except tk.TclError:
         pass
-    AutoBoxApp(root)
+    AutoBoxWindow(root)
     root.mainloop()
 
 

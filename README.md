@@ -1,7 +1,16 @@
-# AutoBox Interstellar Verse
+# AutoBox - Interstellar e Krypton
 
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
+
+## Beta 3.5
+
+- Duas abas: Interstellar e Krypton, com calibracoes e ajustes separados.
+- Interstellar preserva configuracao e modelo antigos.
+- Krypton usa seu proprio modelo de box e clique esquerdo com duracao ajustavel.
+- Captura do titulo da janela e rolagem das abas.
+- Trocar de aba interrompe a coleta; apenas uma aba opera o mouse por vez.
+- Coleta real no Krypton ainda depende de calibracao e teste no jogo.
 
 ## Beta 3.4.2
 
