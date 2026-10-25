@@ -35,3 +35,33 @@ class UserUpdaterTests(unittest.TestCase):
         u.verified_url(f'https://github.com/{u.REPO}/releases/download/usuario-0.11.0/AutoBox_Usuario.zip')
         for url in ('https://example.com/AutoBox_Usuario.zip',f'https://raw.githubusercontent.com/{u.REPO}/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip'):
             with self.assertRaises(ValueError):u.verified_url(url)
+
+    def test_bundle_loads_without_system_roots_and_keeps_verification(self):
+        import ssl
+        context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self.assertEqual(context.cert_store_stats()['x509_ca'],0)
+        with patch.object(u.ssl,'create_default_context',return_value=context):
+            result=u.tls_context()
+        self.assertGreater(result.cert_store_stats()['x509_ca'],0)
+        self.assertTrue(result.check_hostname)
+        self.assertEqual(result.verify_mode,ssl.CERT_REQUIRED)
+
+    def test_download_uses_verified_context(self):
+        from unittest.mock import MagicMock
+        opener=MagicMock()
+        opener.open.return_value.__enter__.return_value.read.return_value=b'{}'
+        context=u.tls_context()
+        with patch.object(u,'tls_context',return_value=context), patch.object(u.urllib.request,'build_opener',return_value=opener) as build:
+            self.assertEqual(u.download(u.MANIFEST_URL,65536),b'{}')
+        handler=build.call_args.args[1]
+        self.assertIs(handler._context,context)
+
+    def test_certificate_errors_are_not_bypassed(self):
+        import ssl
+        import urllib.error
+        from unittest.mock import MagicMock
+        opener=MagicMock()
+        opener.open.side_effect=urllib.error.URLError(ssl.SSLCertVerificationError('invalid certificate'))
+        with patch.object(u.urllib.request,'build_opener',return_value=opener), self.assertRaises(urllib.error.URLError):
+            u.download(u.MANIFEST_URL,65536)
+        self.assertEqual(opener.open.call_count,1)

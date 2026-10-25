@@ -4,6 +4,8 @@ import json
 import os
 import re
 import shutil
+import ssl
+import certifi
 import subprocess
 import sys
 import tempfile
@@ -29,6 +31,13 @@ def verified_url(url):
         raise ValueError('Pacote fora do canal oficial de usuários.')
     return url
 
+def tls_context():
+    # Retém as raízes do Windows e inclui as raízes públicas no executável.
+    context=ssl.create_default_context()
+    context.load_verify_locations(cafile=certifi.where())
+    return context
+
+
 def download(url,limit):
     verified_url(url)
     class Redirects(urllib.request.HTTPRedirectHandler):
@@ -38,7 +47,7 @@ def download(url,limit):
                 raise ValueError('Redirecionamento não autorizado.')
             return super().redirect_request(req,fp,code,msg,headers,newurl)
     request=urllib.request.Request(url,headers={'User-Agent':'AutoBox-Usuario','Cache-Control':'no-cache'})
-    with urllib.request.build_opener(Redirects).open(request,timeout=90) as response:
+    with urllib.request.build_opener(Redirects,urllib.request.HTTPSHandler(context=tls_context())).open(request,timeout=90) as response:
         data=response.read(limit+1)
     if len(data)>limit: raise ValueError('Pacote excedeu o limite permitido.')
     return data

@@ -24,3 +24,6 @@ engenharia reversa e não é garantia contra banimento no jogo.
 
 Se o Windows ou antivírus bloquear o aplicativo, não desative a proteção:
 confira a origem do download e envie o aviso ao Victor.
+
+Correção 0.12.1: certificados públicos incluídos para atualização HTTPS.
+Se a versão antiga falhar com CERTIFICATE_VERIFY_FAILED, feche o bot e substitua AutoBox.exe pelo executável desta versão uma vez. O perfil e as configurações em AppData são preservados. Nas próximas versões use Verificar atualizações.

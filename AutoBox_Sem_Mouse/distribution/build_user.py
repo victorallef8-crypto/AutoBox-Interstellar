@@ -16,7 +16,7 @@ OUT.mkdir(parents=True,exist_ok=True)
 subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onefile','--windowed',
     '--name','AutoBox','--distpath',str(OUT),'--workpath',str(OUT/'build'),
     '--specpath',str(OUT/'build'),'--paths',str(APP),
-    '--collect-all','playwright','--hidden-import','pynput.keyboard._win32',
+    '--collect-data','certifi','--collect-all','playwright','--hidden-import','pynput.keyboard._win32',
     '--hidden-import','pynput.mouse._win32',str(APP/'user_entry.py')],check=True)
 exe=OUT/'AutoBox.exe'
 probe=OUT/'self-test.json'

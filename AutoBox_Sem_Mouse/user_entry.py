@@ -17,6 +17,15 @@ if __name__=='__main__':
     app.CONFIG_PATH=app.APP_DIR/'config.json'
     if len(sys.argv)==3 and sys.argv[1]=='--self-test':
         import json
+        import ssl
+        context=user_updater.tls_context()
+        assert context.check_hostname and context.verify_mode==ssl.CERT_REQUIRED
+        assert context.cert_store_stats()['x509_ca']>0
+        # Exercita o mesmo HTTPS do atualizador e o redirecionamento dos releases.
+        manifest=json.loads(user_updater.download(user_updater.MANIFEST_URL,65536))
+        stage=user_updater.stage_update(manifest)
+        import shutil
+        shutil.rmtree(stage)
         from playwright.sync_api import sync_playwright
         root=app.tk.Tk();root.withdraw()
         app.AutoBoxSemMouse._theme(type('ThemeTest',(),{'root':root})())

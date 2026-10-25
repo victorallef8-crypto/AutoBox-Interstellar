@@ -1,6 +1,6 @@
 {
-  "version": "0.12.0",
+  "version": "0.12.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "f00772ef0aa98c5117b5fa4e821701e17d9feabbe3a8bf714731bfdb662ea9aa",
-  "notes": "Kill NPC com Iniciar, Pausar e Parar próprios; farm contínuo, contador preservado ao pausar e isolamento da coleta."
+  "sha256": "6de7ef70f569f7f78b628c21dec0775cf8e1f336e2261238f91a70d3c36e80c6",
+  "notes": "Certificados HTTPS incluídos no executável de usuário; correção da atualização em PCs sem a cadeia de confiança necessária."
 }
