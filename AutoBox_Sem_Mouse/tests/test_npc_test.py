@@ -242,6 +242,25 @@ class NpcWorkerTests(unittest.TestCase):
             self.assertTrue(engine.report["stop_confirmed"])
             self.assertTrue(any(a["result"]=="low_hp" for a in engine.report["actions"]))
 
+    def test_gone_during_command_waits_for_reward_without_more_attack(self):
+        for reward in (True,False):
+            stop=Stop();session=Session(stop,damage=False);original=session.request
+            def request(op,payload,allowed):
+                if payload["action"]=="orbit":
+                    session.calls.append((op,dict(payload)))
+                    engine.damage=True
+                    session.state["npc_candidates"]=[]
+                    session.state["combat"]["attacking"]=False
+                    if reward:session.state["account"]["xp"]+=100
+                    return {"action":"gone"}
+                return original(op,payload,allowed)
+            session.request=request
+            engine=NpcTestWorker(session,stop,lambda *e:None,clock=lambda:stop.now,orbit=True)
+            engine.run()
+            self.assertEqual(engine.report["kill_confirmed"],reward)
+            self.assertNotIn("não aceito",engine.report["status"])
+            self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
+
     def test_lost_attack_ack_does_not_repeat_ctrl(self):
         stop=Stop();session=Session(stop,ack=False);engine=self.engine(session,stop);engine.run()
         self.assertFalse(engine.report["kill_confirmed"])

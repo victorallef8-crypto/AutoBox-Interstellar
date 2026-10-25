@@ -1,6 +1,6 @@
 {
-  "version": "0.9.7",
+  "version": "0.9.8",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "136ba9fa1b4d432efd8dd601060cc84fe5984a96d3b3742e8315af668b2e9af3",
-  "notes": "Corrige retorno ao portal quando o cliente detecta vida baixa entre leitura e comando de combate."
+  "sha256": "18e44dd467fb89fb0cb7b111f00e69a49998eaa33e5b12c659a3bd5ff17467e5",
+  "notes": "Confere recompensa quando o alvo desaparece durante comando; evita falso erro de aproximação no fim da luta."
 }

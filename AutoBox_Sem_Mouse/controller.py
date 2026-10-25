@@ -300,6 +300,10 @@ class SessionEarnings:
         return self.total*3600/seconds if seconds>=60 else None
 
 
+class CombatTargetGone(Exception):
+    """Alvo saiu da leitura durante o envio do comando."""
+
+
 class CombatLowHealth(Exception):
     """O cliente detectou vida baixa após a última leitura do controlador."""
 
@@ -333,6 +337,8 @@ class NpcTestWorker:
         if not isinstance(result,dict): return {"action":"cancelled"}
         self.report["actions"].append({"seconds":round(self.clock()-self.started,2),"action":name,"result":result.get("action"),"distance":self.report.get("target_distance")})
         self.report["actions"]=self.report["actions"][-40:]
+        if result.get("action")=="gone":
+            raise CombatTargetGone()
         if result.get("action")=="low_hp":
             raise CombatLowHealth("Vida no limite detectada pelo cliente.")
         return result
@@ -360,6 +366,27 @@ class NpcTestWorker:
                 time.sleep(.1)
         except Exception:
             pass
+
+    def confirm_target_end(self):
+        confirmed=False
+        for _ in range(20):
+            if self.stop.is_set(): break
+            snap=self.session.get_world_snapshot()
+            if (not snap.get("fresh") or snap.get("map")!=self.context["map"]
+                or snap.get("respawn_revision")!=self.context["life"]): break
+            target=next((n for n in snap.get("npc_candidates",[]) if str(n.get("id"))==str(self.target["id"])
+                         and n.get("respawnRevision")==self.target.get("respawnRevision")),None)
+            xp=snap.get("account",{}).get("xp")
+            self.report["attacking"]=snap.get("combat",{}).get("attacking")
+            self.report["hp_percent"]=snap.get("hp_percent")
+            absent=target is None or target.get("hp",0)<=0
+            confirmed=(absent and self.damage and type(xp) in (int,float)
+                       and type(self.baseline_xp) in (int,float) and xp>self.baseline_xp)
+            if confirmed: break
+            if self.stop.wait(.1): break
+        self.report["kill_confirmed"]=confirmed
+        self.publish("NPC derrotado e recompensa observada. Teste concluído." if confirmed else
+                     "Alvo saiu da leitura; derrota sem confirmação de recompensa. Teste encerrado.")
 
     def recover_at_portal(self):
         started=self.clock(); next_move=0; gate=None; repair_sent=None
@@ -440,11 +467,7 @@ class NpcTestWorker:
                              and n.get("respawnRevision")==self.target.get("respawnRevision")),None)
                 xp=snap.get("account",{}).get("xp")
                 if current is None or current.get("hp",0)<=0:
-                    confirmed=(self.damage and type(xp) in (int,float) and type(self.baseline_xp) in (int,float)
-                               and xp>self.baseline_xp)
-                    self.report["kill_confirmed"]=confirmed
-                    self.publish("NPC derrotado e recompensa observada. Teste concluído." if confirmed else
-                                 "Alvo deixou a leitura sem confirmação de recompensa. Teste encerrado.")
+                    self.confirm_target_end()
                     break
                 self.target=dict(current)
                 health=current["hp"]+(current.get("shield") or 0)
@@ -513,6 +536,8 @@ class NpcTestWorker:
                         self.direction=result.get("direction",self.direction)
                     self.publish(("Circulando e atacando " if self.orbit else "Atacando ")+self.kind+" com LCB-10. F9 interrompe o teste.")
                 if self.stop.wait(.1): break
+        except CombatTargetGone:
+            self.confirm_target_end()
         except CombatLowHealth:
             if self.repair_portal and self.target is not None and not self.stop.is_set():
                 try:
