@@ -300,6 +300,10 @@ class SessionEarnings:
         return self.total*3600/seconds if seconds>=60 else None
 
 
+class CombatLowHealth(Exception):
+    """O cliente detectou vida baixa após a última leitura do controlador."""
+
+
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
     def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False):
@@ -329,6 +333,8 @@ class NpcTestWorker:
         if not isinstance(result,dict): return {"action":"cancelled"}
         self.report["actions"].append({"seconds":round(self.clock()-self.started,2),"action":name,"result":result.get("action"),"distance":self.report.get("target_distance")})
         self.report["actions"]=self.report["actions"][-40:]
+        if result.get("action")=="low_hp":
+            raise CombatLowHealth("Vida no limite detectada pelo cliente.")
         return result
 
     def cease_fire(self):
@@ -507,6 +513,15 @@ class NpcTestWorker:
                         self.direction=result.get("direction",self.direction)
                     self.publish(("Circulando e atacando " if self.orbit else "Atacando ")+self.kind+" com LCB-10. F9 interrompe o teste.")
                 if self.stop.wait(.1): break
+        except CombatLowHealth:
+            if self.repair_portal and self.target is not None and not self.stop.is_set():
+                try:
+                    self.publish("Vida no limite detectada pelo jogo; iniciando retorno ao portal.")
+                    self.recover_at_portal()
+                except Exception as exc:
+                    self.publish(str(exc))
+            else:
+                self.publish("Vida no limite. Interrompendo tiros; recuperação automática desativada.")
         except Exception as exc:
             self.publish(str(exc))
         finally:

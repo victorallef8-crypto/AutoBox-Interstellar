@@ -20,7 +20,7 @@ import zipfile
 from pathlib import Path
 
 
-CURRENT_VERSION = "0.9.6"
+CURRENT_VERSION = "0.9.7"
 OWNER_REPO = "victorallef8-crypto/AutoBox-Interstellar"
 REPO_RAW_PREFIX = (
     "https://raw.githubusercontent.com/"

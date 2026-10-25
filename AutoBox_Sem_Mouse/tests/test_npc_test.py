@@ -226,6 +226,22 @@ class NpcWorkerTests(unittest.TestCase):
         self.assertTrue(engine.report["kill_confirmed"])
         self.assertFalse(any(p["action"]=="orbit" for _,p in session.calls))
 
+    def test_client_low_hp_between_snapshot_and_orbit_triggers_recovery(self):
+        for enabled in (True,False):
+            stop=Stop();session=Session(stop,damage=False);original=session.request
+            def request(op,payload,allowed):
+                if payload["action"]=="orbit":
+                    session.calls.append((op,dict(payload)))
+                    return {"action":"low_hp"}
+                return original(op,payload,allowed)
+            session.request=request
+            engine=NpcTestWorker(session,stop,lambda *e:None,clock=lambda:stop.now,orbit=True,repair_portal=enabled)
+            engine.recover_at_portal=Mock()
+            engine.run()
+            self.assertEqual(engine.recover_at_portal.call_count,1 if enabled else 0)
+            self.assertTrue(engine.report["stop_confirmed"])
+            self.assertTrue(any(a["result"]=="low_hp" for a in engine.report["actions"]))
+
     def test_lost_attack_ack_does_not_repeat_ctrl(self):
         stop=Stop();session=Session(stop,ack=False);engine=self.engine(session,stop);engine.run()
         self.assertFalse(engine.report["kill_confirmed"])
