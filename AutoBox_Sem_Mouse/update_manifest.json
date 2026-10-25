@@ -1,6 +1,6 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "4064667d61fa89b62abfc63f58260403a17891d9c1934e192260cf238f956ff0",
-  "notes": "Nova interface com tema escuro e abas Painel, Coleta, Navegador e Diagnostico. Controles sempre visiveis, tempo ativo e contadores. Combate e Recuperacao ainda desativados. Mantem a correcao de portal da 0.1.4."
+  "sha256": "0f14d9f281f93b607d1681f48d803936563fa85021394a7741b4185e2f7d9ae5",
+  "notes": "Etapa 1 de dados ao vivo: observa o fluxo do jogo, reconstrói estado e atualizações e mostra posição, vida e box mais próxima na aba Dados. Leitura somente; F8 ainda usa coleta visual."
 }

@@ -1,4 +1,5 @@
 import ast
+import json
 import struct
 import queue
 import os
@@ -19,9 +20,12 @@ class FakePage:
         self.url = "about:blank"
         self.mouse = SimpleNamespace(click=Mock())
         self.closed = False
+        self.handlers = {}
         self.threads = []
         self.metrics = {"width":1280,"height":720,"dpr":1,"offset_x":0,"offset_y":0,"scale":1}
         self.png = b"\x89PNG\r\n\x1a\n" + b"\x00"*8 + struct.pack(">II",1280,720)
+    def on(self, name, callback):
+        self.handlers[name] = callback
     def goto(self, url, **kwargs):
         self.url = url
     def is_closed(self):
@@ -38,7 +42,9 @@ class BrowserSessionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[4])
         self.page = FakePage()
-        self.context = SimpleNamespace(pages=[self.page], close=Mock())
+        self.cdp = SimpleNamespace(on=Mock(),send=Mock())
+        self.context = SimpleNamespace(pages=[self.page], close=Mock(),on=Mock(),
+                                       new_cdp_session=Mock(return_value=self.cdp))
         self.launch = Mock(return_value=self.context)
         self.factory = Mock()
         self.factory.return_value.__enter__ = Mock(
@@ -52,6 +58,42 @@ class BrowserSessionTests(unittest.TestCase):
     def tearDown(self):
         self.session.close()
         self.temp.cleanup()
+
+    def test_passive_reader_only_enables_network_events(self):
+        self.cdp.send.assert_called_once_with("Network.enable")
+        callbacks=dict(call.args for call in self.cdp.on.call_args_list)
+        self.assertIn("Network.eventSourceMessageReceived",callbacks)
+        self.assertIn("Network.requestWillBeSent",callbacks)
+
+    def test_reader_does_not_accept_unrelated_event_sources(self):
+        callbacks=dict(call.args for call in self.cdp.on.call_args_list)
+        callbacks["Network.requestWillBeSent"]({"requestId":"foreign","request":{"url":"https://example.com/events"}})
+        self.assertIsNone(self.session.world_feed.stream)
+
+    def test_selected_game_source_is_bound_and_chat_is_ignored(self):
+        callbacks=dict(call.args for call in self.cdp.on.call_args_list)
+        callbacks["Network.requestWillBeSent"]({"requestId":"game","request":{"url":"https://interstellar-verse.com/api/events?secret=do-not-store"}})
+        self.assertEqual(self.session.world_feed.stream,(id(self.page),"game"))
+        callbacks["Network.eventSourceMessageReceived"]({"requestId":"game","eventName":"chat-history","data":"not json"})
+        self.assertIsNone(self.session.world_feed.state)
+        self.assertNotIn("secret",repr(self.session.get_world_summary()))
+
+    def test_feed_callbacks_accept_full_and_patch_without_sending_commands(self):
+        callbacks=dict(call.args for call in self.cdp.on.call_args_list)
+        callbacks["Network.requestWillBeSent"]({"requestId":"game","request":{"url":"https://interstellar-verse.com/api/events"}})
+        full={"transport":"delta1","epoch":"e","sequence":1,"full":{
+            "map":{"id":"m","width":1000,"height":1000,"gates":[]},
+            "me":{"mapId":"m","x":100,"y":100},"boxes":[{"id":"b","x":150,"y":100}],"npcs":[]}}
+        callbacks["Network.eventSourceMessageReceived"]({"requestId":"game","eventName":"message","data":json.dumps(full)})
+        self.assertEqual(self.session.get_world_summary()["nearest"]["distance"],50)
+        patch={"transport":"delta1","epoch":"e","sequence":2,"base":1,
+               "patch":["o",[["me",["o",[["x",["v",140]]],[]]]],[]]}
+        callbacks["Network.eventSourceMessageReceived"]({"requestId":"game","eventName":"message","data":json.dumps(patch)})
+        self.assertEqual(self.session.get_world_summary()["nearest"]["distance"],10)
+        self.cdp.send.assert_called_once_with("Network.enable")
+        self.page.mouse.click.assert_not_called()
+        self.page.handlers["close"](self.page)
+        self.assertFalse(self.session.get_world_summary()["fresh"])
 
     def test_opera_uses_own_profile_and_fixed_viewport(self):
         args = self.launch.call_args.kwargs

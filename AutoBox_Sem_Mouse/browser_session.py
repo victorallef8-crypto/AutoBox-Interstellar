@@ -4,6 +4,9 @@ import queue
 import threading
 import struct
 import math
+import json
+import time
+from urllib.parse import urlsplit
 
 GAME_URL = "https://interstellar-verse.com/play/#play"
 
@@ -19,6 +22,156 @@ def find_opera_gx():
                 if executable.is_file():
                     return str(executable)
     return ""
+
+
+class WorldFeed:
+    """Reconstrucao somente de campos de navegacao; nao guarda tokens nem chat."""
+    ROOT = {"map", "world", "me", "boxes", "npcs"}
+    ME = {"x","y","speed","hp","maxHp","shield","maxShield","moving","destination",
+          "mapId","deadUntil","respawnRevision","targetId","attacking","repairing"}
+    MAP = {"id","width","height","gates"}
+    ENTITY = {"id","revision","x","y","type","hp","maxHp"}
+    def __init__(self, clock=None):
+        self.clock = clock or time.monotonic
+        self.lock = threading.RLock()
+        self.stream = None
+        self.state = None
+        self.epoch = None
+        self.sequence = None
+        self.updated = None
+        self.reason = "Aguardando dados do jogo."
+
+    def begin(self, stream):
+        with self.lock:
+            self.stream = stream
+            self._invalidate("Aguardando estado completo do jogo.")
+
+    def _invalidate(self, reason):
+        self.state = None
+        self.sequence = None
+        self.epoch = None
+        self.updated = None
+        self.reason = reason
+
+    def end(self, stream, reason="Fluxo encerrado. Aguardando reconexao."):
+        with self.lock:
+            if stream == self.stream:
+                self._invalidate(reason)
+
+    @classmethod
+    def _keys(cls, path):
+        if not path: return cls.ROOT
+        if path == ("me",): return cls.ME
+        if path == ("map",): return cls.MAP
+        if path == ("world",): return {"width","height"}
+        if path == ("me","destination"): return {"x","y"}
+        return None
+
+    @classmethod
+    def _project(cls, value, path=()):
+        keys = cls._keys(path)
+        if keys is not None:
+            if value is None and path == ("me","destination"): return None
+            if not isinstance(value, dict): raise ValueError("objeto esperado")
+            return {k:cls._project(v,path+(k,)) for k,v in value.items() if k in keys}
+        if path in (("boxes",),("npcs",),("map","gates")):
+            if not isinstance(value,list) or len(value)>20000: raise ValueError("lista invalida")
+            keys = {"id","to","x","y"} if path == ("map","gates") else cls.ENTITY
+            return [{k:cls._scalar(v) for k,v in item.items() if k in keys}
+                    for item in value if isinstance(item,dict)]
+        return cls._scalar(value)
+
+    @staticmethod
+    def _scalar(value):
+        if value is None or isinstance(value,bool): return value
+        if isinstance(value,(int,float)) and math.isfinite(value): return value
+        if isinstance(value,str) and len(value)<=256: return value
+        raise ValueError("valor invalido")
+
+    @classmethod
+    def _patch(cls, current, patch, path=(), depth=0):
+        if depth>24 or not isinstance(patch,list) or not patch:
+            raise ValueError("patch invalido")
+        op = patch[0]
+        if op == "v" and len(patch)==2:
+            return cls._project(patch[1],path)
+        keys = cls._keys(path)
+        if op != "o" or len(patch)!=3 or keys is None or not isinstance(current,dict):
+            raise ValueError("operacao ainda nao suportada")
+        changes, deleted = patch[1:]
+        if not isinstance(changes,list) or not isinstance(deleted,list):
+            raise ValueError("patch de objeto invalido")
+        result = dict(current)
+        for entry in changes:
+            if not isinstance(entry,list) or len(entry)!=2 or not isinstance(entry[0],str):
+                raise ValueError("campo invalido")
+            key, child = entry
+            if key in keys:
+                result[key] = cls._patch(result.get(key),child,path+(key,),depth+1)
+        for key in deleted:
+            if not isinstance(key,str): raise ValueError("remocao invalida")
+            result.pop(key,None)
+        return result
+
+    def ingest(self, stream, text):
+        with self.lock:
+            if stream != self.stream: return False
+            try:
+                if not isinstance(text,str) or len(text)>2_000_000: raise ValueError("mensagem invalida")
+                packet = json.loads(text)
+                if not isinstance(packet,dict) or packet.get("transport")!="delta1":
+                    return False
+                seq, epoch = packet.get("sequence"),packet.get("epoch")
+                if type(seq) is not int or seq<1 or not isinstance(epoch,str) or not epoch or len(epoch)>256:
+                    raise ValueError("sequencia invalida")
+                if self.state is not None and epoch==self.epoch and seq<=self.sequence:
+                    return False
+                if "full" in packet:
+                    updated = self._project(packet["full"])
+                else:
+                    if (self.state is None or epoch!=self.epoch or
+                            packet.get("base")!=self.sequence or seq!=self.sequence+1):
+                        raise ValueError("sequencia interrompida")
+                    updated = self._patch(self.state,packet.get("patch"))
+                self.state, self.epoch, self.sequence = updated, epoch, seq
+                self.updated = self.clock()
+                self.reason = "Dados recebidos."
+                return True
+            except (ValueError,TypeError,KeyError,RecursionError,OverflowError):
+                self._invalidate("Leitura interrompida: aguarde novo estado completo ou recarregue o jogo.")
+                return False
+
+    @staticmethod
+    def _number(value):
+        return type(value) in (int,float) and math.isfinite(value)
+
+    def summary(self, max_age=2.):
+        with self.lock:
+            if self.state is None:
+                return {"fresh":False,"status":self.reason}
+            age = max(0.,self.clock()-self.updated)
+            if age>max_age:
+                return {"fresh":False,"status":"Dados antigos. Aguardando novas atualizacoes.","age":age}
+            s = self.state
+            me, game_map, world = s.get("me",{}),s.get("map",{}),s.get("world",{})
+            x,y = me.get("x"),me.get("y")
+            width,height = game_map.get("width",world.get("width")),game_map.get("height",world.get("height"))
+            if not all(self._number(v) for v in (x,y,width,height)) or min(width,height)<=0:
+                return {"fresh":False,"status":"Estado incompleto: posicao ou limites indisponiveis."}
+            if not isinstance(game_map.get("id"),str) or me.get("mapId")!=game_map["id"]:
+                return {"fresh":False,"status":"Aguardando sincronizacao do mapa."}
+            boxes = [b for b in s.get("boxes",[]) if isinstance(b.get("id"),str) and
+                     self._number(b.get("x")) and self._number(b.get("y")) and
+                     0<=b["x"]<=width and 0<=b["y"]<=height]
+            nearest = min(boxes,key=lambda b:math.hypot(b["x"]-x,b["y"]-y),default=None)
+            hp,max_hp = me.get("hp"),me.get("maxHp")
+            hp_percent = 100*hp/max_hp if self._number(hp) and self._number(max_hp) and max_hp>0 else None
+            return {"fresh":True,"status":"Leitura ao vivo — somente observacao.",
+                    "age":age,"sequence":self.sequence,"map":game_map["id"],
+                    "position":(x,y),"moving":me.get("moving"),"speed":me.get("speed"),
+                    "hp_percent":hp_percent,"boxes":len(boxes),"npcs":len(s.get("npcs",[])),
+                    "portals":len(game_map.get("gates",[])),
+                    "nearest":dict(nearest,distance=math.hypot(nearest["x"]-x,nearest["y"]-y)) if nearest else None}
 
 class BrowserSession:
     """Dono unico do navegador. Captura e cliques nao passam pelo mouse do Windows."""
@@ -36,6 +189,7 @@ class BrowserSession:
         self.capture_geometry = None
         self.capture_page = None
         self.last_click = None
+        self.world_feed = WorldFeed()
 
     def start(self, executable):
         if self.thread is not None and self.thread.is_alive():
@@ -45,6 +199,7 @@ class BrowserSession:
         self.capture_geometry = None
         self.capture_page = None
         self.last_click = None
+        self.world_feed.begin(None)
         self.ready.clear()
         self.closed.clear()
         self.thread = threading.Thread(target=self._run, args=(executable,), daemon=True)
@@ -143,6 +298,38 @@ class BrowserSession:
                            "css_size": (geometry["width"],geometry["height"])}
         return True
 
+
+    def _attach_feed(self, context, page):
+        try:
+            client = context.new_cdp_session(page)
+            def started(event):
+                url = urlsplit(event.get("request",{}).get("url",""))
+                if (url.scheme=="https" and url.hostname=="interstellar-verse.com"
+                        and url.path.rstrip("/").endswith("/events")):
+                    try:
+                        if self._game_page(context) is not page: return
+                    except RuntimeError:
+                        return
+                    self.world_feed.begin((id(page),event.get("requestId")))
+            def received(event):
+                if event.get("eventName") not in ("message",""): return
+                self.world_feed.ingest((id(page),event.get("requestId")),event.get("data"))
+            def ended(event):
+                self.world_feed.end((id(page),event.get("requestId")))
+            client.on("Network.requestWillBeSent",started)
+            client.on("Network.eventSourceMessageReceived",received)
+            client.on("Network.loadingFinished",ended)
+            client.on("Network.loadingFailed",ended)
+            page.on("close",lambda _closed=None:self.world_feed.end(self.world_feed.stream)
+                    if self.world_feed.stream and self.world_feed.stream[0]==id(page) else None)
+            client.send("Network.enable")
+        except Exception:
+            self.world_feed.end(self.world_feed.stream,
+                "Leitura ao vivo indisponivel neste navegador. A coleta visual continua disponivel.")
+
+    def get_world_summary(self):
+        return self.world_feed.summary()
+
     def _run(self, executable):
         context = None
         try:
@@ -157,6 +344,9 @@ class BrowserSession:
                     user_data_dir=str(self.folder), executable_path=executable,
                     headless=False, chromium_sandbox=True, viewport=self.viewport, device_scale_factor=1,
                     accept_downloads=False)
+                context.on("page",lambda opened:self._attach_feed(context,opened))
+                for existing in context.pages:
+                    self._attach_feed(context,existing)
                 page = context.pages[0] if context.pages else context.new_page()
                 try:
                     page.goto(GAME_URL, wait_until="domcontentloaded", timeout=45000)
@@ -200,6 +390,7 @@ class BrowserSession:
         except Exception as exc:
             self.error = "Nao foi possivel abrir o Opera GX dedicado: " + str(exc)
         finally:
+            self.world_feed.end(self.world_feed.stream,"Sessao encerrada.")
             self.ready.clear()
             if context is not None:
                 try:

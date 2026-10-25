@@ -27,3 +27,9 @@ Validacao: o falso positivo da borda no print fornecido foi removido; boxes reai
 Beta 0.2.0: primeira etapa da interface inspirada em organizacao por modos. Tema escuro, abas Painel/Coleta/Navegador/Diagnostico, controles de coleta permanentes, contadores e tempo ativo. Combate e Recuperacao estao desativados e ainda nao executam acoes. Preserva o motor de coleta da 0.1.4, incluindo a rejeicao do falso positivo do portal; configuracao, modelo e perfil existentes usam os mesmos caminhos.
 
 Validacao desta etapa: 70 testes passaram, incluindo interface Tk, estados das abas, tempo ativo sem contar pausas, contadores, deteccao e servico de navegador simulado. A nova interface nao acrescenta leitura de memoria nem validacao real de combate.
+
+Beta 0.3.0: primeira etapa de leitura de dados ao vivo. Observa EventSource pelo CDP da janela dedicada, reconstrói full + patches de objeto/valor observados e mostra a aba Dados. Sequencias interrompidas, conexoes antigas e estados desatualizados nao produzem alvo atual. Operacoes de patch relevantes ainda desconhecidas interrompem a leitura ate novo full. O leitor filtra os campos mantidos em memoria e nao registra tokens ou chat. A coleta automatica permanece visual nesta etapa.
+
+Validacao: 91 testes, incluindo callbacks CDP simulados, reconexao, sequencia, atomicidade, limpeza de campos privados e painel. Replay das 22 mensagens fornecidas reconstruiu 40 boxes, 4 portais e a box mais proxima. Nenhum dado original da sessao foi incluido no pacote ou repositorio. A recepcao no Opera conectado ao jogo ainda depende de validacao pelo usuario.
+
+Referencias da observacao: [CDP Network eventSourceMessageReceived](https://chromedevtools.github.io/devtools-protocol/tot/Network/#event-eventSourceMessageReceived), [Playwright CDPSession](https://playwright.dev/python/docs/api/class-cdpsession).

@@ -1,4 +1,4 @@
-AUTOBOX SEM MOUSE — BETA 0.2.0
+AUTOBOX SEM MOUSE — BETA 0.3.0
 
 Programa novo e independente, exclusivo de coleta no Interstellar.
 Nao importa nem executa o AutoBox antigo. Nao tem Krypton ou combate a NPC.
@@ -13,6 +13,7 @@ INTERFACE
 - Coleta: modelo de box, areas e precisao da deteccao.
 - Navegador: abrir a sessao dedicada e localizar o Opera.
 - Diagnostico: testar deteccao e conferir o ultimo clique.
+- Dados: observacao ao vivo de mapa, posicao, vida, objetos e box mais proxima.
 - Combate e Recuperacao: abas desativadas; funcoes ainda nao implementadas.
 Os controles de coleta ficam sempre visiveis. Os atalhos continuam F8/F9/F10.
 Configuracoes, modelo de box e perfil do Opera continuam na mesma pasta.
@@ -30,6 +31,15 @@ PREPARAR
 
 No primeiro teste, mantenha o Opera dedicado aberto, mesmo atras de outras janelas.
 Navegador minimizado e computador bloqueado ainda nao foram validados.
+
+DADOS AO VIVO — ETAPA 1
+Abra o Opera pela aba Navegador e entre no mapa. A aba Dados observa as mensagens
+que o jogo recebe normalmente e calcula a box mais proxima por coordenadas.
+Mova a nave manualmente e confira se X/Y e a distancia mudam.
+Esta etapa nao envia comandos nem aciona coleta pelos dados. F8 continua a coleta visual.
+Se houver perda de sequencia, formato ainda desconhecido ou dados antigos, a aba deixa
+de mostrar o alvo como atual. Pode ser necessario recarregar o jogo uma vez para novo estado completo.
+O leitor mantem apenas campos de navegacao; chat e tokens recebidos nao entram no painel ou historico.
 
 COMO COLETA
 - Verifica o contexto do brilho: partes ligadas a uma estrutura muito maior sao rejeitadas.
@@ -76,6 +86,8 @@ Na aba Painel, use Verificar atualizacoes deste bot nas proximas versoes.
 O atualizador verifica SHA-256 e substitui somente os arquivos conhecidos.
 
 ESTADO DESTA BETA
-70 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
+91 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
+Replay local das 22 mensagens fornecidas: estado reconstruido e box mais proxima conferida.
+A recepcao passiva foi testada com CDP simulado; a conexao ao jogo real ainda precisa de validacao.
 A coleta real dentro do jogo ainda depende de validacao.
 Nao ha garantia contra banimento. Nenhum mecanismo de ocultacao de automacao foi adicionado.

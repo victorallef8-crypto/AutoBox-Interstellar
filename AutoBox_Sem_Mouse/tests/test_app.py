@@ -59,8 +59,8 @@ class AppTests(unittest.TestCase):
         self.app.stop_event.clear(); self.app.pause()
         self.assertTrue(self.app.stop_event.is_set())
     def test_only_implemented_modes_are_available(self):
-        self.assertEqual(len(self.app.notebook.tabs()),6)
-        for key in ("dashboard","collection","browser","diagnostics"):
+        self.assertEqual(len(self.app.notebook.tabs()),7)
+        for key in ("dashboard","collection","browser","diagnostics","data"):
             self.assertEqual(self.app.notebook.tab(self.app.pages[key],"state"),"normal")
         for key in ("combat","recovery"):
             self.assertEqual(self.app.notebook.tab(self.app.pages[key],"state"),"disabled")
@@ -92,6 +92,15 @@ class AppTests(unittest.TestCase):
         finally:
             self.app.attempts,self.app.confirmed,self.app.failed=previous
             self.app._update_panel()
+
+    def test_stale_world_data_clears_previous_target(self):
+        previous=self.app.last_world_refresh
+        self.app.world_vars["nearest"].set("old-target")
+        self.app.last_world_refresh=-100
+        self.app._update_world_panel()
+        self.assertEqual(self.app.world_vars["nearest"].get(),"—")
+        self.assertIn("Abra o Opera",self.app.world_vars["status"].get())
+        self.app.last_world_refresh=previous
 
     def test_area_bounds_validation(self):
         viewport={"width":1280,"height":720}

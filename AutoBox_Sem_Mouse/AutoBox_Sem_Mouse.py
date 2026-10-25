@@ -78,6 +78,10 @@ class AutoBoxSemMouse:
         self.threshold = tk.StringVar(value=str(self.cfg.get("threshold", .9)))
         self.area_labels = {}
         self.full_map = tk.BooleanVar(value=self.cfg["full_map"])
+        self.world_vars = {key:tk.StringVar(value="—") for key in
+                           ("status","map","position","hp","counts","nearest","distance","sequence")}
+        self.world_vars["status"].set("Abra o Opera dedicado e entre no mapa.")
+        self.last_world_refresh = -100.
         root.title("AutoBox Sem Mouse — beta " + updater.CURRENT_VERSION)
         root.geometry("1000x" + str(min(820, root.winfo_screenheight()-90)))
         root.minsize(760,min(620,root.winfo_screenheight()-80))
@@ -161,7 +165,7 @@ class AutoBoxSemMouse:
         self.notebook.pack(fill="both", expand=True)
         self.pages = {}
         for key, title in (("dashboard","Painel"),("collection","Coleta"),("browser","Navegador"),
-                           ("diagnostics","Diagnóstico"),("combat","Combate"),("recovery","Recuperação")):
+                           ("diagnostics","Diagnóstico"),("data","Dados"),("combat","Combate"),("recovery","Recuperação")):
             page = ttk.Frame(self.notebook)
             self.pages[key] = page
             self.notebook.add(page,text=title)
@@ -237,6 +241,42 @@ class AutoBoxSemMouse:
         ttk.Label(diagnostics,text="Marcação azul: candidato reconhecido. Cruz vermelha: ponto enviado para o clique. Uma tentativa só aparece como confirmada quando há uma nova mensagem de recompensa detectada.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=12)
 
+
+    def _draw_world_page(self):
+        body = self._scroll_page(self.pages["data"])
+        ttk.Label(body,text="Dados ao vivo do jogo",style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(body,text="Etapa 1: leitura e comparação. Os dados desta aba ainda não comandam a coleta.",
+                  wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=(4,12))
+        group=ttk.LabelFrame(body,text="Estado recebido pela janela dedicada",padding=14)
+        group.pack(fill="x")
+        for row,(key,label) in enumerate((("status","Leitura"),("map","Mapa"),("position","Posição da nave"),
+                                          ("hp","Vida"),("counts","Objetos"),("nearest","Box mais próxima"),
+                                          ("distance","Distância até a box"),("sequence","Atualização"))):
+            ttk.Label(group,text=label).grid(row=row,column=0,sticky="nw",padx=(0,18),pady=5)
+            ttk.Label(group,textvariable=self.world_vars[key],wraplength=520).grid(row=row,column=1,sticky="w",pady=5)
+        group.columnconfigure(1,weight=1)
+        ttk.Label(body,text="Abra o jogo pela aba Navegador e entre no mapa. A leitura é automática. Se pedir um estado completo, recarregue a janela dedicada uma vez com o bot pausado.",
+                  wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=12)
+
+    def _update_world_panel(self):
+        now=time.monotonic()
+        if now-self.last_world_refresh<.5: return
+        self.last_world_refresh=now
+        data=self.session.get_world_summary() if self.session.ready.is_set() else {
+            "fresh":False,"status":"Abra o Opera dedicado e entre no mapa."}
+        for key,var in self.world_vars.items():
+            var.set(data.get("status","Aguardando dados.") if key=="status" else "—")
+        if not data.get("fresh"): return
+        self.world_vars["map"].set(data["map"])
+        self.world_vars["position"].set("X %.1f  /  Y %.1f" % data["position"])
+        self.world_vars["hp"].set("%.1f%%" % data["hp_percent"] if data["hp_percent"] is not None else "Indisponível")
+        self.world_vars["counts"].set("%s boxes  /  %s portais  /  %s NPCs" %
+                                     (data["boxes"],data["portals"],data["npcs"]))
+        nearest=data.get("nearest")
+        self.world_vars["nearest"].set(nearest["id"] if nearest else "Nenhuma box disponível")
+        self.world_vars["distance"].set("%.1f unidades do mapa" % nearest["distance"] if nearest else "—")
+        self.world_vars["sequence"].set("%s  /  recebida há %.1f s" % (data["sequence"],data["age"]))
+
     def _set_running(self, value):
         now = time.monotonic()
         if value and not self.running:
@@ -246,6 +286,7 @@ class AutoBoxSemMouse:
         self.running = bool(value)
 
     def _update_panel(self):
+        self._update_world_panel()
         for key,value in (("attempts",self.attempts),("confirmed",self.confirmed),("failed",self.failed)):
             self.counter_vars[key].set(str(value))
         elapsed = self.active_elapsed
