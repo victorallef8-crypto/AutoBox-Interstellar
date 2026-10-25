@@ -111,6 +111,65 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(self.wait(), "unconfirmed")
         self.assertLess(self.clock.now, 1.3)
 
+    def krypton(self):
+        self.bot.profile_id = "krypton"
+        self.bot.wait_seconds = 5
+        self.bot._click_current_box = Mock(
+            side_effect=lambda sct, sample, region, target:
+                (*target, .95, object(), {"left": 0, "top": 0}))
+
+    def test_krypton_stall_retries_same_target_before_original_timeout(self):
+        self.krypton()
+        self.assertEqual(self.wait(), "timeout")
+        calls = self.bot._click_current_box.call_args_list
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(call.args[3] == self.target for call in calls))
+        statuses = [data for kind, data in self.bot.events.queue if kind == "status"]
+        self.assertTrue(any("Retomando o mesmo box" in status for status in statuses))
+
+    def test_krypton_keeps_flying_without_repeated_clicks(self):
+        self.krypton()
+        self.bot._track_box.side_effect = lambda *args: (
+            (max(500, 900 - self.clock.now * 100), 300) if self.clock.now < 4.2 else None)
+        self.assertEqual(self.wait(), "unconfirmed")
+        self.bot._click_current_box.assert_not_called()
+
+    def test_krypton_does_not_retry_over_ship_center(self):
+        self.krypton()
+        self.target = (530, 300)
+        self.bot._track_box.return_value = self.target
+        self.assertEqual(self.wait(), "timeout")
+        self.bot._click_current_box.assert_not_called()
+
+    def test_krypton_lost_or_ambiguous_target_is_not_reclicked(self):
+        self.krypton()
+        self.bot._track_box.return_value = None
+        self.assertEqual(self.wait(), "timeout")
+        self.bot._click_current_box.assert_not_called()
+
+    def test_krypton_reward_prevents_retry(self):
+        self.krypton()
+        self.bot.notice_region = {"left": 0}
+        self.bot._screen_area = Mock(return_value=Mock())
+        self.ns["new_reward_message"].side_effect = lambda *args: self.clock.now >= .9
+        self.assertEqual(self.wait(), "confirmed")
+        self.bot._click_current_box.assert_not_called()
+
+    def test_krypton_failed_revalidation_does_not_extend_deadline(self):
+        self.krypton()
+        self.bot._click_current_box.return_value = None
+        self.bot._click_current_box.side_effect = None
+        self.assertEqual(self.wait(), "timeout")
+        self.assertLess(self.clock.now, 5.3)
+        self.assertLessEqual(self.bot._click_current_box.call_count, 4)
+
+    def test_krypton_retry_uses_latest_position_not_original_click(self):
+        self.krypton()
+        self.bot._track_box.return_value = (800, 300)
+        self.assertEqual(self.wait(), "timeout")
+        self.assertTrue(all(call.args[3] == (800, 300)
+                            for call in self.bot._click_current_box.call_args_list))
+
     def test_tracker_follows_nearest_not_highest_confidence(self):
         del self.bot._track_box
         self.bot._screen_area = Mock(return_value=object())

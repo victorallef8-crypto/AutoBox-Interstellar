@@ -1,3 +1,20 @@
+BETA 3.5.2 - APROXIMACAO NO KRYPTON
+
+Se o box continua visivel, esta longe da nave e a aproximacao fica sem
+progresso por cerca de um segundo, o bot revalida a posicao e retenta
+o MESMO alvo. Maximo de duas retentativas por coleta.
+Nao reclica enquanto a aproximacao avanca, nem se o alvo desaparecer.
+Uma nova recompensa tem prioridade sobre qualquer retentativa.
+
+No Krypton, uma pequena zona de 24 pixels no centro da area espacial
+nao e tratada como novo box, para reduzir cliques sobre a nave.
+O historico de coordenadas e curto e e atualizado apos encerrar a coleta.
+Boxes ainda visiveis, mas temporariamente filtrados, nao provocam nova
+ordem de minimapa. O metodo de clique que ja funcionou e mantido.
+
+Calibre a area espacial com a nave aproximadamente ao centro.
+Estas mudancas foram validadas em testes simulados; falta conferir no jogo.
+
 BETA 3.5.1 - TESTE DE CLIQUE PARA O CLIENTE KRYPTON
 
 A aba Krypton agora usa Windows (SendInput) por padrao. O metodo anterior

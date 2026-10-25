@@ -1,6 +1,6 @@
 {
-  "version": "3.5.1",
+  "version": "3.5.2",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "9b4b3981d6ab705bc35f60450b893d4d36cbb580183a48271ed2afc075dce048",
-  "notes": "Metodo Windows (SendInput) e teste isolado de clique para diagnosticar a entrada no cliente Krypton."
+  "sha256": "7737099781fa9d64c0764ce9db2f230a736d1bdd6e9900c79e38d74ba97c794c",
+  "notes": "Krypton retoma o mesmo alvo quando a aproximacao para e evita cliques sobre a nave e rondas com boxes temporariamente filtrados."
 }

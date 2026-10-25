@@ -97,7 +97,8 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(self.bot._recover_collection())
         self.mouse.click.assert_not_called()
 
-    def run_loop(self, results, boxes=None):
+    def run_loop(self, results, boxes=None, profile_id="interstellar"):
+        self.bot.profile_id = profile_id
         self.ns["MAX_COLLECTION_TIMEOUTS"] = 3
         self.bot.template_path = SimpleNamespace(stat=lambda: SimpleNamespace(st_mtime_ns=1))
         self.ns["cv2"] = SimpleNamespace(imread=lambda _: object())
@@ -118,6 +119,7 @@ class RecoveryTests(unittest.TestCase):
             (350, 50, .99), (50, 150, .99), (150, 150, .99)])
         pending = iter(results)
         def reward(*args, **kwargs):
+            self.bot.last_tracked_target = kwargs.get("target")
             result = next(pending)
             if result == "stop":
                 self.bot.exit_event.set()
@@ -151,6 +153,16 @@ class RecoveryTests(unittest.TestCase):
     def test_equal_distance_uses_confidence_as_tiebreaker(self):
         self.run_loop(["stop"], boxes=[(100, 200, .90), (300, 200, .95)])
         self.mouse.click.assert_called_once_with(300, 200)
+
+    def test_krypton_skips_ship_center_as_new_target(self):
+        self.run_loop(["stop"], boxes=[(200, 200, .99), (260, 200, .91)], profile_id="krypton")
+        self.mouse.click.assert_called_once_with(260, 200)
+
+    def test_krypton_waits_for_recent_filter_without_minimap_order(self):
+        self.run_loop(["timeout", "stop"], boxes=[(260, 200, .99)], profile_id="krypton")
+        self.bot._choose_safe_point.assert_not_called()
+        self.assertEqual(self.mouse.click.call_count, 2)
+        self.assertGreaterEqual(self.clock.now, 2.5)
 
     def test_three_timeouts_trigger_one_recovery(self):
         self.run_loop(["timeout", "timeout", "timeout"])

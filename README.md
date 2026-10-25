@@ -3,6 +3,13 @@
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
+## Beta 3.5.2
+
+- Krypton retenta o mesmo alvo quando a aproximacao para, com limite de duas retentativas.
+- Evita novos alvos sobre o centro da nave e ordens de minimapa enquanto boxes estao temporariamente filtrados.
+- Atualiza o historico apos a coleta para nao reaproveitar coordenadas antigas da camera.
+- Preserva o metodo de clique configurado e o comportamento do Interstellar.
+
 ## Beta 3.5.1
 
 - Metodo alternativo Windows (SendInput) para o cliente Krypton.

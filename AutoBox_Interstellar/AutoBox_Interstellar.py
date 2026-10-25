@@ -310,7 +310,7 @@ class AutoBoxApp:
         self.coordinator = coordinator
         self.settings_path, self.template_path = profile_paths(profile_id)
         if coordinator is None:
-            root.title(APP_NAME + " - beta 3.5.1")
+            root.title(APP_NAME + " - beta 3.5.2")
             root.geometry("640x920")
 
         APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -391,7 +391,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | " + self.profile["label"],
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.5.1 • Configuracao independente por jogo",
+        ttk.Label(frame, text="Beta 3.5.2 • Configuracao independente por jogo",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -1000,18 +1000,22 @@ class AutoBoxApp:
 
     def _reward_wait(self, sct, before_click, monitor, target_x: int,
                      sample=None, target=None, region=None):
-        """Retorna confirmed, timeout ou interrupted para cada tentativa."""
+        """Mantem o alvo; no Krypton retoma uma aproximacao que parou."""
         before_area = (self._screen_area(before_click, monitor, self.notice_region)
                        if self.notice_region else None)
         baseline = before_area.copy() if before_area is not None else None
         saw_clear = self.profile_id != "interstellar" or not reward_notice_visible(before_click, target_x)
-        deadline = time.monotonic() + self.wait_seconds
         began = time.monotonic()
+        deadline = began + self.wait_seconds
         hard_deadline = began + min(90.0, max(30.0, self.wait_seconds * 3))
         tracked = target
+        self.last_tracked_target = target
         best_distance = (((target[0] - region["width"] / 2) ** 2 +
                           (target[1] - region["height"] / 2) ** 2) ** .5
                          if target is not None and region is not None else None)
+        last_progress = began
+        last_retry = began
+        retries = 0
         next_track = began
         announced = False
         missing_near_ship = 0
@@ -1022,9 +1026,25 @@ class AutoBoxApp:
             if not self._ready_to_click():
                 return "interrupted"
             frame, current_monitor = self._screen_capture(sct)
-            if (self.profile_id == "interstellar" and radiation_visible(frame)) or (find_death_panel(frame) if self.profile_id == "interstellar" else None) is not None:
+            if (self.profile_id == "interstellar" and radiation_visible(frame)) or (
+                    find_death_panel(frame) if self.profile_id == "interstellar" else None) is not None:
                 return "interrupted"
             now = time.monotonic()
+            # Confirma recompensa antes de considerar qualquer novo clique.
+            if baseline is not None and self.notice_region:
+                current = self._screen_area(frame, current_monitor, self.notice_region)
+                consecutive = consecutive + 1 if new_reward_message(baseline, current) else 0
+                if consecutive >= 2 and now - began >= .3:
+                    self.events.put(("status", "Nova recompensa! Procurando a proxima box..."))
+                    return "confirmed"
+            else:
+                present = self.profile_id == "interstellar" and reward_notice_visible(frame, target_x)
+                if not present:
+                    saw_clear = True
+                elif saw_clear and now - began >= .55:
+                    self.events.put(("status", "Recompensa detectada! Procurando a proxima box..."))
+                    return "confirmed"
+
             if sample is not None and tracked is not None and region is not None:
                 if self.region != region:
                     return "interrupted"
@@ -1032,8 +1052,6 @@ class AutoBoxApp:
                     next_track = now + .3
                     current_target = self._track_box(frame, current_monitor, sample, region, tracked)
                     if current_target is None:
-                        # Ausencia so libera cedo se o alvo ja chegou perto da nave.
-                        # Duas verificacoes evitam reagir a uma unica falha visual.
                         missing_near_ship = missing_near_ship + 1 if best_distance <= 70 else 0
                         if missing_near_ship >= 2 and departure_deadline is None:
                             departure_deadline = now + .35
@@ -1041,38 +1059,34 @@ class AutoBoxApp:
                         missing_near_ship = 0
                         departure_deadline = None
                         tracked = current_target
+                        self.last_tracked_target = tracked
                         target_x = region["left"] + tracked[0] - current_monitor["left"]
                         distance = ((tracked[0] - region["width"] / 2) ** 2 +
                                     (tracked[1] - region["height"] / 2) ** 2) ** .5
-                        # Centro da area espacial aproxima a posicao da nave.
-                        # So progresso novo estende o prazo: oscilacoes nao prendem o bot.
                         if distance < best_distance - 4:
                             best_distance = distance
+                            last_progress = now
                             deadline = min(hard_deadline, max(deadline, now + self.wait_seconds))
                             if not announced:
                                 self.events.put(("status", "Mantendo o mesmo box enquanto a nave se aproxima..."))
                                 announced = True
-            # Recompensa ainda tem prioridade durante uma pequena janela de tolerancia.
-            # Desaparecimento nao e contado como coleta confirmada.
-            departed = departure_deadline is not None and now >= departure_deadline
-            if baseline is not None and self.notice_region:
-                current = self._screen_area(frame, current_monitor, self.notice_region)
-                consecutive = consecutive + 1 if new_reward_message(baseline, current) else 0
-                if consecutive >= 2 and time.monotonic() - began >= 0.3:
-                    self.events.put(("status", "Novo YOU RECEIVED! Procurando a proxima box..."))
-                    return "confirmed"
-                if departed:
-                    self.events.put(("status", "Box saiu de vista perto da nave. Procurando a proxima (sem confirmacao)..."))
-                    return "unconfirmed"
-                continue
-            # Compatibilidade com a versao anterior ate marcar a area.
-            present = self.profile_id == "interstellar" and reward_notice_visible(frame, target_x)
-            if not present:
-                saw_clear = True
-            elif saw_clear and time.monotonic() - began >= 0.55:
-                self.events.put(("status", "Recompensa detectada! Procurando a proxima box..."))
-                return "confirmed"
-            if departed:
+                        # Um destino de tela pode ficar desatualizado enquanto a camera move.
+                        # Retenta somente este alvo, ainda visivel e longe da nave.
+                        if (self.profile_id == "krypton" and distance > 70 and
+                                now - last_progress >= 1.0 and now - last_retry >= 1.2 and
+                                retries < 2 and consecutive == 0):
+                            last_retry = now
+                            clicked = self._click_current_box(sct, sample, region, tracked)
+                            if clicked is not None:
+                                retries += 1
+                                tracked = clicked[:2]
+                                self.last_tracked_target = tracked
+                                last_progress = time.monotonic()
+                                deadline = min(hard_deadline, max(
+                                    deadline, last_progress + self.wait_seconds))
+                                self.events.put(("status",
+                                    f"Aproximacao parou. Retomando o mesmo box ({retries}/2)..."))
+            if departure_deadline is not None and now >= departure_deadline:
                 self.events.put(("status", "Box saiu de vista perto da nave. Procurando a proxima (sem confirmacao)..."))
                 return "unconfirmed"
         return "timeout" if self._ready_to_click() else "interrupted"
@@ -1188,7 +1202,13 @@ class AutoBoxApp:
                     boxes = locate_boxes(frame, sample, threshold=self.threshold,
                                    require_bright=self.profile_id == "interstellar")
                     now = time.monotonic()
-                    recent = [(x, y, t) for x, y, t in recent if now - t <= 18.0]
+                    recent_ttl = 2.5 if self.profile_id == "krypton" else 18.0
+                    recent = [(x, y, t) for x, y, t in recent if now - t <= recent_ttl]
+                    if self.profile_id == "krypton":
+                        # Pequena zona sobre a nave evita redetecta-la como um box.
+                        cx, cy = region["width"] / 2, region["height"] / 2
+                        boxes = [(x, y, score) for x, y, score in boxes
+                                 if (x - cx) ** 2 + (y - cy) ** 2 > 24 ** 2]
                     candidates = [
                         (x, y, score) for x, y, score in boxes
                         if all((x - rx) ** 2 + (y - ry) ** 2 > 35 ** 2 for rx, ry, _ in recent)
@@ -1222,6 +1242,13 @@ class AutoBoxApp:
                             result = self._reward_wait(sct, click_frame, click_monitor,
                                                        region["left"] + x - click_monitor["left"],
                                                        sample=sample, target=(x, y), region=region)
+                            if self.profile_id == "krypton" and result in ("confirmed", "unconfirmed"):
+                                # A camera mudou: nao conserva as coordenadas antigas da rota.
+                                recent.clear()
+                                final_target = self.last_tracked_target
+                                if final_target is not None:
+                                    recent.append((*final_target, time.monotonic()))
+                                collection_timeouts = 0
                             if result == "confirmed":
                                 collection_timeouts = 0
                             elif result == "timeout":
@@ -1229,6 +1256,11 @@ class AutoBoxApp:
                                 self.events.put(("status",
                                     f"Tempo esgotado sem confirmacao ({collection_timeouts}/{MAX_COLLECTION_TIMEOUTS}). Procurando outro alvo..."))
                     else:
+                        if self.profile_id == "krypton" and boxes:
+                            # Ha boxes visiveis, apenas temporariamente filtrados.
+                            # Nao interrompe a area com uma nova ordem de minimapa.
+                            self._sleep_interruptible(.3)
+                            continue
                         missed += 1
                         if (self.safe_region and missed >= 2 and
                                 now - last_patrol >= self.patrol_seconds):
@@ -1265,7 +1297,7 @@ class AutoBoxWindow:
         self.root = root
         self.apps = {}
         self.active_app = None
-        root.title(APP_NAME + " - beta 3.5.1")
+        root.title(APP_NAME + " - beta 3.5.2")
         root.geometry("660x" + str(min(970, root.winfo_screenheight() - 90)))
         root.minsize(590, min(780, root.winfo_screenheight() - 90))
         self.notebook = ttk.Notebook(root)
