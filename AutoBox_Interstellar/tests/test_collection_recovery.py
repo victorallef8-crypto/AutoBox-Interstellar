@@ -11,7 +11,7 @@ source = Path(__file__).resolve().parents[1] / "AutoBox_Interstellar.py"
 tree = ast.parse(source.read_text(encoding="utf-8"))
 app = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "AutoBoxApp")
 methods = [n for n in app.body if isinstance(n, ast.FunctionDef)
-           and n.name in ("_reward_wait", "_recover_collection", "_collect_loop")]
+           and n.name in ("_reward_wait", "_recover_collection", "_collect_loop", "_track_box")]
 
 class Clock:
     def __init__(self):
@@ -114,7 +114,7 @@ class RecoveryTests(unittest.TestCase):
             (50, 50, .99), (150, 50, .99), (250, 50, .99),
             (350, 50, .99), (50, 150, .99), (150, 150, .99)])
         pending = iter(results)
-        def reward(*args):
+        def reward(*args, **kwargs):
             result = next(pending)
             if result == "stop":
                 self.bot.exit_event.set()

@@ -1,0 +1,88 @@
+"""Espera por aproximacao: nao troca de box durante uma viagem longa."""
+import unittest
+from unittest.mock import Mock
+import test_collection_recovery as recovery
+
+class TargetTests(unittest.TestCase):
+    def setUp(self):
+        recovery.RecoveryTests.setUp(self)
+        self.bot.region = {"left": 0, "top": 0, "width": 1000, "height": 600}
+        self.bot._screen_capture.return_value = (object(), {"left": 0, "top": 0})
+        self.bot.threshold = .9
+        self.target = (900, 300)
+        self.sample = object()
+        self.bot._track_box = Mock(return_value=self.target)
+
+    def wait(self):
+        return self.bot._reward_wait(None, object(), {"left": 0, "top": 0},
+                                     900, sample=self.sample,
+                                     target=self.target, region=dict(self.bot.region))
+
+    def test_long_approach_does_not_end_at_original_timeout(self):
+        self.bot._track_box.side_effect = lambda *args: (max(500, 900 - self.clock.now * 80), 300)
+        self.ns["reward_notice_visible"].side_effect = lambda *args: self.clock.now >= 4
+        self.assertEqual(self.wait(), "confirmed")
+        self.assertGreater(self.clock.now, 3.9)
+        self.assertLess(self.clock.now, 4.3)
+        self.mouse.click.assert_not_called()
+
+    def test_stationary_target_does_not_extend_wait(self):
+        self.assertEqual(self.wait(), "timeout")
+        self.assertLess(self.clock.now, 1.3)
+
+    def test_lost_target_does_not_wait_forever(self):
+        self.bot._track_box.side_effect = lambda *args: ((800, 300) if self.clock.now < .8 else None)
+        self.assertEqual(self.wait(), "timeout")
+        self.assertLess(self.clock.now, 2.5)
+
+    def test_motion_away_from_ship_does_not_extend_wait(self):
+        self.bot._track_box.side_effect = lambda *args: (900 + self.clock.now * 40, 300)
+        self.assertEqual(self.wait(), "timeout")
+        self.assertLess(self.clock.now, 1.3)
+
+    def test_oscillation_does_not_extend_wait_forever(self):
+        self.bot._track_box.side_effect = lambda *args: (880 if int(self.clock.now * 4) % 2 else 900, 300)
+        self.assertEqual(self.wait(), "timeout")
+        self.assertLess(self.clock.now, 2)
+
+    def test_absolute_deadline_limits_continuous_progress(self):
+        self.bot.region["width"] = 200000
+        self.target = (190000, 300)
+        self.bot._track_box.side_effect = lambda *args: (190000 - self.clock.now * 50, 300)
+        self.assertEqual(self.wait(), "timeout")
+        self.assertGreaterEqual(self.clock.now, 30)
+        self.assertLess(self.clock.now, 30.3)
+
+    def test_pause_during_extended_trip_interrupts(self):
+        self.bot._track_box.side_effect = lambda *args: (900 - self.clock.now * 80, 300)
+        def pause_after_two(seconds):
+            self.clock.sleep(seconds)
+            if self.clock.now > 2:
+                self.bot.running = False
+        self.bot._sleep_interruptible = pause_after_two
+        self.assertEqual(self.wait(), "interrupted")
+        self.assertGreater(self.clock.now, 2)
+        self.mouse.click.assert_not_called()
+
+    def test_tracker_follows_nearest_not_highest_confidence(self):
+        del self.bot._track_box
+        self.bot._screen_area = Mock(return_value=object())
+        self.ns["locate_boxes"] = Mock(return_value=[(130, 90, .99), (85, 90, .91)])
+        # Crop begins (810, 210). Nearest is (895, 300), other is (940, 300).
+        result = self.bot._track_box(object(), {}, self.sample, self.bot.region, (900, 300))
+        self.assertEqual(result, (895, 300))
+
+    def test_tracker_rejects_ambiguous_neighbors(self):
+        del self.bot._track_box
+        self.bot._screen_area = Mock(return_value=object())
+        self.ns["locate_boxes"] = Mock(return_value=[(75, 90, .99), (105, 90, .99)])
+        self.assertIsNone(self.bot._track_box(object(), {}, self.sample, self.bot.region, (900, 300)))
+
+    def test_tracker_does_not_follow_distant_other_box(self):
+        del self.bot._track_box
+        self.bot._screen_area = Mock(return_value=object())
+        self.ns["locate_boxes"] = Mock(return_value=[(165, 90, .99)])
+        self.assertIsNone(self.bot._track_box(object(), {}, self.sample, self.bot.region, (900, 300)))
+
+if __name__ == "__main__":
+    unittest.main()

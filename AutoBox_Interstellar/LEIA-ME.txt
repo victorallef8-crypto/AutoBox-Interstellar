@@ -1,3 +1,16 @@
+BETA 3.4 - MANTER O ALVO NA APROXIMACAO
+
+A espera deixa de ser apenas um prazo fixo. O bot acompanha o box selecionado
+e aumenta o tempo de espera quando ele se aproxima do centro da area espacial.
+Nao envia novos cliques durante essa espera. A recompensa encerra a tentativa.
+Se o alvo sumir, ficar parado ou deixar de se aproximar, o prazo deixa de aumentar.
+Ha um limite total de 30 a 90 segundos por tentativa, conforme a espera configurada.
+
+IMPORTANTE: a aproximacao usa o centro da area espacial calibrada como estimativa
+da posicao da nave. Calibre essa area com a nave aproximadamente ao centro.
+O acompanhamento visual usa proximidade entre capturas e pode perder o alvo.
+Validado com testes simulados; falta confirmar o comportamento no jogo.
+
 BETA 3.3.2 - CLIQUE DURANTE O VOO
 
 Corrige a restricao da 3.3.1 que esperava o box ficar quase parado na tela.

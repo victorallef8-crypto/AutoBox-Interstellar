@@ -231,7 +231,7 @@ def repair_click_points(panel: tuple[int, int, int, int],
 class AutoBoxApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title(APP_NAME + " - beta 3.3.2")
+        root.title(APP_NAME + " - beta 3.4")
         root.geometry("600x885")
         root.minsize(545, 735)
 
@@ -300,7 +300,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | Interstellar Verse",
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.3.2 • Posicao do box conferida antes do clique",
+        ttk.Label(frame, text="Beta 3.4 • Posicao do box conferida antes do clique",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -746,7 +746,33 @@ class AutoBoxApp:
                 self.events.put(("status", "Box encontrada durante a ronda. Conferindo a posicao..."))
                 return
 
-    def _reward_wait(self, sct, before_click, monitor, target_x: int):
+    def _track_box(self, frame, monitor, sample, region, point):
+        """Acompanha apenas um alvo proximo da ultima posicao conhecida."""
+        x, y = point
+        left, top = max(0, round(x) - 90), max(0, round(y) - 90)
+        right = min(region["width"], round(x) + 91)
+        bottom = min(region["height"], round(y) + 91)
+        area = {"left": region["left"] + left, "top": region["top"] + top,
+                "width": right - left, "height": bottom - top}
+        crop = self._screen_area(frame, monitor, area)
+        if crop is None:
+            return None
+        matches = locate_boxes(crop, sample, threshold=self.threshold)
+        nearby = sorted(((px + left, py + top, score) for px, py, score in matches
+                         if (px + left - x) ** 2 + (py + top - y) ** 2 <= 60 ** 2),
+                        key=lambda p: (p[0] - x) ** 2 + (p[1] - y) ** 2)
+        if not nearby:
+            return None
+        # Se dois boxes estiverem quase igualmente proximos, nao troca de alvo.
+        if len(nearby) > 1:
+            d0 = ((nearby[0][0] - x) ** 2 + (nearby[0][1] - y) ** 2) ** .5
+            d1 = ((nearby[1][0] - x) ** 2 + (nearby[1][1] - y) ** 2) ** .5
+            if d1 - d0 < 12:
+                return None
+        return nearby[0][:2]
+
+    def _reward_wait(self, sct, before_click, monitor, target_x: int,
+                     sample=None, target=None, region=None):
         """Retorna confirmed, timeout ou interrupted para cada tentativa."""
         before_area = (self._screen_area(before_click, monitor, self.notice_region)
                        if self.notice_region else None)
@@ -754,6 +780,13 @@ class AutoBoxApp:
         saw_clear = not reward_notice_visible(before_click, target_x)
         deadline = time.monotonic() + self.wait_seconds
         began = time.monotonic()
+        hard_deadline = began + min(90.0, max(30.0, self.wait_seconds * 3))
+        tracked = target
+        best_distance = (((target[0] - region["width"] / 2) ** 2 +
+                          (target[1] - region["height"] / 2) ** 2) ** .5
+                         if target is not None and region is not None else None)
+        next_track = began
+        announced = False
         consecutive = 0
         while time.monotonic() < deadline and self._ready_to_click():
             self._sleep_interruptible(0.18)
@@ -762,6 +795,26 @@ class AutoBoxApp:
             frame, current_monitor = self._screen_capture(sct)
             if radiation_visible(frame) or find_death_panel(frame) is not None:
                 return "interrupted"
+            now = time.monotonic()
+            if sample is not None and tracked is not None and region is not None:
+                if self.region != region:
+                    return "interrupted"
+                if now >= next_track:
+                    next_track = now + .3
+                    current_target = self._track_box(frame, current_monitor, sample, region, tracked)
+                    if current_target is not None:
+                        tracked = current_target
+                        target_x = region["left"] + tracked[0] - current_monitor["left"]
+                        distance = ((tracked[0] - region["width"] / 2) ** 2 +
+                                    (tracked[1] - region["height"] / 2) ** 2) ** .5
+                        # Centro da area espacial aproxima a posicao da nave.
+                        # So progresso novo estende o prazo: oscilacoes nao prendem o bot.
+                        if distance < best_distance - 4:
+                            best_distance = distance
+                            deadline = min(hard_deadline, max(deadline, now + self.wait_seconds))
+                            if not announced:
+                                self.events.put(("status", "Mantendo o mesmo box enquanto a nave se aproxima..."))
+                                announced = True
             if baseline is not None and self.notice_region:
                 current = self._screen_area(frame, current_monitor, self.notice_region)
                 consecutive = consecutive + 1 if new_reward_message(baseline, current) else 0
@@ -926,7 +979,8 @@ class AutoBoxApp:
                             recent.append((x, y, time.monotonic()))
                             previous = (x, y)
                             result = self._reward_wait(sct, click_frame, click_monitor,
-                                                       region["left"] + x - click_monitor["left"])
+                                                       region["left"] + x - click_monitor["left"],
+                                                       sample=sample, target=(x, y), region=region)
                             if result == "confirmed":
                                 collection_timeouts = 0
                             elif result == "timeout":

@@ -3,6 +3,13 @@
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
+## Beta 3.4
+
+- Mantem o alvo durante a aproximacao, estendendo a espera quando ha progresso.
+- Nao envia outro clique de coleta enquanto aguarda esse alvo.
+- Limita o tempo total e abandona a espera sem progresso.
+- Estima a posicao da nave pelo centro da area espacial calibrada.
+
 ## Beta 3.3.2
 
 - Corrige a espera por estabilidade que impedia cliques durante o voo.
