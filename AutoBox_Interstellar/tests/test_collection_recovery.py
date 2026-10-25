@@ -94,7 +94,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(self.bot._recover_collection())
         self.mouse.click.assert_not_called()
 
-    def run_loop(self, results):
+    def run_loop(self, results, boxes=None):
         self.ns["MAX_COLLECTION_TIMEOUTS"] = 3
         self.ns["TEMPLATE_PATH"] = SimpleNamespace(stat=lambda: SimpleNamespace(st_mtime_ns=1))
         self.ns["cv2"] = SimpleNamespace(imread=lambda _: object())
@@ -110,7 +110,7 @@ class RecoveryTests(unittest.TestCase):
         self.bot.safe_region = {"left": 0}
         self.bot.threshold = .9
         self.bot.exit_event = threading.Event()
-        self.ns["locate_boxes"] = Mock(return_value=[
+        self.ns["locate_boxes"] = Mock(return_value=boxes if boxes is not None else [
             (50, 50, .99), (150, 50, .99), (250, 50, .99),
             (350, 50, .99), (50, 150, .99), (150, 150, .99)])
         pending = iter(results)
@@ -134,6 +134,20 @@ class RecoveryTests(unittest.TestCase):
         self.bot._collect_loop()
         statuses = list(self.bot.events.queue)
         self.assertFalse(any(event == "command" for event, _ in statuses), statuses)
+
+    def test_each_selection_uses_ship_center_not_previous_click(self):
+        self.run_loop(["confirmed", "stop"], boxes=[
+            (210, 200, .99), (160, 200, .91), (260, 200, .99)])
+        self.assertEqual([call.args for call in self.mouse.click.call_args_list],
+                         [(210, 200), (160, 200)])
+
+    def test_confidence_cannot_override_nearest_distance(self):
+        self.run_loop(["stop"], boxes=[(200, 0, .90), (0, 150, .95)])
+        self.mouse.click.assert_called_once_with(200, 0)
+
+    def test_equal_distance_uses_confidence_as_tiebreaker(self):
+        self.run_loop(["stop"], boxes=[(100, 200, .90), (300, 200, .95)])
+        self.mouse.click.assert_called_once_with(300, 200)
 
     def test_three_timeouts_trigger_one_recovery(self):
         self.run_loop(["timeout", "timeout", "timeout"])

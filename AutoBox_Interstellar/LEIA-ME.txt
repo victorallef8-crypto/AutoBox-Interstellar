@@ -1,3 +1,13 @@
+BETA 3.4.2 - MAIS PERTO PRIMEIRO
+
+A cada nova coleta, escolhe o box detectado e disponivel mais proximo do
+centro atual da area espacial. Nao usa a posicao do clique anterior como
+referencia. Confianca da imagem so desempata boxes de mesma distancia.
+Mantem o alvo durante a aproximacao e a saida rapida da 3.4.1.
+Calibre a area espacial com a nave aproximadamente no centro.
+O historico temporario de cliques ainda filtra alvos recentes.
+Validacao em testes simulados; conferir o comportamento no jogo.
+
 BETA 3.4.1 - PROXIMA BOX COM MENOS ESPERA
 
 Se o box ja estava perto do centro da area espacial e deixa de ser detectado

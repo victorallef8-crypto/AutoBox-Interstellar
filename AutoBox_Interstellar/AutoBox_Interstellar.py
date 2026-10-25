@@ -231,7 +231,7 @@ def repair_click_points(panel: tuple[int, int, int, int],
 class AutoBoxApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title(APP_NAME + " - beta 3.4.1")
+        root.title(APP_NAME + " - beta 3.4.2")
         root.geometry("600x885")
         root.minsize(545, 735)
 
@@ -300,7 +300,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | Interstellar Verse",
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.4.1 • Posicao do box conferida antes do clique",
+        ttk.Label(frame, text="Beta 3.4.2 • Posicao do box conferida antes do clique",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -911,7 +911,6 @@ class AutoBoxApp:
             return
         sample_modified = TEMPLATE_PATH.stat().st_mtime_ns
         recent: list[tuple[int, int, float]] = []
-        previous: tuple[int, int] | None = None
         missed = 0
         collection_timeouts = 0
         last_patrol = 0.0
@@ -942,13 +941,11 @@ class AutoBoxApp:
                         self._handle_death(sct, (dead[0] + monitor["left"],
                                                  dead[1] + monitor["top"], dead[2], dead[3]))
                         recent.clear()
-                        previous = None
                         collection_timeouts = 0
                         continue
                     if radiation_visible(full_frame):
                         self._handle_radiation()
                         recent.clear()
-                        previous = None
                         collection_timeouts = 0
                         continue
 
@@ -972,20 +969,18 @@ class AutoBoxApp:
                     if collection_timeouts >= MAX_COLLECTION_TIMEOUTS:
                         if self._recover_collection():
                             collection_timeouts = 0
-                            previous = None
                             missed = 0
                             last_patrol = time.monotonic()
                         continue
 
                     if candidates:
                         missed = 0
-                        if previous is None:
-                            start = (region["width"] // 2, region["height"] // 2)
-                        else:
-                            start = previous
-                        candidates.sort(key=lambda p: ((p[0] - start[0]) ** 2 +
-                                                       (p[1] - start[1]) ** 2) /
-                                        max(0.4, p[2]))
+                        # A camera acompanha a nave: a referencia e sempre o
+                        # centro atual da area espacial, nunca o clique anterior.
+                        center = (region["width"] / 2, region["height"] / 2)
+                        candidates.sort(key=lambda p: (
+                            (p[0] - center[0]) ** 2 + (p[1] - center[1]) ** 2,
+                            -p[2], p[0], p[1]))
                         x, y, score = candidates[0]
                         if self._ready_to_click():
                             clicked = self._click_current_box(sct, sample, region, (x, y))
@@ -996,7 +991,6 @@ class AutoBoxApp:
                             self.events.put(("click", None))
                             self.events.put(("status", f"Indo ate box ({score:.0%} de confianca)..."))
                             recent.append((x, y, time.monotonic()))
-                            previous = (x, y)
                             result = self._reward_wait(sct, click_frame, click_monitor,
                                                        region["left"] + x - click_monitor["left"],
                                                        sample=sample, target=(x, y), region=region)
@@ -1014,7 +1008,6 @@ class AutoBoxApp:
                             if destination and self._ready_to_click():
                                 pyautogui.click(*destination)
                                 self.events.put(("status", "Sem boxes. Ronda na zona segura do minimapa..."))
-                                previous = None
                                 # Mantem alvos recentes para evitar repetir falhas apos a ronda.
                                 last_patrol = now
                                 missed = 0

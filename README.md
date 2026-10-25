@@ -3,6 +3,12 @@
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
+## Beta 3.4.2
+
+- Escolhe o box disponivel mais perto do centro atual da area espacial.
+- Remove a referencia ao clique anterior e usa confianca apenas no desempate.
+- Preserva a espera adaptativa e a saida rapida apos desaparecimento.
+
 ## Beta 3.4.1
 
 - Reduz a espera quando o alvo desaparece perto da nave em verificacoes consecutivas.
