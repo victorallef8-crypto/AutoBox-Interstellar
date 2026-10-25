@@ -1,6 +1,6 @@
 {
-  "version": "0.9.3",
+  "version": "0.9.4",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "4b14155db7c27d4ee4216131b3500b91318680ae7624686f4e06ea12ce1b927e",
-  "notes": "Aproxima para selecionar e atacar; depois mantém distância configurada e persegue o mesmo NPC em fuga."
+  "sha256": "03da9b5a037866946509a6abe5563965dfe9c6eded194942d3dd95738891cd1e",
+  "notes": "Amplia distância ajustável de combate para até 800 unidades; padrão permanece 450."
 }

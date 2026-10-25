@@ -307,7 +307,7 @@ class NpcTestWorker:
         self.kinds=set(kind if isinstance(kind,(list,tuple,set)) else [kind])
         self.kind=", ".join(sorted(self.kinds))
         self.destination=destination; self.min_hp=min_hp; self.clock=clock or time.monotonic
-        self.orbit=orbit; self.radius=max(150,min(500,radius)); self.repair_portal=repair_portal; self.direction=1
+        self.orbit=orbit; self.radius=max(150,min(800,radius)); self.repair_portal=repair_portal; self.direction=1
         self.target=None; self.context=None; self.pending=None; self.next_move=0
         self.started=None; self.progress=None; self.best_distance=float("inf"); self.lowest=None
         self.damage=False; self.baseline_xp=None; self.last_phase=None; self.previous_distance=None

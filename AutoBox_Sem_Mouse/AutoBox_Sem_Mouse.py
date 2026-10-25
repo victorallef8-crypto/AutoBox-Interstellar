@@ -315,8 +315,8 @@ class AutoBoxSemMouse:
         ttk.Label(test,text="Interromper tiros com vida em (%)").grid(row=1,column=0,sticky="w")
         ttk.Spinbox(test,from_=25,to=75,textvariable=self.npc_min_hp,width=8).grid(row=1,column=1,sticky="w",pady=4)
         ttk.Checkbutton(test,text="Circular ao redor do NPC",variable=self.npc_orbit).grid(row=2,column=0,columnspan=2,sticky="w")
-        ttk.Label(test,text="Distância desejada (150 a 500)").grid(row=3,column=0,sticky="w")
-        ttk.Spinbox(test,from_=150,to=500,textvariable=self.npc_radius,width=8).grid(row=3,column=1,sticky="w")
+        ttk.Label(test,text="Distância desejada (150 a 800)").grid(row=3,column=0,sticky="w")
+        ttk.Spinbox(test,from_=150,to=800,textvariable=self.npc_radius,width=8).grid(row=3,column=1,sticky="w")
         ttk.Checkbutton(test,text="Vida no limite: ir ao portal e ativar reparador",variable=self.npc_repair).grid(row=4,column=0,columnspan=2,sticky="w")
         ttk.Button(test,text="Testar 1 NPC com LCB-10",command=self.start_npc_test,style="Start.TButton").grid(
             row=5,column=0,columnspan=2,sticky="ew",pady=8)
@@ -576,7 +576,7 @@ class AutoBoxSemMouse:
             if not selected_kinds: raise ValueError("Marque pelo menos um tipo de NPC.")
             self.cfg["npc_kinds"]=selected_kinds
             radius=int(self.npc_radius.get())
-            if not 150<=radius<=500: raise ValueError("Distância do NPC: 150 a 500 unidades.")
+            if not 150<=radius<=800: raise ValueError("Distância do NPC: 150 a 800 unidades.")
             self.cfg.update(npc_kind=self.npc_kind.get(),npc_min_hp=min_hp,npc_radius=radius,npc_orbit=self.npc_orbit.get(),npc_repair=self.npc_repair.get())
             deaths=int(self.max_deaths.get()); cost=int(self.max_cost.get())
             if not 1<=deaths<=100 or not 0<=cost<=100000:
