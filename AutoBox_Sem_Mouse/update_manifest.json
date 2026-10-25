@@ -1,6 +1,6 @@
 {
-  "version": "0.4.1",
+  "version": "0.4.2",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "433bc7a0ead073aaa54bf42727203f0a27ef4a6e6d283c162a7f0f1d0d06dd42",
-  "notes": "Corrige a aba Dados vazia. Campos de leitura, plano e botoes de diagnostico aparecem ao iniciar, mesmo sem conexao. A coleta por dados continua em validacao."
+  "sha256": "fb6645b9f258ffc387e84cb010e14e536f712b1c34d4826446b9b86c6186fb92",
+  "notes": "Diagnostico da interrupcao da leitura. Se parar ao coletar, copie o diagnostico antes de recarregar. Ainda precisa validar o formato de atualizacao recebido; nao e correcao definitiva da leitura."
 }

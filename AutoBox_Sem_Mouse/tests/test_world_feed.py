@@ -52,6 +52,25 @@ class FeedTests(unittest.TestCase):
         self.send()
         self.assertFalse(self.send(sequence=2,base=1,patch=["o",[["boxes",["a",1,[]]]],[]]))
         self.assertFalse(self.feed.summary()["fresh"])
+    def test_interruption_diagnostic_preserves_first_failure_without_private_values(self):
+        self.send()
+        patch=["o",[["boxes",["a",1,[["v",{"id":"private-id","x":130,"y":140,"token":"private-secret"}]]]]],[]]
+        self.assertFalse(self.send(sequence=2,base=1,patch=patch))
+        first=self.feed.diagnostic()["failure"]
+        self.assertEqual(first["code"],"unsupported_patch")
+        self.assertEqual(first["path"],"boxes")
+        self.assertEqual(first["operation"],"a")
+        self.assertEqual(first["last_sequence"],1)
+        self.assertEqual(first["received_sequence"],2)
+        saved=json.dumps(first)
+        for value in ("private-id","private-secret","token"):
+            self.assertNotIn(value,saved)
+        self.send(sequence=3,base=2,patch=["o",[],[]])
+        self.assertEqual(self.feed.diagnostic()["failure"],first)
+        self.send(sequence=4)
+        self.assertIsNone(self.feed.diagnostic()["failure"])
+        self.assertTrue(self.feed.summary()["fresh"])
+
     def test_unknown_irrelevant_patch_does_not_break_navigation(self):
         self.send()
         self.assertTrue(self.send(sequence=2,base=1,patch=["o",[["chat",["unknown","private"]]],[]]))

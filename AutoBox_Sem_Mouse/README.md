@@ -43,3 +43,5 @@ A aba Dados inclui registro passivo de uma coleta manual (30 s) e copia de diagn
 Validacao: 108 testes passaram, alem do replay das 22 mensagens. A observacao do EventSource nao exige mais que a pagina ja esteja em /play no instante da requisicao. A recepcao ao vivo, o comando manual e a execucao futura por dados ainda precisam de validacao no jogo.
 
 Beta 0.4.1: corrige a aba Dados vazia: seus campos e botoes agora sao montados ao iniciar, mesmo sem conexao. Teste de regressao reproduziu a falha antes da correcao; 109 testes passaram. Leitura e coleta reais ainda precisam de validacao no jogo.
+
+Beta 0.4.2: acrescenta diagnostico da primeira interrupcao do leitor (sequencia, campo, operacao e estrutura limitada sem textos privados). O registro manual preserva comandos observados quando a leitura falha. Nao acrescenta suporte a operacoes desconhecidas: copie o diagnostico antes de recarregar. 111 testes passaram; inclui registro sem alterar o estado recebido e preservacao da falha original.

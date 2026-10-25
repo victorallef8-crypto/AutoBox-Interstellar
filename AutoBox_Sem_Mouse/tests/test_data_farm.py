@@ -80,6 +80,20 @@ class ProbeTests(unittest.TestCase):
         cmd.update(extra)
         self.probe.observe(json.dumps({"inputTransport":"cumulative-input-v1",
                                       "inputChannel":"secret-channel","commands":[cmd]}))
+    def test_recording_does_not_reset_feed_and_keeps_diagnostic_after_failure(self):
+        before=deepcopy(self.feed.navigation_snapshot())
+        self.probe.arm()
+        self.assertEqual(self.feed.navigation_snapshot(),before)
+        self.post()
+        self.feed.ingest("s",json.dumps({"transport":"delta1","epoch":"e","sequence":2,"base":1,
+            "patch":["o",[["boxes",["a",0,[]]]],[]]}))
+        report=self.probe.report()
+        self.assertEqual(report["reader"]["failure"]["path"],"boxes")
+        self.assertEqual(len(report["commands"]),1)
+        self.assertFalse(report["data_fresh"])
+        report["reader"]["failure"]["path"]="modified"
+        self.assertEqual(self.probe.report()["reader"]["failure"]["path"],"boxes")
+
     def test_arm_requires_live_state(self):
         self.now=4
         with self.assertRaises(ValueError): self.probe.arm()

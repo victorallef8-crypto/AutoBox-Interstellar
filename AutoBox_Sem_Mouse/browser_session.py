@@ -25,6 +25,31 @@ def find_opera_gx():
     return ""
 
 
+class UnsupportedWorldPatch(ValueError):
+    def __init__(self, path, patch):
+        super().__init__("operacao ainda nao suportada")
+        self.path=".".join(path) or "root"
+        self.operation=patch[0] if patch[0] in ("a","o","v","s","d","i","r","u","p","k","l") else "unknown"
+        self.shape=self.describe(patch)
+
+    @classmethod
+    def describe(cls, value, depth=0):
+        # Estrutura limitada: nunca conserva textos, IDs, tokens ou campos privados.
+        if depth>6: return "depth-limit"
+        if isinstance(value,list):
+            items=[cls.describe(v,depth+1) for v in value[:8]]
+            if value and isinstance(value[0],str) and value[0] in ("a","o","v","s","d","i","r","u","p","k","l"):
+                items[0]=value[0]
+            return {"list_length":len(value),"items":items}
+        if isinstance(value,dict):
+            allowed={"id","revision","x","y","type","hp","maxHp"}
+            return {"object":{k:cls.describe(v,depth+1) for k,v in value.items() if k in allowed},
+                    "omitted_fields":sum(k not in allowed for k in value)}
+        if value is None or isinstance(value,bool): return value
+        if type(value) in (int,float) and math.isfinite(value): return value
+        return "text" if isinstance(value,str) else "unsupported"
+
+
 class WorldFeed:
     """Reconstrucao somente de campos de navegacao; nao guarda tokens nem chat."""
     ROOT = {"map", "world", "me", "boxes", "npcs"}
@@ -41,10 +66,12 @@ class WorldFeed:
         self.sequence = None
         self.updated = None
         self.reason = "Aguardando dados do jogo."
+        self.failure = None
 
     def begin(self, stream):
         with self.lock:
             self.stream = stream
+            self.failure = None
             self._invalidate("Aguardando estado completo do jogo.")
 
     def _invalidate(self, reason):
@@ -100,7 +127,7 @@ class WorldFeed:
             return cls._project(patch[1],path)
         keys = cls._keys(path)
         if op != "o" or len(patch)!=3 or keys is None or not isinstance(current,dict):
-            raise ValueError("operacao ainda nao suportada")
+            raise UnsupportedWorldPatch(path,patch)
         changes, deleted = patch[1:]
         if not isinstance(changes,list) or not isinstance(deleted,list):
             raise ValueError("patch de objeto invalido")
@@ -119,6 +146,7 @@ class WorldFeed:
     def ingest(self, stream, text):
         with self.lock:
             if stream != self.stream: return False
+            packet = {}
             try:
                 if not isinstance(text,str) or len(text)>2_000_000: raise ValueError("mensagem invalida")
                 packet = json.loads(text)
@@ -139,10 +167,23 @@ class WorldFeed:
                 self.state, self.epoch, self.sequence = updated, epoch, seq
                 self.updated = self.clock()
                 self.reason = "Dados recebidos."
+                if "full" in packet: self.failure = None
                 return True
-            except (ValueError,TypeError,KeyError,RecursionError,OverflowError):
-                self._invalidate("Leitura interrompida: aguarde novo estado completo ou recarregue o jogo.")
+            except (ValueError,TypeError,KeyError,RecursionError,OverflowError) as exc:
+                if self.failure is None:
+                    self.failure={"code":"unsupported_patch" if isinstance(exc,UnsupportedWorldPatch) else "invalid_update",
+                                  "last_sequence":self.sequence,
+                                  "received_sequence":packet.get("sequence") if isinstance(packet,dict) and type(packet.get("sequence")) is int else None}
+                    if isinstance(exc,UnsupportedWorldPatch):
+                        self.failure.update(path=exc.path,operation=exc.operation,shape=exc.shape)
+                detail="Atualizacao de "+self.failure.get("path","dados")+" ainda nao suportada. " if self.failure["code"]=="unsupported_patch" else ""
+                self._invalidate("Leitura interrompida: "+detail+"Copie o diagnostico antes de recarregar o jogo.")
                 return False
+
+    def diagnostic(self):
+        with self.lock:
+            return {"fresh":self.summary().get("fresh",False),
+                    "failure":json.loads(json.dumps(self.failure))}
 
     @staticmethod
     def _number(value):
@@ -265,7 +306,7 @@ class ManualCollectProbe:
                        type(self.counter_before) is int and counter>=self.counter_before else None)
             return {"status":self.status,"recording":active,"commands":json.loads(json.dumps(self.samples)),
                     "data_fresh":current.get("fresh",False),"observed_box_increment":increment,
-                    "automatic_commands_sent":0}
+                    "automatic_commands_sent":0,"reader":self.feed.diagnostic()}
 
 class BrowserSession:
     """Dono unico do navegador. Captura e cliques nao passam pelo mouse do Windows."""
