@@ -1,6 +1,6 @@
 {
-  "version": "3.5.2",
+  "version": "3.5.3",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "7737099781fa9d64c0764ce9db2f230a736d1bdd6e9900c79e38d74ba97c794c",
-  "notes": "Krypton retoma o mesmo alvo quando a aproximacao para e evita cliques sobre a nave e rondas com boxes temporariamente filtrados."
+  "sha256": "361d5174a5ea5be1a452740e761c625e36bf9e0ada10bf7f889205181911fa3a",
+  "notes": "Krypton usa a area real da nave para distancia e chegada e bloqueia essa area ate a ultima conferencia do clique. Marque a nave apos atualizar."
 }

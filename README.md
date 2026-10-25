@@ -3,6 +3,13 @@
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
+## Beta 3.5.3
+
+- Krypton exige marcar a area real da nave, preservada no perfil.
+- Usa essa referencia para distancia, aproximacao e chegada.
+- Bloqueia a nave tambem durante revalidacao final do clique e ronda.
+- Interstellar preserva a calibracao anterior.
+
 ## Beta 3.5.2
 
 - Krypton retenta o mesmo alvo quando a aproximacao para, com limite de duas retentativas.

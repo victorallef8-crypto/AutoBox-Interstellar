@@ -10,7 +10,7 @@ source = Path(__file__).resolve().parents[1] / "AutoBox_Interstellar.py"
 tree = ast.parse(source.read_text(encoding="utf-8"))
 app = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "AutoBoxApp")
 methods = [n for n in app.body if isinstance(n, ast.FunctionDef)
-           and n.name in ("_click_current_box", "_patrol_wait", "_game_click")]
+           and n.name in ("_click_current_box", "_patrol_wait", "_game_click", "_ship_area_valid", "_ship_center", "_box_allowed")]
 
 class ClickTests(unittest.TestCase):
     def setUp(self):
@@ -119,11 +119,33 @@ class ClickTests(unittest.TestCase):
         self.assertEqual(area["left"], 100)
         self.assertEqual(area["top"], 200)
 
+    def test_krypton_revalidation_cannot_replace_box_with_ship(self):
+        self.bot.profile_id = "krypton"
+        self.bot.ship_region = {"left": 300, "top": 380, "width": 40, "height": 40}
+        self.detector.side_effect = [[(60, 60, .95)], [(30, 60, .99)]]
+        self.assertIsNone(self.click((260, 200)))
+        self.mouse.click.assert_not_called()
+
+    def test_krypton_blocks_offcenter_ship_area_before_capture(self):
+        self.bot.profile_id = "krypton"
+        self.bot.ship_region = {"left": 180, "top": 260, "width": 40, "height": 40}
+        self.assertIsNone(self.click((100, 80)))
+        self.bot._screen_capture.assert_not_called()
+        self.mouse.click.assert_not_called()
+        self.assertTrue(self.bot._box_allowed((250, 200), self.bot.region))
+
     def test_patrol_returns_early_when_box_appears(self):
         self.detector.side_effect = [[], [(80, 90, .95)]]
         self.bot._patrol_wait(None, object())
         self.assertAlmostEqual(self.now, .5)
         self.mouse.click.assert_not_called()
+
+    def test_krypton_patrol_ignores_detection_over_marked_ship(self):
+        self.bot.profile_id = "krypton"
+        self.bot.ship_region = {"left": 180, "top": 260, "width": 40, "height": 40}
+        self.detector.return_value = [(100, 80, .99)]
+        self.bot._patrol_wait(None, object())
+        self.assertAlmostEqual(self.now, 7)
 
     def test_patrol_obeys_deadline(self):
         self.detector.return_value = []

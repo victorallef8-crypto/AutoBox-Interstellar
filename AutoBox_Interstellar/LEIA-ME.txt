@@ -1,3 +1,19 @@
+BETA 3.5.3 - REFERENCIA REAL DA NAVE NO KRYPTON
+
+APOS ATUALIZAR: na aba Krypton, clique em Marcar area da nave (sem boxes).
+Com a camera centralizada na nave, arraste um retangulo justo envolvendo
+a nave e seu brilho, sem incluir boxes. A area e salva no perfil Krypton.
+Esta calibracao e necessaria antes de iniciar a coleta do Krypton.
+
+A selecao de boxes, a distancia de aproximacao e a verificacao de chegada
+usam essa referencia real, em vez do centro geometrico do mapa selecionado.
+A area marcada e excluida tambem nas recapturas imediatamente anteriores
+ao clique e durante a ronda. Interstellar nao exige esta nova calibracao.
+Se mudar o tamanho ou a posicao da janela/camera, marque novamente a nave.
+
+Validacao com testes de nave fora do centro e revalidacao trocando o alvo
+pela nave. Falta validar a fluidez da coleta dentro do jogo.
+
 BETA 3.5.2 - APROXIMACAO NO KRYPTON
 
 Se o box continua visivel, esta longe da nave e a aproximacao fica sem

@@ -213,6 +213,37 @@ class ProfileTests(unittest.TestCase):
         finally:
             self.ns["active_window_title"] = original
 
+    def test_krypton_requires_ship_calibration_before_start(self):
+        self.window.notebook.select(1)
+        self.root.update()
+        old_region, old_template, old_ship = self.krypton.region, self.krypton.template_path, self.krypton.ship_region
+        self.krypton.region = {"left": 0, "top": 0, "width": 500, "height": 400}
+        self.krypton.template_path = Mock(exists=Mock(return_value=True))
+        self.krypton.ship_region = None
+        self.ns["messagebox"].reset_mock()
+        try:
+            self.krypton.start()
+            self.assertFalse(self.krypton.running)
+            self.ns["messagebox"].showinfo.assert_called_once()
+            self.assertEqual(self.ns["messagebox"].showinfo.call_args.args[0], "Marcar a nave")
+        finally:
+            self.krypton.region, self.krypton.template_path, self.krypton.ship_region = old_region, old_template, old_ship
+
+    def test_ship_calibration_is_saved_only_in_krypton_profile(self):
+        old_ship, old_region = self.krypton.ship_region, self.krypton.region
+        original = self.interstellar.settings_path.read_bytes()
+        try:
+            self.krypton.region = {"left": 0, "top": 0, "width": 500, "height": 400}
+            self.krypton.ship_region = {"left": 80, "top": 60, "width": 60, "height": 60}
+            self.assertTrue(self.krypton._ship_area_valid(self.krypton.region))
+            self.assertEqual(self.krypton._ship_center(self.krypton.region), (110, 90))
+            self.krypton._save_config()
+            saved = json.loads(self.krypton.settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["ship_region"], self.krypton.ship_region)
+            self.assertEqual(self.interstellar.settings_path.read_bytes(), original)
+        finally:
+            self.krypton.ship_region, self.krypton.region = old_ship, old_region
+
     def test_invalid_profile_path_rejected(self):
         with self.assertRaises(ValueError):
             self.ns["profile_paths"]("../other")

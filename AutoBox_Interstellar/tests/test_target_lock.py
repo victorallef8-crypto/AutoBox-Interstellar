@@ -113,6 +113,7 @@ class TargetTests(unittest.TestCase):
 
     def krypton(self):
         self.bot.profile_id = "krypton"
+        self.bot.ship_region = {"left": 480, "top": 280, "width": 40, "height": 40}
         self.bot.wait_seconds = 5
         self.bot._click_current_box = Mock(
             side_effect=lambda sct, sample, region, target:
@@ -169,6 +170,23 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(self.wait(), "timeout")
         self.assertTrue(all(call.args[3] == (800, 300)
                             for call in self.bot._click_current_box.call_args_list))
+
+    def test_krypton_departure_uses_marked_ship_not_map_center(self):
+        self.krypton()
+        self.bot.ship_region = {"left": 120, "top": 80, "width": 40, "height": 40}
+        self.target = (200, 100)
+        self.bot._track_box.return_value = None
+        self.assertEqual(self.wait(), "unconfirmed")
+        self.assertLess(self.clock.now, 1.3)
+        self.bot._click_current_box.assert_not_called()
+
+    def test_large_ship_area_does_not_force_full_wait_after_departure(self):
+        self.krypton()
+        self.bot.ship_region = {"left": 420, "top": 220, "width": 160, "height": 160}
+        self.target = (610, 300)
+        self.bot._track_box.return_value = None
+        self.assertEqual(self.wait(), "unconfirmed")
+        self.assertLess(self.clock.now, 1.3)
 
     def test_tracker_follows_nearest_not_highest_confidence(self):
         del self.bot._track_box

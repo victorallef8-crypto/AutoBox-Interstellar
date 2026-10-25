@@ -11,7 +11,7 @@ source = Path(__file__).resolve().parents[1] / "AutoBox_Interstellar.py"
 tree = ast.parse(source.read_text(encoding="utf-8"))
 app = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "AutoBoxApp")
 methods = [n for n in app.body if isinstance(n, ast.FunctionDef)
-           and n.name in ("_reward_wait", "_recover_collection", "_collect_loop", "_track_box", "_game_click")]
+           and n.name in ("_reward_wait", "_recover_collection", "_collect_loop", "_track_box", "_game_click", "_ship_area_valid", "_ship_center", "_box_allowed")]
 
 class Clock:
     def __init__(self):
@@ -97,7 +97,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(self.bot._recover_collection())
         self.mouse.click.assert_not_called()
 
-    def run_loop(self, results, boxes=None, profile_id="interstellar"):
+    def run_loop(self, results, boxes=None, profile_id="interstellar", ship_region=None):
         self.bot.profile_id = profile_id
         self.ns["MAX_COLLECTION_TIMEOUTS"] = 3
         self.bot.template_path = SimpleNamespace(stat=lambda: SimpleNamespace(st_mtime_ns=1))
@@ -111,6 +111,7 @@ class RecoveryTests(unittest.TestCase):
         frame.__getitem__ = Mock(return_value=frame)
         self.bot._screen_capture.return_value = (frame, {"left": 0, "top": 0})
         self.bot.region = {"left": 0, "top": 0, "width": 400, "height": 400}
+        self.bot.ship_region = ship_region or {"left": 180, "top": 180, "width": 40, "height": 40}
         self.bot.safe_region = {"left": 0}
         self.bot.threshold = .9
         self.bot.exit_event = threading.Event()
@@ -163,6 +164,12 @@ class RecoveryTests(unittest.TestCase):
         self.bot._choose_safe_point.assert_not_called()
         self.assertEqual(self.mouse.click.call_count, 2)
         self.assertGreaterEqual(self.clock.now, 2.5)
+
+    def test_krypton_selects_nearest_to_marked_ship_not_map_center(self):
+        self.run_loop(["stop"], boxes=[(150, 200, .91), (220, 200, .99)],
+                      profile_id="krypton",
+                      ship_region={"left": 80, "top": 180, "width": 40, "height": 40})
+        self.mouse.click.assert_called_once_with(150, 200)
 
     def test_three_timeouts_trigger_one_recovery(self):
         self.run_loop(["timeout", "timeout", "timeout"])

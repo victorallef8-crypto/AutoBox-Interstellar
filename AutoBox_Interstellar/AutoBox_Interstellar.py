@@ -310,7 +310,7 @@ class AutoBoxApp:
         self.coordinator = coordinator
         self.settings_path, self.template_path = profile_paths(profile_id)
         if coordinator is None:
-            root.title(APP_NAME + " - beta 3.5.2")
+            root.title(APP_NAME + " - beta 3.5.3")
             root.geometry("640x920")
 
         APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -318,11 +318,13 @@ class AutoBoxApp:
         self.region: dict | None = self.cfg.get("region")
         self.safe_region: dict | None = self.cfg.get("safe_region")
         self.notice_region: dict | None = self.cfg.get("notice_region")
+        self.ship_region: dict | None = self.cfg.get("ship_region")
         self.status = tk.StringVar(value="Aguardando configuracao")
         self.region_status = tk.StringVar(value="Nao selecionada")
         self.safe_status = tk.StringVar(value="Nao selecionada")
         self.notice_status = tk.StringVar(value="Nao selecionada")
         self.sample_status = tk.StringVar(value="Nao aprendida")
+        self.ship_status = tk.StringVar(value="Nao marcada")
         self.count = tk.IntVar(value=0)
         self.wait_var = tk.StringVar(value=str(self.cfg.get("wait", 5.0)))
         self.patrol_var = tk.StringVar(value=str(self.cfg.get("patrol_wait", 7.0)))
@@ -374,6 +376,7 @@ class AutoBoxApp:
             "region": self.region,
             "safe_region": self.safe_region,
             "notice_region": self.notice_region,
+            "ship_region": self.ship_region,
             "wait": self.wait_seconds,
             "patrol_wait": self.patrol_seconds,
             "threshold": self.threshold,
@@ -391,7 +394,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | " + self.profile["label"],
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.5.2 • Configuracao independente por jogo",
+        ttk.Label(frame, text="Beta 3.5.3 • Configuracao independente por jogo",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -408,6 +411,12 @@ class AutoBoxApp:
         ttk.Label(capture_box, textvariable=self.sample_status).grid(row=1, column=1, sticky="w", padx=(12, 0))
         ttk.Label(capture_box, textvariable=self.safe_status).grid(row=2, column=1, sticky="w", padx=(12, 0))
         ttk.Label(capture_box, textvariable=self.notice_status).grid(row=3, column=1, sticky="w", padx=(12, 0))
+        if self.profile_id == "krypton":
+            ttk.Button(capture_box, text="Marcar area da nave (sem boxes)",
+                       command=lambda: self._capture_selection("ship")).grid(
+                row=4, column=0, sticky="ew", pady=(7, 0))
+            ttk.Label(capture_box, textvariable=self.ship_status).grid(
+                row=4, column=1, sticky="w", padx=(12, 0))
         capture_box.columnconfigure(0, weight=1)
 
         control = ttk.LabelFrame(frame, text="2. Controles", padding=10)
@@ -481,7 +490,7 @@ class AutoBoxApp:
         if self.profile_id == "krypton":
             note = (
                 "Perfil separado do Interstellar. Aprenda uma box do Krypton e "
-                "marque as areas deste jogo. Use o titulo correto da janela. "
+                "marque as areas deste jogo, incluindo a nave. Use o titulo correto da janela. "
                 "F8 inicia; F9 pausa; F10 para. Trocar de aba interrompe a coleta. "
                 "Renascimento e deteccoes especificas do Interstellar nao sao usados aqui."
             )
@@ -505,6 +514,7 @@ class AutoBoxApp:
         self.sample_status.set("Box aprendida ✓" if self.template_path.exists() else "Nao aprendida")
         self.safe_status.set("Area segura marcada ✓" if self.safe_region else "Nao selecionada")
         self.notice_status.set("Mensagens marcadas ✓" if self.notice_region else "Nao selecionada")
+        self.ship_status.set("Nave marcada ✓" if self._ship_area_valid(self.region) else "Marque a nave")
 
     def apply_settings(self, silent=False):
         try:
@@ -628,6 +638,8 @@ class AutoBoxApp:
                 hint = "ARRASTE um retangulo apenas na area espacial do mapa"
             elif mode == "safe":
                 hint = "ARRASTE so no CENTRO SEGURO do minimapa (sem bordas)"
+            elif mode == "ship":
+                hint = "ARRASTE um retangulo justo ao redor da NAVE, sem boxes"
             elif mode == "notice":
                 hint = "ARRASTE so a area das mensagens de coleta (sem HUD ou nave)"
             else:
@@ -649,7 +661,7 @@ class AutoBoxApp:
                 start[0] = (event.x, event.y)
 
             def move(event):
-                if mode in ("region", "safe", "notice") and start[0]:
+                if mode in ("region", "safe", "notice", "ship") and start[0]:
                     if box[0] is not None:
                         canvas.delete(box[0])
                     box[0] = canvas.create_rectangle(
@@ -660,7 +672,7 @@ class AutoBoxApp:
                 if start[0] is None:
                     return
                 x0, y0 = start[0]
-                if mode in ("region", "safe", "notice"):
+                if mode in ("region", "safe", "notice", "ship"):
                     x1, x2 = sorted((x0, event.x))
                     y1, y2 = sorted((y0, event.y))
                     if mode == "region" and x2 - x1 >= 150 and y2 - y1 >= 150:
@@ -675,6 +687,17 @@ class AutoBoxApp:
                             self.safe_region = {"left": left + x1, "top": top + y1,
                                                 "width": x2 - x1, "height": y2 - y1}
                             self._save_config()
+                    elif mode == "ship" and x2 - x1 >= 20 and y2 - y1 >= 20:
+                        selected = {"left": left + x1, "top": top + y1,
+                                    "width": x2 - x1, "height": y2 - y1}
+                        old_area = self.ship_region
+                        self.ship_region = selected
+                        if self._ship_area_valid(self.region):
+                            self._save_config()
+                            self.status.set("Area da nave salva. Novos boxes nao serao clicados aqui.")
+                        else:
+                            self.ship_region = old_area
+                            self.status.set("Marque primeiro o mapa e depois apenas a nave dentro dele.")
                     elif mode == "notice" and x2 - x1 >= 65 and y2 - y1 >= 25:
                         self.notice_region = {"left": left + x1, "top": top + y1,
                                               "width": x2 - x1, "height": y2 - y1}
@@ -708,6 +731,9 @@ class AutoBoxApp:
             return
         if not self.region or not self.template_path.exists():
             messagebox.showinfo("Falta calibrar", "Selecione a area do mapa e aprenda uma box primeiro.")
+            return
+        if self.profile_id == "krypton" and not self._ship_area_valid(self.region):
+            messagebox.showinfo("Marcar a nave", "Clique em Marcar area da nave e selecione apenas a nave dentro do mapa.")
             return
         if not self.apply_settings():
             return
@@ -907,9 +933,44 @@ class AutoBoxApp:
             pyautogui.mouseUp(button="left")
         return True
 
+    def _ship_area_valid(self, region):
+        area = getattr(self, "ship_region", None)
+        if not area or not region:
+            return False
+        try:
+            values = [area[k] for k in ("left", "top", "width", "height")]
+            if not all(isinstance(value, (int, float)) for value in values):
+                return False
+            return (20 <= area["width"] <= region["width"] / 2 and
+                    20 <= area["height"] <= region["height"] / 2 and
+                    region["left"] <= area["left"] and region["top"] <= area["top"] and
+                    area["left"] + area["width"] <= region["left"] + region["width"] and
+                    area["top"] + area["height"] <= region["top"] + region["height"])
+        except (KeyError, TypeError):
+            return False
+
+    def _ship_center(self, region):
+        if self.profile_id == "krypton" and self._ship_area_valid(region):
+            area = self.ship_region
+            return (area["left"] + area["width"] / 2 - region["left"],
+                    area["top"] + area["height"] / 2 - region["top"])
+        return region["width"] / 2, region["height"] / 2
+
+    def _box_allowed(self, point, region):
+        if self.profile_id != "krypton":
+            return True
+        if not self._ship_area_valid(region):
+            return False
+        x, y = region["left"] + point[0], region["top"] + point[1]
+        area = self.ship_region
+        return not (area["left"] - 4 <= x <= area["left"] + area["width"] + 4 and
+                    area["top"] - 4 <= y <= area["top"] + area["height"] + 4)
+
     def _click_current_box(self, sct, sample, region, target):
         """Revalida um alvo localmente antes de clicar; nao usa posicao antiga."""
         x, y = target
+        if not self._box_allowed(target, region):
+            return None
         left, top = max(0, x - 60), max(0, y - 60)
         right = min(region["width"], x + 61)
         bottom = min(region["height"], y + 61)
@@ -928,7 +989,8 @@ class AutoBoxApp:
             nearby = [(px + left, py + top, confidence)
                       for px, py, confidence in matches
                       if (px + left - expected[0]) ** 2 +
-                         (py + top - expected[1]) ** 2 <= radius ** 2]
+                         (py + top - expected[1]) ** 2 <= radius ** 2
+                      and self._box_allowed((px + left, py + top), region)]
             if not nearby:
                 return None
             best = min(nearby, key=lambda p: (p[0] - expected[0]) ** 2 +
@@ -952,6 +1014,8 @@ class AutoBoxApp:
         (x, y, score), frame, monitor = current
         if not self._ready_to_click() or self.region != region:
             return None
+        if not self._box_allowed((x, y), region):
+            return None
         if not self._game_click(region["left"] + x, region["top"] + y):
             return None
         return x, y, score, frame, monitor
@@ -967,10 +1031,12 @@ class AutoBoxApp:
             if (self.profile_id == "interstellar" and radiation_visible(frame)) or (find_death_panel(frame) if self.profile_id == "interstellar" else None) is not None:
                 return
             crop = self._screen_area(frame, monitor, self.region)
-            if crop is not None and locate_boxes(crop, sample, threshold=self.threshold,
-                                   require_bright=self.profile_id == "interstellar"):
-                self.events.put(("status", "Box encontrada durante a ronda. Conferindo a posicao..."))
-                return
+            if crop is not None:
+                found = locate_boxes(crop, sample, threshold=self.threshold,
+                                     require_bright=self.profile_id == "interstellar")
+                if any(self._box_allowed((x, y), self.region) for x, y, _ in found):
+                    self.events.put(("status", "Box encontrada durante a ronda. Conferindo a posicao..."))
+                    return
 
     def _track_box(self, frame, monitor, sample, region, point):
         """Acompanha apenas um alvo proximo da ultima posicao conhecida."""
@@ -986,7 +1052,8 @@ class AutoBoxApp:
         matches = locate_boxes(crop, sample, threshold=self.threshold,
                                    require_bright=self.profile_id == "interstellar")
         nearby = sorted(((px + left, py + top, score) for px, py, score in matches
-                         if (px + left - x) ** 2 + (py + top - y) ** 2 <= 60 ** 2),
+                         if (px + left - x) ** 2 + (py + top - y) ** 2 <= 60 ** 2
+                         and self._box_allowed((px + left, py + top), region)),
                         key=lambda p: (p[0] - x) ** 2 + (p[1] - y) ** 2)
         if not nearby:
             return None
@@ -1010,9 +1077,15 @@ class AutoBoxApp:
         hard_deadline = began + min(90.0, max(30.0, self.wait_seconds * 3))
         tracked = target
         self.last_tracked_target = target
-        best_distance = (((target[0] - region["width"] / 2) ** 2 +
-                          (target[1] - region["height"] / 2) ** 2) ** .5
+        origin = self._ship_center(region) if region is not None else None
+        best_distance = (((target[0] - origin[0]) ** 2 +
+                          (target[1] - origin[1]) ** 2) ** .5
                          if target is not None and region is not None else None)
+        arrival_radius = 70
+        if self.profile_id == "krypton" and self._ship_area_valid(region):
+            area = self.ship_region
+            arrival_radius = max(70, ((area["width"] / 2) ** 2 +
+                                      (area["height"] / 2) ** 2) ** .5 + 30)
         last_progress = began
         last_retry = began
         retries = 0
@@ -1052,7 +1125,7 @@ class AutoBoxApp:
                     next_track = now + .3
                     current_target = self._track_box(frame, current_monitor, sample, region, tracked)
                     if current_target is None:
-                        missing_near_ship = missing_near_ship + 1 if best_distance <= 70 else 0
+                        missing_near_ship = missing_near_ship + 1 if best_distance <= arrival_radius else 0
                         if missing_near_ship >= 2 and departure_deadline is None:
                             departure_deadline = now + .35
                     else:
@@ -1061,8 +1134,8 @@ class AutoBoxApp:
                         tracked = current_target
                         self.last_tracked_target = tracked
                         target_x = region["left"] + tracked[0] - current_monitor["left"]
-                        distance = ((tracked[0] - region["width"] / 2) ** 2 +
-                                    (tracked[1] - region["height"] / 2) ** 2) ** .5
+                        distance = ((tracked[0] - origin[0]) ** 2 +
+                                    (tracked[1] - origin[1]) ** 2) ** .5
                         if distance < best_distance - 4:
                             best_distance = distance
                             last_progress = now
@@ -1072,7 +1145,7 @@ class AutoBoxApp:
                                 announced = True
                         # Um destino de tela pode ficar desatualizado enquanto a camera move.
                         # Retenta somente este alvo, ainda visivel e longe da nave.
-                        if (self.profile_id == "krypton" and distance > 70 and
+                        if (self.profile_id == "krypton" and distance > arrival_radius and
                                 now - last_progress >= 1.0 and now - last_retry >= 1.2 and
                                 retries < 2 and consecutive == 0):
                             last_retry = now
@@ -1204,11 +1277,8 @@ class AutoBoxApp:
                     now = time.monotonic()
                     recent_ttl = 2.5 if self.profile_id == "krypton" else 18.0
                     recent = [(x, y, t) for x, y, t in recent if now - t <= recent_ttl]
-                    if self.profile_id == "krypton":
-                        # Pequena zona sobre a nave evita redetecta-la como um box.
-                        cx, cy = region["width"] / 2, region["height"] / 2
-                        boxes = [(x, y, score) for x, y, score in boxes
-                                 if (x - cx) ** 2 + (y - cy) ** 2 > 24 ** 2]
+                    boxes = [(x, y, score) for x, y, score in boxes
+                             if self._box_allowed((x, y), region)]
                     candidates = [
                         (x, y, score) for x, y, score in boxes
                         if all((x - rx) ** 2 + (y - ry) ** 2 > 35 ** 2 for rx, ry, _ in recent)
@@ -1223,9 +1293,9 @@ class AutoBoxApp:
 
                     if candidates:
                         missed = 0
-                        # A camera acompanha a nave: a referencia e sempre o
-                        # centro atual da area espacial, nunca o clique anterior.
-                        center = (region["width"] / 2, region["height"] / 2)
+                        # Usa a posicao calibrada da nave no Krypton,
+                        # nunca as coordenadas antigas do clique anterior.
+                        center = self._ship_center(region)
                         candidates.sort(key=lambda p: (
                             (p[0] - center[0]) ** 2 + (p[1] - center[1]) ** 2,
                             -p[2], p[0], p[1]))
@@ -1297,7 +1367,7 @@ class AutoBoxWindow:
         self.root = root
         self.apps = {}
         self.active_app = None
-        root.title(APP_NAME + " - beta 3.5.2")
+        root.title(APP_NAME + " - beta 3.5.3")
         root.geometry("660x" + str(min(970, root.winfo_screenheight() - 90)))
         root.minsize(590, min(780, root.winfo_screenheight() - 90))
         self.notebook = ttk.Notebook(root)
