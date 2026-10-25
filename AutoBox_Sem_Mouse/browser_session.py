@@ -8,6 +8,8 @@ import re
 import time
 from urllib.parse import urlsplit
 
+TRAVEL_SCRIPT = "async t => {\n const renderer=window.PeriodWindows?.renderer;\n const s=renderer?.state, nav=window.DarkOrbitNavigation, model=window.DarkOrbitStarSystemModel;\n if(!s?.me||!s.map||typeof model?.courseState!=='function'||typeof nav?.course!=='function'||typeof nav?.jump!=='function')\n   throw Error('Navegação do cliente indisponível. Exporte a integração atual em Avançado.');\n if(s.me.mapId!==t.map||s.me.respawnRevision!==t.respawn_revision) return {action:'wait'};\n if(s.me.deadUntil||s.me.hp<=0||!s.me.maxHp||s.me.hp/s.me.maxHp<=.25) return {action:'blocked',reason:'Recupere a vida antes de viajar.'};\n if(s.me.attacking||s.me.secondaryVolley) return {action:'blocked',reason:'Pare o ataque antes de viajar.'};\n if(s.me.pendingJump) return {action:'wait'};\n if(s.me.mapId===t.destination) return {action:'arrived',map:s.me.mapId};\n const course=model.courseState(s,t.destination);\n if(!course||course.disabled||!course.nextGate)\n   return {action:'blocked',reason:String(course?.reason||'Nenhuma rota permitida para esse mapa.').slice(0,180)};\n const gate=s.map.gates?.find(g=>g.id===course.nextGate.id);\n if(!gate||gate.galaxy||!Number.isFinite(gate.x)||!Number.isFinite(gate.y)||typeof gate.to!=='string')\n   return {action:'blocked',reason:'Portal normal da rota não confirmado.'};\n const access=window.DarkOrbitMaps?.access?.(gate.to,s.me);\n if(!access?.allowed) return {action:'blocked',reason:String(access?.reason||'Acesso ao próximo mapa não confirmado.').slice(0,180)};\n const distance=Math.hypot(gate.x-s.me.x,gate.y-s.me.y);\n if(!Number.isFinite(distance)) throw Error('Posição indisponível.');\n const result={action:'route',map:s.me.mapId,next_map:gate.to,gate:gate.id,distance};\n if(!t.execute) return result;\n if(distance<=80){await nav.jump(gate.id);return {...result,action:'jump'};}\n nav.course(t.destination);\n return {...result,action:'move'};\n}"
+
 HOME_URL = "https://interstellar-verse.com/"
 GAME_URL = "https://interstellar-verse.com/play/#play"
 
@@ -55,12 +57,12 @@ class UnsupportedWorldPatch(ValueError):
 
 class WorldFeed:
     """Reconstrucao somente de campos de navegacao; nao guarda tokens nem chat."""
-    ROOT = {"map", "world", "me", "boxes", "npcs", "events", "time"}
+    ROOT = {"map", "world", "me", "boxes", "npcs", "events", "time", "inputAck"}
     LISTS = (("boxes",),("npcs",),("map","gates"),("events",),("me","repairChoices","options"))
     ME = {"x","y","speed","hp","maxHp","shield","maxShield","moving","destination",
-          "mapId","deadUntil","respawnRevision","targetId","attacking","repairing","inputSeq","achievements","credits","uridium","xp","honor","galaxyGates","repairChoices"}
+          "mapId","deadUntil","respawnRevision","targetId","attacking","repairing","inputSeq","achievements","credits","uridium","xp","honor","galaxyGates","repairChoices","selectedAmmo","ammo","selectedRocket","rockets","autoRocket","secondaryVolley"}
     MAP = {"id","width","height","gates"}
-    ENTITY = {"id","revision","x","y","type","kind","hp","maxHp"}
+    ENTITY = {"id","revision","x","y","type","kind","hp","maxHp","shield","maxShield","respawnRevision"}
     def __init__(self, clock=None):
         self.clock = clock or time.monotonic
         self.lock = threading.RLock()
@@ -254,6 +256,10 @@ class WorldFeed:
                 isinstance(b.get("id"),str) and self._number(b.get("x")) and self._number(b.get("y")) and
                 0<=b["x"]<=self.state["map"].get("width",self.state.get("world",{}).get("width",0)) and
                 0<=b["y"]<=self.state["map"].get("height",self.state.get("world",{}).get("height",0))]
+            result["npc_candidates"]=[dict(n) for n in self.state.get("npcs",[]) if
+                isinstance(n.get("id"),(str,int)) and self._number(n.get("x")) and self._number(n.get("y"))]
+            result["combat"]={k:me.get(k) for k in ("attacking","selectedAmmo","ammo","selectedRocket","rockets","autoRocket","secondaryVolley")}
+            result["combat"]["target_id"]=me.get("targetId") if any(str(n.get("id"))==str(me.get("targetId")) for n in self.state.get("npcs",[])) else None
             result["gates"]=[dict(g) for g in self.state["map"].get("gates",[])]
             result["account"]={k:me.get(k) for k in ("credits","uridium","xp","honor")}
             xp=me.get("xp")
@@ -367,6 +373,113 @@ class ManualCollectProbe:
                     "data_fresh":current.get("fresh",False),"observed_box_increment":increment,
                     "automatic_commands_sent":0,"reader":self.feed.diagnostic()}
 
+class CombatProbe:
+    """Registro limitado por índice do transporte, inclusive ataques sem inputSeq."""
+    def __init__(self, feed, clock=None):
+        self.feed=feed; self.clock=clock or time.monotonic
+        self.lock=threading.RLock()
+        self.until=0; self.armed=False; self.started=0
+        self.highest=None; self.commands=[]; self.frames=[]; self.last_frame=-1.
+        self.initial=None; self.status="Registre uma luta manual para validar o combate."
+
+    def arm(self):
+        with self.lock:
+            snapshot=self.feed.navigation_snapshot()
+            if not snapshot.get("fresh") or snapshot.get("dead"):
+                raise ValueError("Entre no mapa com a nave viva e aguarde a leitura ao vivo.")
+            with self.feed.lock:
+                ack=(self.feed.state or {}).get("inputAck")
+            self.baseline_observed=self.highest is not None
+            self.commands=[]; self.frames=[]; self.last_frame=-1.
+            self.initial={"map":snapshot["map"],"transport_baseline_observed":self.baseline_observed,"input_ack":ack,"hp_percent":snapshot.get("hp_percent"),
+                          "account":snapshot.get("account",{}),"combat":snapshot.get("combat",{})}
+            self.started=self.clock(); self.until=self.started+90; self.armed=True
+            self.status="Gravando por 90 segundos: selecione um NPC, ataque, pare e ataque novamente."
+            self.sample()
+
+    def stop(self, reason="Registro encerrado. Copie o diagnóstico da luta."):
+        with self.lock:
+            self.until=0; self.armed=False; self.status=reason
+
+    def sample(self):
+        with self.lock:
+            if not self.armed: return
+            now=self.clock()
+            if now>=self.until:
+                self.stop(); return
+            if now-self.last_frame<1: return
+            self.last_frame=now
+            data=self.feed.navigation_snapshot()
+            if not data.get("fresh"):
+                self.stop("Leitura interrompida durante a luta. Copie o diagnóstico."); return
+            if data.get("map")!=self.initial["map"]:
+                self.stop("Mapa mudou. Registro encerrado; copie o diagnóstico."); return
+            combat=data.get("combat",{})
+            target=next((n for n in data.get("npc_candidates",[]) if str(n.get("id"))==str(combat.get("target_id"))),None)
+            self.frames.append({"seconds":round(now-self.started,2),"position":data.get("position"),
+                "hp_percent":data.get("hp_percent"),"dead":data.get("dead",False),
+                "combat":combat,"target_npc":target,"account":data.get("account",{})})
+            self.frames=self.frames[-90:]
+
+    def observe(self, text):
+        try:
+            if not isinstance(text,str) or len(text)>200000: return
+            packet=json.loads(text)
+            if packet.get("inputTransport")!="cumulative-input-v1": return
+            start=packet.get("inputStart"); commands=packet.get("commands")
+            if type(start) is not int or not isinstance(commands,list): return
+            with self.lock:
+                recording=self.armed and self.clock()<self.until
+                snapshot=self.feed.navigation_snapshot()
+                ids={str(n["id"]) for n in snapshot.get("npc_candidates",[])}
+                for index,command in enumerate(commands[:256]):
+                    number=start+index
+                    if self.highest is not None and number<=self.highest: continue
+                    self.highest=number
+                    if not recording or not isinstance(command,dict): continue
+                    values={}
+                    for key in ("attacking","repairing","rocket","autoRocket","launcher","autoLauncher"):
+                        if type(command.get(key)) is bool: values[key]=command[key]
+                    for key in ("selectedAmmo","selectedRocket","selectedLauncherAmmo"):
+                        value=command.get(key)
+                        if isinstance(value,str) and re.fullmatch(r"[a-zA-Z0-9_-]{1,32}",value):
+                            values[key]=value
+                    if "targetId" in command:
+                        values["targetId"]=command["targetId"] if str(command["targetId"]) in ids else "not_npc"
+                    dest=command.get("destination")
+                    if isinstance(dest,dict) and all(WorldFeed._number(dest.get(k)) for k in ("x","y")):
+                        values["destination"]={k:dest[k] for k in ("x","y")}
+                    elif "destination" in command and dest is None:
+                        values["destination"]=None
+                    if values:
+                        self.commands.append({"seconds":round(self.clock()-self.started,2),"values":values})
+                        self.commands=self.commands[-160:]
+                self.sample()
+        except (ValueError,TypeError,AttributeError,KeyError):
+            return
+
+    def report(self):
+        with self.lock:
+            self.sample()
+            values=[c["values"] for c in self.commands]
+            checks={"npc_selected":any(f.get("target_npc") for f in self.frames),
+                    "attack_started":any(v.get("attacking") is True for v in values),
+                    "attack_stopped":any(v.get("attacking") is False for v in values),
+                    "damage_observed":False}
+            health={}
+            for frame in self.frames:
+                npc=frame.get("target_npc")
+                if not npc or not WorldFeed._number(npc.get("hp")): continue
+                hp=npc["hp"]+(npc.get("shield") if WorldFeed._number(npc.get("shield")) else 0)
+                key=str(npc["id"])
+                if key in health and hp<health[key]: checks["damage_observed"]=True
+                health[key]=hp
+            return json.loads(json.dumps({"schema":"autobox-combat-probe-v1","status":self.status,
+                "recording":self.armed,"checks":checks,"initial":self.initial,
+                "commands":self.commands,"frames":self.frames,
+                "reader":self.feed.diagnostic(),"automatic_combat_commands_sent":0}))
+
+
 class BrowserSession:
     """Dono unico do navegador e da integracao com os dados do jogo."""
     def __init__(self, folder, viewport, factory=None):
@@ -382,6 +495,7 @@ class BrowserSession:
         self.thread = None
         self.world_feed = WorldFeed()
         self.probe = ManualCollectProbe(self.world_feed)
+        self.combat_probe = CombatProbe(self.world_feed)
         self.data_action = None
         self.data_actions_dispatched = 0
 
@@ -393,6 +507,7 @@ class BrowserSession:
         self.data_action = None
         self.world_feed.begin(None)
         self.probe = ManualCollectProbe(self.world_feed)
+        self.combat_probe = CombatProbe(self.world_feed)
         self.ready.clear()
         self.closed.clear()
         self.thread = threading.Thread(target=self._run, args=(executable,), daemon=True)
@@ -444,6 +559,9 @@ class BrowserSession:
                 try { const u=new URL(value,location.href);
                     return u.origin===location.origin && u.protocol==='https:' && u.pathname.endsWith('.js');
                 } catch { return false; }
+            }).sort((a,b)=>{
+                const rank=v=>/star-system|maps\\.js|input|bindings|quickbar|renderer|game\\.js/i.test(new URL(v).pathname)?0:1;
+                return rank(a)-rank(b);
             }).slice(0,24);
             return await Promise.all(urls.map(async value=>{
                 const u=new URL(value,location.href);
@@ -475,6 +593,19 @@ class BrowserSession:
         if not files:
             raise ValueError("Nenhum arquivo JavaScript disponivel. Entre no mapa pela janela dedicada.")
         return {"schema":"autobox-client-integration-v1","files":files}
+
+    def _travel(self, page, target, allowed):
+        snap=self.world_feed.navigation_snapshot()
+        destination=target.get("destination","")
+        if not isinstance(destination,str) or not re.fullmatch(r"[0-9]{1,2}-[0-9]{1,2}",destination):
+            raise ValueError("Informe um mapa normal, por exemplo 4-3.")
+        if (not snap.get("fresh") or snap.get("dead") or snap.get("hp_percent") is None
+                or snap["hp_percent"]<=25):
+            raise ValueError("Viagem pausada: dados indisponíveis, nave destruída ou vida baixa.")
+        if snap["map"]==destination: return {"action":"arrived","map":destination}
+        if allowed is not None and not allowed(): return {"action":"cancelled"}
+        return page.evaluate(TRAVEL_SCRIPT,{"destination":destination,"map":snap["map"],
+            "respawn_revision":snap.get("respawn_revision"),"execute":target.get("execute",False)})
 
     def _respawn(self, page, target, allowed):
         snap=self.world_feed.navigation_snapshot()
@@ -568,13 +699,17 @@ class BrowserSession:
                 if (url.scheme=="https" and url.hostname=="interstellar-verse.com"
                         and url.path.rstrip("/").endswith("/input")):
                     self.probe.observe(request.get("postData"))
+                    self.combat_probe.observe(request.get("postData"))
                 if (url.scheme=="https" and url.hostname=="interstellar-verse.com"
                         and url.path.rstrip("/").endswith("/events")):
+                    if self.combat_probe.armed:
+                        self.combat_probe.stop("Conexão mudou durante o registro. Copie o diagnóstico.")
                     self.world_feed.begin((id(page),event.get("requestId")))
                     self.probe = ManualCollectProbe(self.world_feed)
             def received(event):
                 if event.get("eventName") not in (None,"message",""): return
                 self.world_feed.ingest((id(page),event.get("requestId")),event.get("data"))
+                self.combat_probe.sample()
             def ended(event):
                 self.world_feed.end((id(page),event.get("requestId")))
             client.on("Network.requestWillBeSent",started)
@@ -655,7 +790,9 @@ class BrowserSession:
                         if allowed is not None and not allowed():
                             reply.put((True, False))
                             continue
-                        if operation == "respawn":
+                        if operation == "travel":
+                            result = self._travel(page,payload,allowed)
+                        elif operation == "respawn":
                             result = self._respawn(page,payload,allowed)
                         elif operation == "data_target":
                             result = self._data_target(page,payload,allowed)

@@ -1,6 +1,6 @@
 {
-  "version": "0.6.1",
+  "version": "0.7.0",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "96f92b90737fa9e2c9617a59061b8de97e4543b2e06d0e92bf051d15456cca13",
-  "notes": "Somente coleta por dados. Removidos modo imagem, calibração, teste de clique e dependências de reconhecimento visual."
+  "sha256": "2e39cfa722929ab4dc332af919e48af5a3b37e60ec5983605d97c8048d35eade",
+  "notes": "Abas Coleta e Kill NPC; viagem por portais ao mapa escolhido; registro manual de combate. Ataque automático ainda em validação."
 }

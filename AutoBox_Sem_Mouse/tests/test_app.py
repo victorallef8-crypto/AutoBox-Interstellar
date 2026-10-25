@@ -80,10 +80,10 @@ class AppTests(unittest.TestCase):
         self.app.stop_event.clear(); self.app.pause()
         self.assertTrue(self.app.stop_event.is_set())
     def test_only_implemented_modes_are_available(self):
-        self.assertEqual(len(self.app.notebook.tabs()),3)
-        for key in ("dashboard","data","advanced"):
+        self.assertEqual(len(self.app.notebook.tabs()),4)
+        for key in ("dashboard","data","combat","advanced"):
             self.assertEqual(self.app.notebook.tab(self.app.pages[key],"state"),"normal")
-        self.assertNotIn("combat",self.app.pages)
+        self.assertIn("combat",self.app.pages)
 
     def test_data_tab_contains_status_fields_and_diagnostic_buttons(self):
         def descendants(widget):
@@ -98,6 +98,31 @@ class AppTests(unittest.TestCase):
         bindings=[str(w.cget("textvariable")) for w in widgets if "textvariable" in w.keys()]
         for variable in self.app.world_vars.values():
             self.assertIn(str(variable),bindings)
+
+    def test_kill_npc_page_has_manual_recording_and_separate_destination(self):
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+        texts=[str(w.cget("text")) for w in descendants(self.app.pages["combat"]) if "text" in w.keys()]
+        self.assertIn("Registrar luta manual (90 segundos)",texts)
+        self.assertIn("Copiar diagnóstico da luta",texts)
+        self.assertIn("Ir ao mapa",texts)
+        self.assertIsNot(self.app.collect_map,self.app.npc_map)
+        self.assertFalse(any("Iniciar combate" in text for text in texts))
+
+    def test_destination_settings_are_independent_and_invalid_map_is_rejected(self):
+        previous=(self.app.collect_map.get(),self.app.npc_map.get())
+        try:
+            self.app.collect_map.set("1-2"); self.app.npc_map.set("4-3")
+            self.assertTrue(self.app.save())
+            self.assertEqual(self.app.cfg["collect_map"],"1-2")
+            self.assertEqual(self.app.cfg["npc_map"],"4-3")
+            self.app.npc_map.set("https://example.com")
+            self.assertFalse(self.app.save())
+        finally:
+            self.app.collect_map.set(previous[0]); self.app.npc_map.set(previous[1])
+            self.app.save()
 
     def test_active_time_excludes_pauses_and_repeated_start_events(self):
         previous=(self.app.running,self.app.active_started,self.app.active_elapsed)

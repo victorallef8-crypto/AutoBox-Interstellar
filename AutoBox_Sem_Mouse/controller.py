@@ -84,6 +84,71 @@ class DataFarmPlanner:
         return dict(result,phase="approach",reason="Aproximar da box selecionada; manter o mesmo ID.")
 
 
+class MapTravel:
+    """Usa a rota calculada pelo cliente; não mantém um grafo inventado."""
+    def __init__(self, session, stop, emit, destination, clock=None):
+        self.session=session; self.stop=stop; self.emit=emit; self.destination=destination
+        self.clock=clock or time.monotonic
+        self.key=None; self.best=float("inf"); self.progress=0
+        self.started=None; self.next_action=0; self.last_status=None
+
+    def step(self, snapshot):
+        if self.stop.is_set(): return False
+        if not snapshot.get("fresh"): raise ValueError("Aguardando dados atuais para viajar.")
+        if snapshot.get("dead") or snapshot.get("hp_percent") is None or snapshot["hp_percent"]<=25:
+            raise ValueError("Recupere a nave antes de viajar.")
+        if not self.destination or snapshot["map"]==self.destination: return True
+        now=self.clock()
+        if self.started is None: self.started=now
+        if now-self.started>600: raise ValueError("Viagem excedeu 10 minutos. Confira a rota no jogo.")
+        route=self.session.request("travel",{"destination":self.destination,"execute":False},
+                                   allowed=lambda:not self.stop.is_set())
+        if self.stop.is_set() or not route: return False
+        action=route.get("action")
+        if action=="arrived": return True
+        if action=="blocked": raise ValueError(route.get("reason","Rota indisponível."))
+        if action in ("wait","cancelled"): return False
+        if action!="route": raise ValueError("Resposta de navegação inesperada.")
+        key=(route.get("map"),route.get("gate"))
+        distance=route.get("distance")
+        if type(distance) not in (int,float) or not isfinite(distance): raise ValueError("Distância do portal indisponível.")
+        if key!=self.key:
+            self.key=key; self.best=float("inf"); self.progress=now; self.next_action=0
+        if distance<self.best-10: self.best=distance; self.progress=now
+        if now-self.progress>30: raise ValueError("Sem progresso até o portal. Viagem pausada.")
+        status=(key,route.get("next_map"))
+        if status!=self.last_status:
+            self.emit("status","Viajando para "+self.destination+" — próximo portal: "+str(route.get("next_map")))
+            self.last_status=status
+        if now>=self.next_action and not self.stop.is_set():
+            result=self.session.request("travel",{"destination":self.destination,"execute":True},
+                                        allowed=lambda:not self.stop.is_set())
+            self.next_action=now+8
+            if result and result.get("action")=="blocked":
+                raise ValueError(result.get("reason","Viagem bloqueada."))
+        return False
+
+
+class TravelWorker:
+    def __init__(self,session,stop,emit,destination):
+        self.session=session; self.stop=stop; self.emit=emit
+        self.travel=MapTravel(session,stop,emit,destination)
+
+    def run(self):
+        self.emit("status","Iniciando viagem. F9/F10 cancelam os próximos comandos.")
+        try:
+            while not self.stop.is_set():
+                if self.travel.step(self.session.get_world_snapshot()):
+                    self.emit("status","Chegou ao mapa "+self.travel.destination+".")
+                    return
+                if self.stop.wait(.5): break
+        except Exception as exc:
+            self.emit("status","Viagem pausada: "+str(exc))
+        finally:
+            self.stop.set()
+            self.emit("running",False)
+
+
 class DataCollector:
     """Executa um alvo por vez pela interface do cliente; nao monta pacotes HTTP."""
     def __init__(self, session, stop_event, emit, clock=None, settings=None):
@@ -92,6 +157,8 @@ class DataCollector:
         self.session=session; self.stop=stop_event; self.emit=emit
         self.clock=clock or time.monotonic
         self.planner=DataFarmPlanner(arrival_radius=180, include_green=self.settings.get("green",False))
+        self.travel=MapTravel(session,stop_event,emit,self.settings.get("farm_map",""),self.clock)
+        self.travelling=False
 
     def run(self):
         last_status=None; attempted=None
@@ -158,6 +225,22 @@ class DataCollector:
                         self.emit("status","Renascimento concluído. Recupere a vida antes de iniciar novamente.")
                         break
                     self.emit("running",True)
+                destination=self.settings.get("farm_map","")
+                if destination and snapshot.get("fresh") and snapshot.get("map")!=destination:
+                    if not self.travelling:
+                        self.travel=MapTravel(self.session,self.stop,self.emit,destination,self.clock)
+                        self.emit("running",False)
+                        self.travelling=True
+                    self.planner.reset()
+                    self.travel.step(snapshot)
+                    if self.stop.wait(.5): break
+                    continue
+                if self.travelling:
+                    self.planner.reset()
+                    self.travelling=False
+                    attempted=None
+                    self.emit("running",True)
+                    self.emit("status","Mapa de coleta alcançado. Procurando boxes.")
                 decision=self.planner.step(snapshot,now)
                 phase=decision["phase"]
                 status=(phase,decision.get("target_id"))

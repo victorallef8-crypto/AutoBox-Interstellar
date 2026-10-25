@@ -4,6 +4,7 @@ import ctypes
 import json
 import os
 import queue
+import re
 import threading
 import time
 import tkinter as tk
@@ -11,7 +12,7 @@ from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
-from controller import DataFarmPlanner, DataCollector, SessionEarnings
+from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker
 import updater
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxSemMouse"
@@ -59,6 +60,11 @@ class AutoBoxSemMouse:
                            ("status","map","position","hp","counts","nearest","distance","sequence")}
         self.world_vars["status"].set("Abra o Opera dedicado e entre no mapa.")
         self.last_world_refresh = -100.
+        self.collect_map=tk.StringVar(value=self.cfg.get("collect_map",""))
+        self.npc_map=tk.StringVar(value=self.cfg.get("npc_map",""))
+        self.combat_status=tk.StringVar(value="Primeiro registre uma luta manual. Ataque automático ainda não liberado.")
+        self.combat_report_status=tk.StringVar(value="Registro ainda não iniciado.")
+        self.map_boxes=[]
         self.green = tk.BooleanVar(value=self.cfg.get("green",False))
         self.reconnect = tk.BooleanVar(value=self.cfg.get("reconnect",True))
         self.respawn = tk.StringVar(value=self.cfg.get("respawn","Desativado"))
@@ -77,6 +83,7 @@ class AutoBoxSemMouse:
         root.minsize(760,min(620,root.winfo_screenheight()-80))
         self._draw()
         self._draw_world_page()
+        self._draw_combat_page()
         self._bind_keys()
         root.after(100, self._drain)
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -154,7 +161,7 @@ class AutoBoxSemMouse:
         self.notebook = ttk.Notebook(shell)
         self.notebook.pack(fill="both", expand=True)
         self.pages = {}
-        for key, title in (("dashboard","Painel"),("data","Dados e coleta"),("advanced","Avançado")):
+        for key, title in (("dashboard","Painel"),("data","Coleta"),("combat","Kill NPC"),("advanced","Avançado")):
             page=ttk.Frame(self.notebook)
             self.pages[key]=page
             self.notebook.add(page,text=title)
@@ -214,6 +221,7 @@ class AutoBoxSemMouse:
 
     def _draw_world_page(self):
         body = self._scroll_page(self.pages["data"])
+        self._map_controls(body,self.collect_map,"coleta")
         ttk.Label(body,text="Dados ao vivo do jogo",style="Heading.TLabel").pack(anchor="w")
         ttk.Label(body,text="Coleta por ID e coordenadas. F8 inicia; F9 pausa.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=(4,12))
@@ -259,6 +267,82 @@ class AutoBoxSemMouse:
         ttk.Label(body,text="Abra o jogo pela aba Navegador e entre no mapa. A leitura é automática. Se pedir um estado completo, recarregue a janela dedicada uma vez com o bot pausado.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w",pady=12)
 
+
+    def _map_controls(self, parent, variable, mode):
+        frame=ttk.LabelFrame(parent,text="Mapa de "+mode,padding=10)
+        frame.pack(fill="x",pady=(0,10))
+        ttk.Label(frame,text="Destino (vazio = mapa atual)").grid(row=0,column=0,sticky="w")
+        box=ttk.Combobox(frame,textvariable=variable,width=16)
+        box.grid(row=0,column=1,sticky="ew",padx=8)
+        self.map_boxes.append(box)
+        ttk.Button(frame,text="Ir ao mapa",command=lambda:self.start_trip(variable.get())).grid(row=0,column=2)
+        ttk.Label(frame,text="Selecione um mapa da lista ou digite, por exemplo 4-3. A viagem usa portais normais.",
+                  style="Muted.TLabel",wraplength=650).grid(row=1,column=0,columnspan=3,sticky="w",pady=6)
+        ttk.Button(frame,text="Salvar mapa",command=self.save).grid(row=2,column=0,sticky="w")
+
+    def _draw_combat_page(self):
+        body=self._scroll_page(self.pages["combat"])
+        ttk.Label(body,text="Kill NPC — preparação do combate",style="Heading.TLabel").pack(anchor="w",pady=(0,8))
+        ttk.Label(body,textvariable=self.combat_status,wraplength=680).pack(anchor="w",pady=(0,10))
+        self._map_controls(body,self.npc_map,"NPC")
+        ttk.Label(body,text="NPCs presentes no mapa",style="Heading.TLabel").pack(anchor="w",pady=6)
+        self.npc_table=ttk.Treeview(body,columns=("kind","hp","distance"),show="headings",height=5)
+        for name,title,width in (("kind","Tipo de NPC",230),("hp","Vida",140),("distance","Distância",140)):
+            self.npc_table.heading(name,text=title)
+            self.npc_table.column(name,width=width,stretch=True)
+        self.npc_table.pack(fill="x",pady=6)
+        ttk.Label(body,text="Teste manual (até 90 segundos):\n1. Clique em Registrar luta.\n"
+            "2. No jogo, selecione um NPC fraco e ataque com a munição básica.\n"
+            "3. Pare o ataque uma vez e depois ataque novamente até derrotá-lo, se for seguro.\n"
+            "4. Clique em Encerrar registro e em Copiar diagnóstico da luta.",
+            wraplength=680).pack(anchor="w",pady=10)
+        ttk.Button(body,text="Registrar luta manual (90 segundos)",command=self.record_combat).pack(fill="x",pady=4)
+        ttk.Button(body,text="Encerrar registro",command=self.finish_combat_recording).pack(fill="x",pady=4)
+        ttk.Button(body,text="Copiar diagnóstico da luta",command=self.copy_combat_report).pack(fill="x",pady=4)
+        ttk.Label(body,textvariable=self.combat_report_status,wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
+        ttk.Label(body,text="O registro observa sua luta; não ataca por você. F8 continua iniciando a coleta de boxes.",
+                  wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
+
+    def record_combat(self):
+        self.stop_event.set()
+        if self.worker is not None and self.worker.is_alive():
+            self.root.after(100,self.record_combat)
+            return
+        try:
+            self.session.combat_probe.arm()
+            self.say("Coleta pausada. Registro iniciado: selecione um NPC e faça a luta manual.")
+        except ValueError as exc:
+            self.say(str(exc))
+
+    def finish_combat_recording(self):
+        self.session.combat_probe.stop()
+        self.combat_report_status.set(self.session.combat_probe.report()["status"])
+        self.say("Registro encerrado. Copie o diagnóstico da luta e cole no chat.")
+
+    def copy_combat_report(self):
+        report=self.session.combat_probe.report()
+        self.root.clipboard_clear()
+        self.root.clipboard_append(json.dumps(report,ensure_ascii=False,indent=2))
+        self.say("Diagnóstico da luta copiado. Cole no chat para validar o combate.")
+
+    def start_trip(self,destination):
+        destination=destination.strip()
+        if not destination:
+            self.say("Informe o mapa de destino para viajar.")
+            return
+        if not self.save(): return
+        if not self.session.ready.is_set():
+            self.say("Abra o jogo antes de viajar.")
+            return
+        if self.worker is not None and self.worker.is_alive():
+            self.stop_event.set()
+            self.root.after(100,lambda:self.start_trip(destination))
+            return
+        self.session.combat_probe.stop("Registro encerrado para iniciar viagem.")
+        self.stop_event=threading.Event()
+        engine=TravelWorker(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),destination)
+        self.worker=threading.Thread(target=engine.run,daemon=True)
+        self.worker.start()
 
     def record_manual_collect(self):
         self.stop_event.set()
@@ -306,6 +390,25 @@ class AutoBoxSemMouse:
         self.last_world_refresh=now
         data=self.session.get_world_snapshot() if self.session.ready.is_set() else {
             "fresh":False,"status":"Abra o Opera dedicado e entre no mapa."}
+        report=self.session.combat_probe.report()
+        checks=report.get("checks",{})
+        progress=" | ".join(label+(": sim" if checks.get(key) else ": falta") for key,label in (
+            ("npc_selected","NPC"),("attack_started","Ataque"),("attack_stopped","Parada"),("damage_observed","Dano")))
+        self.combat_report_status.set(report["status"]+"\n"+progress)
+        self.npc_table.delete(*self.npc_table.get_children())
+        if data.get("fresh"):
+            import math
+            origin=data["position"]
+            npcs=sorted(data.get("npc_candidates",[]),
+                        key=lambda n:math.hypot(n["x"]-origin[0],n["y"]-origin[1]))
+            for npc in npcs[:30]:
+                self.npc_table.insert("","end",values=(npc.get("kind") or npc.get("type") or "NPC",
+                    str(npc.get("hp","—"))+" / "+str(npc.get("maxHp","—")),
+                    "%.0f" % math.hypot(npc["x"]-origin[0],npc["y"]-origin[1])))
+            choices=sorted({data["map"],self.collect_map.get(),self.npc_map.get()} |
+                           {g["to"] for g in data.get("gates",[]) if isinstance(g.get("to"),str)})
+            choices=[v for v in choices if re.fullmatch(r"[0-9]{1,2}-[0-9]{1,2}",v)]
+            for box in self.map_boxes: box.configure(values=choices)
         for key,var in self.world_vars.items():
             var.set(data.get("status","Aguardando dados.") if key=="status" else "—")
         self.death_label.set("Mortes nesta sessão: "+str(self.death_state["count"]))
@@ -389,6 +492,11 @@ class AutoBoxSemMouse:
 
     def save(self):
         try:
+            for key,var in (("collect_map",self.collect_map),("npc_map",self.npc_map)):
+                value=var.get().strip()
+                if value and not re.fullmatch(r"[0-9]{1,2}-[0-9]{1,2}",value):
+                    raise ValueError("Mapa inválido. Use um código como 4-3 ou deixe vazio.")
+                self.cfg[key]=value
             deaths=int(self.max_deaths.get()); cost=int(self.max_cost.get())
             if not 1<=deaths<=100 or not 0<=cost<=100000:
                 raise ValueError("Mortes: 1 a 100; custo: 0 a 100000.")
@@ -458,10 +566,11 @@ class AutoBoxSemMouse:
         if snapshot.get("hp_percent") is None or snapshot["hp_percent"]<=25 or snapshot.get("dead"):
             self.say("Recupere a nave antes de iniciar a coleta por dados.")
             return
+        self.session.combat_probe.stop("Registro encerrado para iniciar coleta.")
         self.stop_event=threading.Event()
         self.earnings.observe(snapshot,False)
         engine=DataCollector(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
-                             settings={"green":self.green.get(),"reconnect":self.reconnect.get(),
+                             settings={"green":self.green.get(),"reconnect":self.reconnect.get(),"farm_map":self.cfg.get("collect_map",""),
                                  "respawn":{"Base":"base","Portal":"portal","Local":"spot"}.get(self.respawn.get()),
                                  "max_deaths":self.cfg["max_deaths"],"max_cost":self.cfg["max_cost"],
                                  "death_state":self.death_state})
