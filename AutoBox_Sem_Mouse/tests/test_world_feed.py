@@ -42,6 +42,52 @@ class FeedTests(unittest.TestCase):
         self.send()
         self.assertTrue(self.send(sequence=2,base=1,patch=["o",[["boxes",["v",[snapshot()["boxes"][0]]]]],[]]))
         self.assertEqual(self.feed.summary()["nearest"]["id"],"far")
+    def test_observed_array_format_updates_item_35_of_40(self):
+        full=snapshot()
+        full["boxes"]=[{"id":str(i),"x":500+i,"y":500,"revision":1} for i in range(40)]
+        self.send(full=full)
+        patch=["a",40,[[35,["o",[["x",["v",110]],["y",["v",100]],["revision",["v",2]]],[]]]]]
+        self.assertTrue(self.send(sequence=2,base=1,patch=["o",[["boxes",patch]],[]]))
+        self.assertEqual(self.feed.summary()["boxes"],40)
+        self.assertEqual(self.feed.summary()["nearest"]["id"],"35")
+        self.assertEqual(self.feed.summary()["nearest"]["revision"],2)
+        self.assertEqual(self.feed.state["boxes"][34]["x"],534)
+
+    def test_array_removal_and_append_keep_order_and_filter_private_fields(self):
+        self.send()
+        # A lista resultante tem um item: o item 1 ocupa o indice 0.
+        patch=["a",1,[[0,["v",snapshot()["boxes"][1]]]]]
+        self.assertTrue(self.send(sequence=2,base=1,patch=["o",[["boxes",patch]],[]]))
+        self.assertEqual([b["id"] for b in self.feed.state["boxes"]],["near"])
+        new={"id":"new","x":101,"y":100,"token":"secret-value"}
+        patch=["a",2,[[1,["v",new]]]]
+        self.assertTrue(self.send(sequence=3,base=2,patch=["o",[["boxes",patch]],[]]))
+        self.assertEqual(self.feed.summary()["nearest"]["id"],"new")
+        self.assertNotIn("secret-value",repr(self.feed.state))
+        self.assertTrue(self.send(sequence=4,base=3,patch=["o",[["boxes",["a",0,[]]]],[]]))
+        self.assertEqual(self.feed.summary()["boxes"],0)
+
+    def test_invalid_array_patches_discard_state_atomically(self):
+        invalid=[["a",-1,[]],["a",20001,[]],["a",True,[]],
+                 ["a",3,[]],["a",2,[[2,["v",{}]]]],
+                 ["a",2,[[True,["v",{}]]]],
+                 ["a",2,[[0,["v",{}]],[0,["v",{}]]]],
+                 ["a",3,[[2,["o",[],[]]]]]]
+        for patch in invalid:
+            with self.subTest(patch=patch):
+                self.send()
+                self.assertFalse(self.send(sequence=2,base=1,patch=["o",[["boxes",patch]],[]]))
+                self.assertIsNone(self.feed.state)
+
+    def test_array_updates_support_npcs_and_gates(self):
+        full=snapshot(); full["npcs"]=[{"id":"npc","x":500,"y":500}]
+        self.send(full=full)
+        patch=["o",[["npcs",["a",1,[[0,["o",[["x",["v",600]]],[]]]]]],
+                    ["map",["o",[["gates",["a",1,[[0,["o",[["x",["v",700]]],[]]]]]]],[]]]],[]]
+        self.assertTrue(self.send(sequence=2,base=1,patch=patch))
+        self.assertEqual(self.feed.state["npcs"][0]["x"],600)
+        self.assertEqual(self.feed.state["map"]["gates"][0]["x"],700)
+
     def test_sequence_gap_discards_state_until_full(self):
         self.send()
         self.assertFalse(self.send(sequence=3,base=2,patch=["o",[],[]]))
@@ -50,16 +96,16 @@ class FeedTests(unittest.TestCase):
         self.assertTrue(self.feed.summary()["fresh"])
     def test_unknown_relevant_patch_fails_closed(self):
         self.send()
-        self.assertFalse(self.send(sequence=2,base=1,patch=["o",[["boxes",["a",1,[]]]],[]]))
+        self.assertFalse(self.send(sequence=2,base=1,patch=["o",[["boxes",["s",1,[]]]],[]]))
         self.assertFalse(self.feed.summary()["fresh"])
     def test_interruption_diagnostic_preserves_first_failure_without_private_values(self):
         self.send()
-        patch=["o",[["boxes",["a",1,[["v",{"id":"private-id","x":130,"y":140,"token":"private-secret"}]]]]],[]]
+        patch=["o",[["boxes",["s",1,[["v",{"id":"private-id","x":130,"y":140,"token":"private-secret"}]]]]],[]]
         self.assertFalse(self.send(sequence=2,base=1,patch=patch))
         first=self.feed.diagnostic()["failure"]
         self.assertEqual(first["code"],"unsupported_patch")
         self.assertEqual(first["path"],"boxes")
-        self.assertEqual(first["operation"],"a")
+        self.assertEqual(first["operation"],"s")
         self.assertEqual(first["last_sequence"],1)
         self.assertEqual(first["received_sequence"],2)
         saved=json.dumps(first)

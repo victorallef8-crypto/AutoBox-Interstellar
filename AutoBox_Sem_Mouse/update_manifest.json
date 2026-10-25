@@ -1,6 +1,6 @@
 {
-  "version": "0.4.2",
+  "version": "0.4.3",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "fb6645b9f258ffc387e84cb010e14e536f712b1c34d4826446b9b86c6186fb92",
-  "notes": "Diagnostico da interrupcao da leitura. Se parar ao coletar, copie o diagnostico antes de recarregar. Ainda precisa validar o formato de atualizacao recebido; nao e correcao definitiva da leitura."
+  "sha256": "9fde45623654c68e486def61c3ec3f44975bb4c761450192aed60882f1ed3dab",
+  "notes": "Corrige interrupcao da leitura ao receber atualizacoes indexadas de boxes (operacao a). 115 testes passaram. Recarregue a janela dedicada apos atualizar e registre uma coleta manual para validar ao vivo."
 }

@@ -86,7 +86,7 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.feed.navigation_snapshot(),before)
         self.post()
         self.feed.ingest("s",json.dumps({"transport":"delta1","epoch":"e","sequence":2,"base":1,
-            "patch":["o",[["boxes",["a",0,[]]]],[]]}))
+            "patch":["o",[["boxes",["s",0,[]]]],[]]}))
         report=self.probe.report()
         self.assertEqual(report["reader"]["failure"]["path"],"boxes")
         self.assertEqual(len(report["commands"]),1)

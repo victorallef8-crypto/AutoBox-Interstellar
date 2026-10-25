@@ -89,6 +89,8 @@ class WorldFeed:
     @classmethod
     def _keys(cls, path):
         if not path: return cls.ROOT
+        if path in (("boxes","*"),("npcs","*")): return cls.ENTITY
+        if path == ("map","gates","*"): return {"id","to","x","y"}
         if path == ("me",): return cls.ME
         if path == ("map",): return cls.MAP
         if path == ("world",): return {"width","height"}
@@ -106,9 +108,7 @@ class WorldFeed:
             return {k:cls._project(v,path+(k,)) for k,v in value.items() if k in keys}
         if path in (("boxes",),("npcs",),("map","gates")):
             if not isinstance(value,list) or len(value)>20000: raise ValueError("lista invalida")
-            keys = {"id","to","x","y"} if path == ("map","gates") else cls.ENTITY
-            return [{k:cls._scalar(v) for k,v in item.items() if k in keys}
-                    for item in value if isinstance(item,dict)]
+            return [cls._project(item,path+("*",)) for item in value]
         return cls._scalar(value)
 
     @staticmethod
@@ -125,6 +125,25 @@ class WorldFeed:
         op = patch[0]
         if op == "v" and len(patch)==2:
             return cls._project(patch[1],path)
+        if op == "a" and path in (("boxes",),("npcs",),("map","gates")):
+            if len(patch)!=3 or not isinstance(current,list):
+                raise ValueError("patch de lista invalido")
+            length, changes=patch[1:]
+            if type(length) is not int or not 0<=length<=20000 or not isinstance(changes,list) or len(changes)>length:
+                raise ValueError("tamanho de lista invalido")
+            result=current[:length]+[None]*max(0,length-len(current))
+            seen=set()
+            for entry in changes:
+                if not isinstance(entry,list) or len(entry)!=2:
+                    raise ValueError("item de lista invalido")
+                index, child=entry
+                if type(index) is not int or not 0<=index<length or index in seen:
+                    raise ValueError("indice de lista invalido")
+                seen.add(index)
+                result[index]=cls._patch(result[index],child,path+("*",),depth+1)
+            if any(not isinstance(item,dict) for item in result):
+                raise ValueError("lista incompleta")
+            return result
         keys = cls._keys(path)
         if op != "o" or len(patch)!=3 or keys is None or not isinstance(current,dict):
             raise UnsupportedWorldPatch(path,patch)
