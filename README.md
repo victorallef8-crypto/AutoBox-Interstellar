@@ -11,8 +11,9 @@ de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
   jogador, para adiantar a proxima coleta sem aguardar o tempo maximo.
 - Patrulha somente numa area central do minimapa selecionada pelo usuario.
 - Reacao ao aviso de radiacao, tentando voltar ao ponto seguro do minimapa.
-- Renascimento pago opcional com limite por hora. Desativado por padrao;
-  confira o custo e o botao no jogo antes de ativar.
+- Renascimento automatico opcional com tres destinos: Base (gratis), Portal
+  (250 U) e Mesmo lugar (500 U). Desativado por padrao, limitado por hora,
+  com confirmacao para ativar opcoes pagas.
 - **Atualizacoes com um clique**, usando `update_manifest.json`, ZIP e SHA-256.
 
 ## Instalar
@@ -20,7 +21,7 @@ de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 1. Baixe `AutoBox_Interstellar.zip` neste repositorio.
 2. Extraia a pasta `AutoBox_Interstellar`.
 3. Instale Python 3.11+ e execute `INSTALAR_E_ABRIR.bat`.
-4. Use os botoes de calibracao do proprio programa. Na Beta 3.1, marque
+4. Use os botoes de calibracao do proprio programa. Na Beta 3.2, marque
    tambem a area onde aparecem as notificacoes `You received`.
 
 Ao abrir, o AutoBox verifica se existe versao nova. O usuario tambem pode

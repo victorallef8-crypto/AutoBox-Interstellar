@@ -30,6 +30,8 @@ APP_NAME = "AutoBox Interstellar Verse"
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxInterstellar"
 SETTINGS_PATH = APP_DIR / "config.json"
 TEMPLATE_PATH = APP_DIR / "box_modelo.png"
+REPAIR_COSTS = {"base": 0, "portal": 250, "same_place": 500}
+REPAIR_LABELS = {"base": "base", "portal": "portal", "same_place": "mesmo lugar"}
 
 # Coordenadas de tela do Windows sao pixels fisicos, inclusive com zoom do Opera.
 if os.name == "nt":
@@ -208,11 +210,27 @@ def new_reward_message(before_bgr: np.ndarray, after_bgr: np.ndarray) -> bool:
             int(columns[-1] - columns[0]) >= 48)
 
 
+def repair_click_points(panel: tuple[int, int, int, int],
+                        destination: str) -> tuple[tuple[int, int], tuple[int, int]]:
+    """Posicoes das tres opcoes e do botao de reparar na tela de morte.
+
+    Base/portal/mesmo lugar sao, respectivamente, os tres cartoes da esquerda
+    para a direita na tela enviada pelo usuario. As posicoes sao relativas ao
+    painel para tolerar resolucoes diferentes, desde que o layout nao mude.
+    """
+    if destination not in REPAIR_COSTS:
+        raise ValueError("Destino de renascimento desconhecido")
+    px, py, width, height = panel
+    option_x = {"base": .215, "portal": .50, "same_place": .785}[destination]
+    return ((px + round(width * option_x), py + round(height * .47)),
+            (px + round(width * .50), py + round(height * .895)))
+
+
 class AutoBoxApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title(APP_NAME + " - beta 3.1")
-        root.geometry("590x860")
+        root.title(APP_NAME + " - beta 3.2")
+        root.geometry("600x885")
         root.minsize(545, 735)
 
         APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -231,6 +249,9 @@ class AutoBoxApp:
         self.threshold_var = tk.StringVar(value=str(self.cfg.get("threshold", 0.90)))
         self.title_var = tk.StringVar(value=self.cfg.get("title", "Interstellar Verse"))
         self.auto_revive_var = tk.BooleanVar(value=bool(self.cfg.get("auto_revive", False)))
+        previous_destination = "portal" if self.cfg.get("auto_revive", False) else "base"
+        self.revive_target_var = tk.StringVar(
+            value=self.cfg.get("revive_target", previous_destination))
         self.revive_limit_var = tk.StringVar(value=str(self.cfg.get("revives_per_hour", 2)))
 
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
@@ -267,6 +288,7 @@ class AutoBoxApp:
             "threshold": self.threshold,
             "title": self.title_required,
             "auto_revive": self.auto_revive,
+            "revive_target": self.revive_target,
             "revives_per_hour": self.revives_per_hour,
         })
         SETTINGS_PATH.write_text(json.dumps(self.cfg, indent=2), encoding="utf-8")
@@ -276,7 +298,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | Interstellar Verse",
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.1 • Coleta mais rapida • Ronda segura",
+        ttk.Label(frame, text="Beta 3.2 • Coleta rapida • 3 locais de renascimento",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -317,13 +339,22 @@ class AutoBoxApp:
             ttk.Label(settings, text=label).grid(row=row, column=0, sticky="w", pady=3)
             ttk.Entry(settings, textvariable=var, width=21).grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=3)
         settings.columnconfigure(1, weight=1)
-        ttk.Checkbutton(settings, text="Renascimento no portal (250 U por uso)",
-                        variable=self.auto_revive_var).grid(row=4, column=0, sticky="w", pady=5)
-        ttk.Label(settings, text="Maximo por hora (1 a 3)").grid(row=5, column=0, sticky="w")
+        ttk.Checkbutton(settings, text="Renascer automaticamente quando morrer",
+                        variable=self.auto_revive_var).grid(row=4, column=0, columnspan=2,
+                                                            sticky="w", pady=(7, 3))
+        destinations = ttk.Frame(settings)
+        destinations.grid(row=5, column=0, columnspan=2, sticky="w", pady=3)
+        for option, label in (("base", "Base (gratis)"),
+                              ("portal", "Portal (250 U)"),
+                              ("same_place", "Mesmo lugar (500 U)")):
+            ttk.Radiobutton(destinations, text=label, value=option,
+                            variable=self.revive_target_var).pack(side="left", padx=(0, 12))
+        ttk.Label(settings, text="Maximo de renascimentos por hora (1 a 3)").grid(
+            row=6, column=0, sticky="w")
         ttk.Entry(settings, textvariable=self.revive_limit_var, width=21).grid(
-            row=5, column=1, sticky="ew", padx=(8, 0), pady=3)
+            row=6, column=1, sticky="ew", padx=(8, 0), pady=3)
         ttk.Button(settings, text="Salvar ajustes", command=self.apply_settings).grid(
-            row=6, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+            row=7, column=0, columnspan=2, sticky="ew", pady=(8, 0))
 
         ttk.Button(frame, text="↻ Verificar atualizacoes (GitHub)",
                    command=self.check_updates).pack(fill="x", pady=(12, 0))
@@ -332,9 +363,8 @@ class AutoBoxApp:
             "Use F8 e volte ao jogo. O programa so clica se a janela ativa tiver "
             "o titulo indicado. F9 pausa; F10 para. Mover o mouse ao canto "
             "superior esquerdo tambem interrompe o automouse.\n"
-            "Sem zona segura marcada, o bot NAO faz ronda. A opcao de "
-            "renascimento gasta Uridium e so deve ser ativada apos confirmar "
-            "qual botao e o portal.\n"
+            "Sem zona segura marcada, o bot NAO faz ronda. Renascer no portal "
+            "custa 250 U; no mesmo lugar, 500 U. Desligado por padrao.\n"
             "O jogo pode proibir automacao. Nao ha garantia de coleta, de "
             "funcionamento indefinido ou de ausencia de punicao na conta."
         )
@@ -346,6 +376,7 @@ class AutoBoxApp:
         self.threshold = 0.90
         self.title_required = "interstellar verse"
         self.auto_revive = False
+        self.revive_target = "base"
         self.revives_per_hour = 2
         self.apply_settings(silent=True)
 
@@ -364,6 +395,7 @@ class AutoBoxApp:
             patrol = float(self.patrol_var.get().replace(",", "."))
             threshold = float(self.threshold_var.get().replace(",", "."))
             revive_limit = int(self.revive_limit_var.get())
+            revive_target = self.revive_target_var.get()
             title = self.title_var.get().strip()
             if not (2.0 <= wait <= 30.0 and 3.0 <= patrol <= 30.0):
                 raise ValueError("As esperas precisam estar nos intervalos 2–30 e 3–30 segundos.")
@@ -373,26 +405,40 @@ class AutoBoxApp:
                 raise ValueError("Informe pelo menos 5 letras do titulo da janela do jogo.")
             if not 1 <= revive_limit <= 3:
                 raise ValueError("O limite de renascimentos precisa ser de 1 a 3 por hora.")
-            if not silent and self.auto_revive_var.get() and not self.auto_revive:
+            if revive_target not in REPAIR_COSTS:
+                raise ValueError("Escolha Base, Portal ou Mesmo lugar.")
+            spend = REPAIR_COSTS[revive_target]
+            changed_paid_choice = (not self.auto_revive or
+                                   self.revive_target != revive_target or
+                                   self.revives_per_hour != revive_limit)
+            if not silent and self.auto_revive_var.get() and spend and changed_paid_choice:
                 sure = messagebox.askyesno(
-                    "Gasto automatico de Uridium",
-                    "Voce confirmou DENTRO DO JOGO que a opcao DO MEIO (250 U) "
-                    "e renascer no portal? O bot podera gastar ate "
-                    f"{250 * revive_limit} Uridium por hora. Ativar mesmo assim?")
+                    "Confirmar gasto automatico de Uridium",
+                    f"Renascer no {REPAIR_LABELS[revive_target]} custa {spend} Uridium "
+                    "a cada morte.\n\n"
+                    f"Com limite de {revive_limit} tentativas por hora, "
+                    f"pode gastar ate {spend * revive_limit} Uridium por hora.\n\n"
+                    "Voce conferiu essa opcao dentro do jogo e quer ativar?")
                 if not sure:
                     self.auto_revive_var.set(False)
+                    self.auto_revive = False
+                    self._save_config()
+                    return False
             self.wait_seconds = wait
             self.patrol_seconds = patrol
             self.threshold = threshold
             self.title_required = title.casefold()
             self.auto_revive = bool(self.auto_revive_var.get())
+            self.revive_target = revive_target
             self.revives_per_hour = revive_limit
             self._save_config()
             if not silent:
                 self.status.set("Ajustes salvos")
+            return True
         except (ValueError, OSError) as exc:
             if not silent:
                 messagebox.showerror("Ajustes invalidos", str(exc))
+            return False
 
     def _bind_hotkeys(self):
         def on_press(key):
@@ -511,7 +557,8 @@ class AutoBoxApp:
         if not self.region or not TEMPLATE_PATH.exists():
             messagebox.showinfo("Falta calibrar", "Selecione a area do mapa e aprenda uma box primeiro.")
             return
-        self.apply_settings(silent=True)
+        if not self.apply_settings():
+            return
         with self.state_lock:
             self.running = True
             self.stopped = False
@@ -675,7 +722,7 @@ class AutoBoxApp:
             self.events.put(("status", "RADIAÇÃO! Voltando ao centro seguro do minimapa..."))
             self._sleep_interruptible(max(5.0, self.patrol_seconds))
 
-    def _handle_death(self, panel: tuple[int, int, int, int]):
+    def _handle_death(self, sct, panel: tuple[int, int, int, int]):
         if not self.auto_revive:
             self.events.put(("command", "pause"))
             self.events.put(("status", "Nave destruida! Renascimento automatico desligado."))
@@ -686,17 +733,22 @@ class AutoBoxApp:
             self.events.put(("command", "pause"))
             self.events.put(("status", "Limite de renascimentos por hora atingido. Pausado."))
             return
-        px, py, w, h = panel
-        portal_option = (px + w // 2, py + int(h * .48))
-        repair_button = (px + w // 2, py + int(h * .84))
+        selection, repair_button = repair_click_points(panel, self.revive_target)
         if self._ready_to_click():
             self.revive_attempts.append(now)
-            pyautogui.click(*portal_option)
-            self._sleep_interruptible(.70)
+            pyautogui.click(*selection)
+            self._sleep_interruptible(.65)
             if self._ready_to_click():
                 pyautogui.click(*repair_button)
-                self.events.put(("status", "Tentando renascer no portal (250 U)..."))
-                self._sleep_interruptible(8.0)
+                label = REPAIR_LABELS[self.revive_target]
+                cost = REPAIR_COSTS[self.revive_target]
+                self.events.put(("status", f"Tentando renascer: {label} ({cost} U)..."))
+                self._sleep_interruptible(4.0)
+                frame, _ = self._screen_capture(sct)
+                if find_death_panel(frame) is not None:
+                    self.events.put(("command", "pause"))
+                    self.events.put(("status", "A tela de morte continua aberta. "
+                                     "Pausado para evitar novos gastos."))
 
     def _collect_loop(self):
         sample = cv2.imread(str(TEMPLATE_PATH))
@@ -731,8 +783,8 @@ class AutoBoxApp:
                     full_frame, monitor = self._screen_capture(sct)
                     dead = find_death_panel(full_frame)
                     if dead is not None:
-                        self._handle_death((dead[0] + monitor["left"],
-                                            dead[1] + monitor["top"], dead[2], dead[3]))
+                        self._handle_death(sct, (dead[0] + monitor["left"],
+                                                 dead[1] + monitor["top"], dead[2], dead[3]))
                         recent.clear()
                         previous = None
                         continue

@@ -1,6 +1,6 @@
 {
-  "version": "3.1",
+  "version": "3.2",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "70c06e2de7257944b9cfad693bcc2efaca39b7d0314d2f877273437e873e06b7",
-  "notes": "Coleta mais rapida ao detectar uma mensagem nova na area YOU RECEIVED marcada pelo usuario."
+  "sha256": "6f1526cde0c072df0e7a8fff8a3828f357e0eb206da4dd507dae8deb0acab32f",
+  "notes": "Renascimento automatico na base, no portal ou no mesmo lugar, com limites e confirmacao para opcoes pagas."
 }

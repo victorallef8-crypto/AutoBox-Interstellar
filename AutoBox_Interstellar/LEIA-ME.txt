@@ -1,4 +1,4 @@
-AUTOBOX INTERSTELLAR VERSE - BETA 3.1
+AUTOBOX INTERSTELLAR VERSE - BETA 3.2
 ===================================
 
 O que faz
@@ -10,7 +10,8 @@ box sem aguardar o tempo inteiro. Nao le o texto: identifica a mudanca visual.
 Se nenhuma box aparecer, faz ronda SOMENTE numa area segura do MINIMAPA
 que voce marcar. Sem area segura, espera novas boxes sem clicar aleatoriamente.
 Ao detectar "RADIATION ZONE", manda a nave ao centro dessa area segura.
-Caso a nave morra, pode tentar renascer no portal (opcional e pago).
+Caso a nave morra, pode tentar renascer na BASE (gratuito), no PORTAL
+(250 Uridium) ou no MESMO LUGAR (500 Uridium), conforme a tela do jogo.
 Ao iniciar, verifica novas versoes publicadas no GitHub. O botao
 "Verificar atualizacoes" permite fazer essa consulta quando voce quiser.
 Nao modifica o site nem precisa de senha de jogo.
@@ -68,10 +69,15 @@ Parametros
   diminua um pouco (ex.: 0,74) se deixar passar boxes reais.
 - Titulo da janela: texto obrigatorio no titulo do navegador, para nao
   clicar acidentalmente em outra janela. Inicial: Interstellar Verse.
-- Renascimento automatico no portal: DESLIGADO por padrao. Antes de ligar,
-  CONFIRME no jogo que a opcao DO MEIO (250 U) corresponde mesmo ao PORTAL.
-  Depois disso, pode ativar e limitar para 1 a 3 tentativas por hora.
-  O software nao consegue garantir que o servidor mantenha os mesmos botoes.
+- Renascer automaticamente: DESLIGADO por padrao. Se quiser, marque a caixa
+  e escolha apenas UM destino: Base (gratis, esquerda), Portal (250 U, centro)
+  ou Mesmo lugar (500 U, direita), como na tela de morte enviada.
+- Maximo por hora: 1 a 3 tentativas, mesmo para reparo gratuito, evitando
+  ficar preso num ciclo de morrer e renascer. Para escolhas pagas, o programa
+  pede sua confirmacao antes de habilitar ou alterar o limite.
+- Os custos, os botoes e o layout podem mudar no servidor. Teste a opcao
+  Base primeiro, acompanhando a primeira morte de perto. Se a tela de morte
+  persistir apos tentar renascer, o bot pausa para evitar repetir gastos.
 
 Limites e seguranca
 -------------------
