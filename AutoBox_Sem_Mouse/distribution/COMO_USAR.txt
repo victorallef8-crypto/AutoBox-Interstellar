@@ -1,0 +1,26 @@
+AUTOBOX — VERSÃO PARA USUÁRIOS
+
+Windows 10/11 de 64 bits. Tenha o Opera GX instalado.
+Não é necessário instalar Python.
+
+1. Extraia TODO o ZIP em uma pasta sua, por exemplo Documentos\AutoBox.
+2. Abra AutoBox.exe. Não execute de dentro do ZIP e não renomeie o executável.
+3. No bot, abra o navegador do jogo. Faça login com SUA conta.
+4. Aguarde os dados aparecerem na aba Dados.
+5. Na aba Coleta, ajuste mapa e opções; F8 inicia a coleta.
+6. Na aba Kill NPC, marque tipos, laser, míssil e limite de vida.
+   Comece com pelo menos 80% de vida. Use Iniciar farm de NPCs.
+7. F9 pausa; F10 para. Acompanhe os primeiros testes.
+8. Para atualizar, pause e clique em Verificar atualizações deste bot.
+   Aceite a atualização; o aplicativo fecha, troca o executável e reabre.
+9. Se algo falhar, copie o diagnóstico e envie ao Victor.
+
+Seu perfil e configurações ficam no seu Windows em %APPDATA%\AutoBoxUsuario.
+O pacote não contém login, senha, cookies nem configurações de outra pessoa.
+Não compartilhe essa pasta de perfil.
+Nenhum acesso de edição ao GitHub é necessário para usar ou atualizar.
+A versão de usuário não contém arquivos Python soltos. Isso não impede toda
+engenharia reversa e não é garantia contra banimento no jogo.
+
+Se o Windows ou antivírus bloquear o aplicativo, não desative a proteção:
+confira a origem do download e envie o aviso ao Victor.

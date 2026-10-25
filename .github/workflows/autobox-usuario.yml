@@ -1,0 +1,55 @@
+name: Publicar AutoBox Usuario
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'AutoBox_Sem_Mouse/**'
+      - '.github/workflows/autobox-usuario.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: autobox-usuario
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Instalar ferramentas
+        run: python -m pip install -r AutoBox_Sem_Mouse/requirements.txt pyinstaller==6.22.3
+      - name: Testar aplicativo
+        run: python -m unittest discover -s AutoBox_Sem_Mouse/tests -q
+      - name: Gerar e testar executavel
+        env:
+          AUTOBOX_DIST: '${{ github.workspace }}/user_dist'
+        run: python AutoBox_Sem_Mouse/distribution/build_user.py
+      - name: Publicar aplicativo e manifesto
+        shell: pwsh
+        env:
+          GH_TOKEN: '${{ github.token }}'
+        run: |
+          $manifest = Get-Content user_dist/update_manifest.json -Raw | ConvertFrom-Json
+          $tag = "usuario-$($manifest.version)"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag user_dist/AutoBox_Usuario.zip --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "AutoBox Usuario $($manifest.version)" --notes "Aplicativo Windows para usuarios. Extraia o ZIP e abra AutoBox.exe. Leia COMO_USAR.txt."
+          } else {
+            gh release upload $tag user_dist/AutoBox_Usuario.zip --repo $env:GITHUB_REPOSITORY --clobber
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao publicar aplicativo' }
+          $endpoint = "repos/$env:GITHUB_REPOSITORY/contents/AutoBox_Usuario/update_manifest.json"
+          $existing = gh api $endpoint 2>$null | ConvertFrom-Json
+          $body = @{message="Atualiza canal de usuarios $($manifest.version)";content=[Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path user_dist/update_manifest.json)));branch='main'}
+          if ($existing.sha) { $body.sha=$existing.sha }
+          $body | ConvertTo-Json | Set-Content -Encoding utf8 user_dist/publish.json
+          gh api --method PUT $endpoint --input user_dist/publish.json
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao publicar manifesto' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoBox-Usuario
+          path: user_dist/AutoBox_Usuario.zip
