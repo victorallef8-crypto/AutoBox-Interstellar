@@ -152,6 +152,17 @@ class NpcWorkerTests(unittest.TestCase):
         self.assertEqual(actions.count("attack"),1)
         self.assertTrue(engine.report["kill_confirmed"])
 
+    def test_multiple_types_select_nearest_allowed_not_unchecked_npc(self):
+        stop=Stop();session=Session(stop)
+        session.state["npc_candidates"].extend([
+            dict(id="far",kind="lordakia",respawnRevision=1,x=900,y=0,hp=2000,shield=0),
+            dict(id="unchecked",kind="boss",respawnRevision=1,x=10,y=0,hp=5000,shield=0)])
+        engine=NpcTestWorker(session,stop,lambda *e:None,kind=["lordakia","mordon"],clock=lambda:stop.now)
+        engine.run()
+        self.assertEqual(engine.report["target_id"],"mordon")
+        self.assertEqual(engine.report["allowed_kinds"],["lordakia","mordon"])
+        self.assertTrue(engine.report["kill_confirmed"])
+
     def test_lost_attack_ack_does_not_repeat_ctrl(self):
         stop=Stop();session=Session(stop,ack=False);engine=self.engine(session,stop);engine.run()
         self.assertFalse(engine.report["kill_confirmed"])

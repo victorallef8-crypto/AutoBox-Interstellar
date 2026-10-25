@@ -303,13 +303,15 @@ class SessionEarnings:
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
     def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False):
-        self.session=session; self.stop=stop; self.emit=emit; self.kind=kind
+        self.session=session; self.stop=stop; self.emit=emit
+        self.kinds=set(kind if isinstance(kind,(list,tuple,set)) else [kind])
+        self.kind=", ".join(sorted(self.kinds))
         self.destination=destination; self.min_hp=min_hp; self.clock=clock or time.monotonic
         self.orbit=orbit; self.radius=max(150,min(500,radius)); self.repair_portal=repair_portal; self.direction=1
         self.target=None; self.context=None; self.pending=None; self.next_move=0
         self.started=None; self.progress=None; self.best_distance=float("inf"); self.lowest=None
         self.damage=False; self.baseline_xp=None; self.last_phase=None
-        self.report={"mode":"single_npc_test","kind":kind,"status":"Preparando","actions":[],
+        self.report={"mode":"single_npc_test","kind":self.kind,"allowed_kinds":sorted(self.kinds),"status":"Preparando","actions":[],
                      "damage_observed":False,"kill_confirmed":False,"stop_confirmed":False}
 
     def publish(self,status):
@@ -407,11 +409,13 @@ class NpcTestWorker:
                     if combat.get("attacking"): raise ValueError("Pare o ataque atual antes do teste.")
                     if combat.get("selectedAmmo")!="lcb10": raise ValueError("Selecione LCB-10 no jogo antes do teste.")
                     candidates=[n for n in snap.get("npc_candidates",[]) if
-                                (n.get("kind") or n.get("type"))==self.kind and
+                                (n.get("kind") or n.get("type")) in self.kinds and
                                 type(n.get("hp")) in (int,float) and n["hp"]>0 and
                                 type(n.get("respawnRevision")) is int]
                     if not candidates: raise ValueError("Nenhum NPC desse tipo disponível no mapa.")
                     self.target=dict(min(candidates,key=lambda n:distance(snap["position"],(n["x"],n["y"]))))
+                    self.kind=self.target.get("kind") or self.target.get("type")
+                    self.report["kind"]=self.kind
                     self.context={"map":snap["map"],"life":snap.get("respawn_revision")}
                     self.baseline_xp=snap.get("account",{}).get("xp")
                     self.progress=now

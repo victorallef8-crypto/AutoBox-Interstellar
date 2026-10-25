@@ -1,6 +1,6 @@
 # AutoBox Interstellar
 
-AUTOBOX INTERSTELLAR — BETA 0.9.1
+AUTOBOX INTERSTELLAR — BETA 0.9.2
 
 ATUALIZAÇÃO
 No Painel, use Verificar atualizações deste bot. Configurações e sessão do Opera são preservadas.
@@ -9,13 +9,13 @@ A coleta usa somente dados do jogo. OpenCV, NumPy e Pillow não são necessário
 KILL NPC: PRIMEIRO TESTE AUTOMÁTICO
 1. Abra o jogo pelo bot e recupere a nave para pelo menos 80% de vida.
 2. Selecione LCB-10 no próprio jogo. Pause a coleta com F9.
-3. Na aba Kill NPC, selecione o tipo de NPC (por exemplo mordon).
+3. Na aba Kill NPC, marque um ou mais tipos de NPC.
 4. Deixe o mapa vazio para testar onde está, ou informe um destino normal.
 5. Clique Testar 1 NPC com LCB-10.
 6. Acompanhe a primeira luta. Depois copie o diagnóstico da luta e envie no chat.
 
 Este modo executa UMA luta e encerra. Ainda não existe repetição de NPCs.
-Seleciona o NPC mais próximo do tipo escolhido, conserva ID e revisão, aproxima até o alcance e verifica ataque/dano.
+Seleciona o NPC mais próximo do conjunto de tipos marcados, conserva ID e revisão, aproxima até o alcance e verifica ataque/dano.
 Não envia ordens de míssil, não compra munição e não escolhe jogadores como alvo.
 Não repete Ctrl enquanto espera confirmação do ataque.
 A parada usa a seleção explícita do mesmo NPC com ataque desligado pelo cliente, evitando alternar Ctrl novamente.
@@ -65,17 +65,19 @@ Vida em 25% ou menos pausa coleta. Renascimento local pode exigir recuperação 
 Essas retomadas automáticas são da coleta; o teste de NPC encerra se morrer ou perder leitura.
 
 VALIDAÇÃO
-117 testes Python, testes simulados da navegação e da integração de combate.
+118 testes Python, testes simulados da navegação e da integração de combate.
 A integração de combate foi exercitada com os handlers de seleção, Ctrl e ataque do cliente fornecido.
 Isso não substitui o primeiro teste acompanhado na sua partida.
 
 Instalação nova: Python 3.11+; execute INSTALAR_E_ABRIR.bat.
 
-Beta 0.9.1: se o NPC ainda não puder ser selecionado na tela, aproxima mais do mesmo alvo e tenta novamente, com limite de tempo.
+Beta 0.9.2: se o NPC ainda não puder ser selecionado na tela, aproxima mais do mesmo alvo e tenta novamente, com limite de tempo.
 
 MOVIMENTO CIRCULAR E REPARO (EXPERIMENTAL)
 Circular ao redor do NPC: distância desejada de 150 a 500 unidades, padrão 450. Compara os sentidos para preferir maior distância dos outros NPCs. Não garante evitar dano; o alcance inimigo ainda não foi medido.
 Vida no limite: ir ao portal e ativar reparador é opcional e começa desmarcado. Requer CPU/robô equipado. Movimento e proximidade do portal não garantem proteção nem início do reparo. Sem confirmação de ativação, encerra sem alternar novamente o botão. A recuperação tem limite de 3 minutos.
 Validado com testes simulados; acompanhe a primeira luta na partida.
 
-Beta 0.9.1: ativa ataque pelo cliente após confirmação da seleção, mesmo se o NPC se afastar; continua aproximando sem alternar Ctrl. O jogo controla o alcance efetivo. Aproximação busca um ponto mais próximo para perseguir alvos móveis. Diagnóstico inclui distância.
+Beta 0.9.2: ativa ataque pelo cliente após confirmação da seleção, mesmo se o NPC se afastar; continua aproximando sem alternar Ctrl. O jogo controla o alcance efetivo. Aproximação busca um ponto mais próximo para perseguir alvos móveis. Diagnóstico inclui distância.
+
+Beta 0.9.2: seleção de múltiplos tipos por caixas de marcação; escolhe o NPC mais próximo entre os tipos marcados. Continua uma luta por teste. Corrige contraste de listas, campos numéricos e tabelas.

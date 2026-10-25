@@ -63,6 +63,8 @@ class AutoBoxSemMouse:
         self.collect_map=tk.StringVar(value=self.cfg.get("collect_map",""))
         self.npc_map=tk.StringVar(value=self.cfg.get("npc_map",""))
         self.npc_kind=tk.StringVar(value=self.cfg.get("npc_kind","mordon"))
+        self.npc_kinds_saved=set(self.cfg.get("npc_kinds") or [self.npc_kind.get()])
+        self.npc_kind_vars={}
         self.npc_min_hp=tk.StringVar(value=str(self.cfg.get("npc_min_hp",40)))
         self.npc_orbit=tk.BooleanVar(value=self.cfg.get("npc_orbit",True))
         self.npc_radius=tk.StringVar(value=str(self.cfg.get("npc_radius",450)))
@@ -122,6 +124,19 @@ class AutoBoxSemMouse:
         style.configure("TEntry", fieldbackground="#1e293b", foreground="#f8fafc", insertcolor="white")
         style.configure("TCheckbutton", background="#111827", foreground="#e5e7eb")
         style.map("TCheckbutton", background=[("active","#111827")])
+        for name in ("TEntry","TCombobox","TSpinbox"):
+            style.configure(name,fieldbackground="#1e293b",background="#334155",foreground="#f8fafc",arrowcolor="#f8fafc",insertcolor="#f8fafc")
+            style.map(name,fieldbackground=[("disabled","#263449"),("readonly","#1e293b"),("!disabled","#1e293b")],
+                      foreground=[("disabled","#94a3b8"),("!disabled","#f8fafc")],
+                      selectbackground=[("!disabled","#155e75")],selectforeground=[("!disabled","#ffffff")])
+        style.configure("Treeview",background="#111827",fieldbackground="#111827",foreground="#e5e7eb",rowheight=26)
+        style.map("Treeview",background=[("selected","#155e75")],foreground=[("selected","#ffffff")])
+        style.configure("Treeview.Heading",background="#263449",foreground="#f8fafc")
+        style.map("Treeview.Heading",background=[("active","#334155")],foreground=[("active","#ffffff")])
+        style.map("TCheckbutton",foreground=[("disabled","#94a3b8"),("active","#f8fafc")],
+                  indicatorbackground=[("selected","#0e7490"),("!selected","#334155")],indicatorforeground=[("selected","#ffffff")])
+        for option,value in (("background","#1e293b"),("foreground","#f8fafc"),("selectBackground","#155e75"),("selectForeground","#ffffff")):
+            self.root.option_add("*TCombobox*Listbox."+option,value)
         self.root.configure(background="#111827")
 
     def _scroll_page(self, parent):
@@ -293,9 +308,10 @@ class AutoBoxSemMouse:
         self._map_controls(body,self.npc_map,"NPC")
         test=ttk.LabelFrame(body,text="Teste automático acompanhado",padding=10)
         test.pack(fill="x",pady=6)
-        ttk.Label(test,text="Tipo de NPC").grid(row=0,column=0,sticky="w")
-        self.npc_kind_box=ttk.Combobox(test,textvariable=self.npc_kind,state="readonly",values=("mordon",))
-        self.npc_kind_box.grid(row=0,column=1,sticky="ew",pady=4)
+        ttk.Label(test,text="Tipos de NPC (marque um ou mais)").grid(row=0,column=0,sticky="nw")
+        self.npc_choices=ttk.Frame(test)
+        self.npc_choices.grid(row=0,column=1,sticky="ew",pady=4)
+        self._sync_npc_choices(self.npc_kinds_saved | {"mordon"})
         ttk.Label(test,text="Interromper tiros com vida em (%)").grid(row=1,column=0,sticky="w")
         ttk.Spinbox(test,from_=25,to=75,textvariable=self.npc_min_hp,width=8).grid(row=1,column=1,sticky="w",pady=4)
         ttk.Checkbutton(test,text="Circular ao redor do NPC",variable=self.npc_orbit).grid(row=2,column=0,columnspan=2,sticky="w")
@@ -325,6 +341,15 @@ class AutoBoxSemMouse:
         ttk.Label(body,text="O registro manual só observa. O botão Testar 1 NPC executa uma luta. F8 continua iniciando a coleta de boxes.",
                   wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
 
+    def _sync_npc_choices(self,kinds):
+        for kind in sorted(set(kinds)|self.npc_kinds_saved):
+            if kind in self.npc_kind_vars: continue
+            if not isinstance(kind,str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",kind): continue
+            var=tk.BooleanVar(value=kind in self.npc_kinds_saved)
+            index=len(self.npc_kind_vars)
+            self.npc_kind_vars[kind]=var
+            ttk.Checkbutton(self.npc_choices,text=kind,variable=var).grid(row=index//3,column=index%3,sticky="w",padx=5,pady=2)
+
     def start_npc_test(self):
         if not self.save(): return
         if not self.session.ready.is_set():
@@ -342,7 +367,7 @@ class AutoBoxSemMouse:
         self.last_npc_report=None
         self.stop_event=threading.Event()
         engine=NpcTestWorker(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
-            kind=self.npc_kind.get(),destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get())
+            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get())
         self.worker=threading.Thread(target=engine.run,daemon=True)
         self.worker.start()
 
@@ -448,7 +473,7 @@ class AutoBoxSemMouse:
                         key=lambda n:math.hypot(n["x"]-origin[0],n["y"]-origin[1]))
             kinds=sorted({n.get("kind") or n.get("type") for n in npcs
                           if isinstance(n.get("kind") or n.get("type"),str)})
-            self.npc_kind_box.configure(values=kinds or ("mordon",))
+            self._sync_npc_choices(kinds or ("mordon",))
             for npc in npcs[:30]:
                 self.npc_table.insert("","end",values=(npc.get("kind") or npc.get("type") or "NPC",
                     str(npc.get("hp","—"))+" / "+str(npc.get("maxHp","—")),
@@ -547,8 +572,9 @@ class AutoBoxSemMouse:
                 self.cfg[key]=value
             min_hp=int(self.npc_min_hp.get())
             if not 25<=min_hp<=75: raise ValueError("Limite de vida do teste: 25 a 75%.")
-            if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",self.npc_kind.get()):
-                raise ValueError("Selecione um tipo de NPC válido.")
+            selected_kinds=sorted(kind for kind,var in self.npc_kind_vars.items() if var.get())
+            if not selected_kinds: raise ValueError("Marque pelo menos um tipo de NPC.")
+            self.cfg["npc_kinds"]=selected_kinds
             radius=int(self.npc_radius.get())
             if not 150<=radius<=500: raise ValueError("Distância do NPC: 150 a 500 unidades.")
             self.cfg.update(npc_kind=self.npc_kind.get(),npc_min_hp=min_hp,npc_radius=radius,npc_orbit=self.npc_orbit.get(),npc_repair=self.npc_repair.get())
