@@ -1,6 +1,6 @@
 {
-  "version": "3.5",
+  "version": "3.5.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Interstellar.zip",
-  "sha256": "2a5b6ca55310b724e2268b4348e900cabb8f048b91488919985d0d066ba9dcb5",
-  "notes": "Abas Interstellar e Krypton com perfis separados, calibracao independente e clique esquerdo ajustavel no Krypton."
+  "sha256": "9b4b3981d6ab705bc35f60450b893d4d36cbb580183a48271ed2afc075dce048",
+  "notes": "Metodo Windows (SendInput) e teste isolado de clique para diagnosticar a entrada no cliente Krypton."
 }

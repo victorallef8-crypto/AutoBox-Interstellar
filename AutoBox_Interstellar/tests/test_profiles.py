@@ -31,7 +31,7 @@ class ProfileTests(unittest.TestCase):
             "left": 10, "top": 20, "width": 500, "height": 400}}
         (cls.folder / "config.json").write_text(json.dumps(old_config), encoding="utf-8")
         (cls.folder / "box_modelo.png").write_bytes(b"existing-template")
-        cls.mouse = SimpleNamespace(click=Mock(), moveTo=Mock(), mouseDown=Mock(), mouseUp=Mock())
+        cls.mouse = SimpleNamespace(click=Mock(), moveTo=Mock(), mouseDown=Mock(), mouseUp=Mock(), failSafeCheck=Mock())
         cls.listener = Mock()
         cls.keyboard = SimpleNamespace(Key=SimpleNamespace(f8="f8", f9="f9", f10="f10"),
                                        Listener=Mock(return_value=cls.listener))
@@ -41,7 +41,8 @@ class ProfileTests(unittest.TestCase):
                       messagebox=Mock(), REPAIR_COSTS={"base": 0, "portal": 250, "same_place": 500},
                       REPAIR_LABELS={"base": "base", "portal": "portal", "same_place": "mesmo lugar"},
                       active_window_title=lambda: "Krypton",
-                      updater=SimpleNamespace(check_for_update=lambda: None))
+                      updater=SimpleNamespace(check_for_update=lambda: None),
+                      send_windows_click=Mock(return_value=True))
         exec(compile(ast.fix_missing_locations(ast.Module(body=NODES, type_ignores=[])),
                      str(SOURCE), "exec"), cls.ns)
         cls.root = tk.Tk()
@@ -57,6 +58,8 @@ class ProfileTests(unittest.TestCase):
 
     def setUp(self):
         self.window.stop_all()
+        self.krypton.input_method = "windows"
+        self.ns["send_windows_click"].reset_mock()
         self.window.notebook.select(0)
         self.root.update()
         for name in ("click", "moveTo", "mouseDown", "mouseUp"):
@@ -109,6 +112,7 @@ class ProfileTests(unittest.TestCase):
         self.mouse.click.assert_not_called()
 
     def test_krypton_sends_one_left_press_and_release(self):
+        self.krypton.input_method = "standard"
         self.window.notebook.select(1)
         self.root.update()
         self.krypton.running = True
@@ -121,6 +125,7 @@ class ProfileTests(unittest.TestCase):
         self.assertGreaterEqual(self.krypton.click_hold, .1)
 
     def test_mouse_released_when_wait_raises(self):
+        self.krypton.input_method = "standard"
         self.window.notebook.select(1)
         self.root.update()
         self.krypton.running = True
@@ -164,6 +169,47 @@ class ProfileTests(unittest.TestCase):
             self.assertTrue(self.interstellar._game_click(200, 300))
             self.mouse.click.assert_called_once_with(200, 300)
             self.mouse.mouseDown.assert_not_called()
+        finally:
+            self.ns["active_window_title"] = original
+
+    def test_krypton_uses_windows_method_by_default(self):
+        self.window.notebook.select(1)
+        self.root.update()
+        self.krypton.running = True
+        self.krypton.stopped = False
+        self.krypton.exit_event.clear()
+        self.assertTrue(self.krypton._game_click(200, 300))
+        self.ns["send_windows_click"].assert_called_once()
+        self.assertEqual(self.ns["send_windows_click"].call_args.args[:3], (200, 300, .12))
+        self.mouse.click.assert_not_called()
+        self.mouse.mouseDown.assert_not_called()
+
+    def test_test_mode_checks_title_and_stays_stopped(self):
+        self.window.notebook.select(1)
+        self.root.update()
+        self.krypton.input_test_cancel.clear()
+        self.assertFalse(self.krypton.running)
+        self.assertTrue(self.krypton._game_click(200, 300, test=True))
+        self.assertFalse(self.krypton.running)
+        self.ns["send_windows_click"].assert_called_once()
+
+    def test_pause_cancels_pending_click_test(self):
+        self.window.notebook.select(1)
+        self.root.update()
+        self.krypton.input_test_cancel.clear()
+        self.krypton.pause()
+        self.assertFalse(self.krypton._game_click(200, 300, test=True))
+        self.ns["send_windows_click"].assert_not_called()
+
+    def test_wrong_window_blocks_click_test(self):
+        self.window.notebook.select(1)
+        self.root.update()
+        self.krypton.input_test_cancel.clear()
+        original = self.ns["active_window_title"]
+        self.ns["active_window_title"] = lambda: "Outro aplicativo"
+        try:
+            self.assertFalse(self.krypton._game_click(200, 300, test=True))
+            self.ns["send_windows_click"].assert_not_called()
         finally:
             self.ns["active_window_title"] = original
 

@@ -244,6 +244,63 @@ def repair_click_points(panel: tuple[int, int, int, int],
             (px + round(width * .50), py + round(height * .895)))
 
 
+def send_windows_click(x, y, hold, ready, wait, user32=None):
+    """Envia entrada padrao do Windows, sem ocultar que ela e sintetica.
+
+    O retorno confirma apenas insercao na fila do Windows, nao coleta no jogo.
+    https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-sendinput
+    """
+    if user32 is None:
+        if os.name != "nt":
+            raise RuntimeError("Clique Windows disponivel somente no Windows")
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+    class MouseInput(ctypes.Structure):
+        _fields_ = [("dx", ctypes.c_int32), ("dy", ctypes.c_int32),
+                    ("mouseData", ctypes.c_uint32), ("dwFlags", ctypes.c_uint32),
+                    ("time", ctypes.c_uint32), ("dwExtraInfo", ctypes.c_size_t)]
+
+    class InputUnion(ctypes.Union):
+        _fields_ = [("mi", MouseInput)]
+
+    class Input(ctypes.Structure):
+        _anonymous_ = ("u",)
+        _fields_ = [("type", ctypes.c_uint32), ("u", InputUnion)]
+
+    send_input = user32.SendInput
+    send_input.argtypes = [ctypes.c_uint32, ctypes.POINTER(Input), ctypes.c_int]
+    send_input.restype = ctypes.c_uint32
+    left, top = user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)
+    width, height = user32.GetSystemMetrics(78), user32.GetSystemMetrics(79)
+    if width <= 1 or height <= 1 or not (left <= x < left + width and top <= y < top + height):
+        raise ValueError("Posicao do clique fora da area de trabalho")
+    if not ready():
+        return False
+
+    def event(flags, dx=0, dy=0):
+        value = Input()
+        value.type = 0
+        value.mi = MouseInput(dx, dy, 0, flags, 0, 0)
+        return value
+
+    # MOVE + ABSOLUTE + VIRTUALDESK, seguido por um unico LEFTDOWN.
+    move = event(0x0001 | 0x8000 | 0x4000,
+                 round((x - left) * 65535 / (width - 1)),
+                 round((y - top) * 65535 / (height - 1)))
+    events = (Input * 2)(move, event(0x0002))
+    inserted = send_input(2, events, ctypes.sizeof(Input))
+    if inserted != 2:
+        raise OSError("Windows nao inseriu o clique completo "
+                      f"({inserted}/2 eventos). Verifique as permissoes do bot e do jogo.")
+    try:
+        wait(max(.03, hold))
+    finally:
+        release = (Input * 1)(event(0x0004))
+        if send_input(1, release, ctypes.sizeof(Input)) != 1:
+            raise OSError("Windows nao confirmou a liberacao do botao esquerdo.")
+    return True
+
+
 class AutoBoxApp:
     def __init__(self, root: tk.Tk, parent=None, profile_id="interstellar", coordinator=None):
         self.root = root
@@ -253,7 +310,7 @@ class AutoBoxApp:
         self.coordinator = coordinator
         self.settings_path, self.template_path = profile_paths(profile_id)
         if coordinator is None:
-            root.title(APP_NAME + " - beta 3.5")
+            root.title(APP_NAME + " - beta 3.5.1")
             root.geometry("640x920")
 
         APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -280,6 +337,10 @@ class AutoBoxApp:
         self.click_hold_var = tk.StringVar(value=str(self.cfg.get(
             "click_hold", .12 if profile_id == "krypton" else 0)))
         self.click_hold = .12 if profile_id == "krypton" else 0
+        self.input_method = self.cfg.get("input_method", "windows" if profile_id == "krypton" else "standard")
+        self.input_method_var = tk.StringVar(value=(
+            "Windows (SendInput)" if self.input_method == "windows" else "Padrao (PyAutoGUI)"))
+        self.input_test_cancel = threading.Event()
 
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.state_lock = threading.Lock()
@@ -321,6 +382,7 @@ class AutoBoxApp:
             "revive_target": self.revive_target,
             "revives_per_hour": self.revives_per_hour,
             "click_hold": self.click_hold,
+            "input_method": self.input_method,
         })
         self.settings_path.write_text(json.dumps(self.cfg, indent=2), encoding="utf-8")
 
@@ -329,7 +391,7 @@ class AutoBoxApp:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="AutoBox | " + self.profile["label"],
                   font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Beta 3.5 • Configuracao independente por jogo",
+        ttk.Label(frame, text="Beta 3.5.1 • Configuracao independente por jogo",
                   foreground="#526477").pack(anchor="w", pady=(1, 13))
 
         capture_box = ttk.LabelFrame(frame, text="1. Preparar deteccao", padding=10)
@@ -390,11 +452,16 @@ class AutoBoxApp:
                 row=4, column=0, sticky="w", pady=3)
             ttk.Entry(settings, textvariable=self.click_hold_var, width=21).grid(
                 row=4, column=1, sticky="ew", padx=(8, 0), pady=3)
-            ttk.Label(settings, text="Krypton: calibre o mapa, o minimapa e um box deste jogo.",
-                      wraplength=520).grid(row=5, column=0, columnspan=2, sticky="w")
+            ttk.Label(settings, text="Metodo do clique").grid(row=5, column=0, sticky="w")
+            ttk.Combobox(settings, textvariable=self.input_method_var, state="readonly",
+                         values=("Windows (SendInput)", "Padrao (PyAutoGUI)")).grid(
+                row=5, column=1, sticky="ew", padx=(8, 0), pady=3)
+            ttk.Button(settings, text="Testar clique no jogo (3 segundos)",
+                       command=self._test_click).grid(row=6, column=0, columnspan=2,
+                                                      sticky="ew", pady=4)
         ttk.Button(settings, text="Capturar titulo do jogo (3 segundos)",
                    command=self._capture_window_title).grid(
-            row=6 if self.profile_id == "krypton" else 8,
+            row=8,
             column=0, columnspan=2, sticky="ew", pady=4)
         ttk.Button(settings, text="Salvar ajustes", command=self.apply_settings).grid(
             row=7, column=0, columnspan=2, sticky="ew", pady=(8, 0))
@@ -444,6 +511,8 @@ class AutoBoxApp:
             wait = float(self.wait_var.get().replace(",", "."))
             patrol = float(self.patrol_var.get().replace(",", "."))
             click_hold = float(self.click_hold_var.get().replace(",", "."))
+            input_method = {"Windows (SendInput)": "windows",
+                            "Padrao (PyAutoGUI)": "standard"}[self.input_method_var.get()]
             threshold = float(self.threshold_var.get().replace(",", "."))
             revive_limit = int(self.revive_limit_var.get())
             revive_target = self.revive_target_var.get()
@@ -484,6 +553,7 @@ class AutoBoxApp:
             self.title_required = title.casefold()
             self.auto_revive = self.profile_id == "interstellar" and bool(self.auto_revive_var.get())
             self.click_hold = click_hold
+            self.input_method = input_method
             self.revive_target = revive_target
             self.revives_per_hour = revive_limit
             self._save_config()
@@ -629,6 +699,7 @@ class AutoBoxApp:
             messagebox.showerror("Falha na captura", str(exc))
 
     def start(self):
+        self.input_test_cancel.set()
         if self.coordinator is not None and not self.coordinator.prepare_start(self):
             return
         # Nao reutiliza o sinal de saida enquanto o worker antigo ainda esta fechando.
@@ -650,11 +721,13 @@ class AutoBoxApp:
         self.status.set("Ativo. Volte ao jogo; F9 pausa.")
 
     def pause(self):
+        self.input_test_cancel.set()
         with self.state_lock:
             self.running = False
         self.status.set("Pausado. F8 retoma.")
 
     def stop(self):
+        self.input_test_cancel.set()
         with self.state_lock:
             self.running = False
             self.stopped = True
@@ -768,19 +841,68 @@ class AutoBoxApp:
                 random.randint(area["top"] + my,
                                area["top"] + area["height"] - my))
 
-    def _game_click(self, x, y):
-        """Um clique esquerdo; no Krypton usa pressionamento curto configuravel."""
-        if not self._ready_to_click():
+    def _test_click_allowed(self):
+        return (not self.input_test_cancel.is_set() and not self.running and
+                (self.coordinator is None or self.coordinator.active_app is self) and
+                self.title_required in active_window_title().casefold())
+
+    def _test_click(self):
+        if self.profile_id != "krypton":
+            return
+        self.stop()
+        if not self.apply_settings():
+            return
+        if self.coordinator is not None:
+            self.coordinator.stop_other_apps(self)
+        self.input_test_cancel.clear()
+        self.status.set("Em 3 segundos: volte ao Krypton e coloque o mouse sobre um box. F9 cancela.")
+        self.root.iconify()
+
+        def fire():
+            if not self._test_click_allowed():
+                self.status.set("Teste cancelado: confira o titulo da janela e volte ao jogo antes de 3 segundos.")
+                self.root.deiconify()
+                return
+            if self.worker is not None and self.worker.is_alive():
+                self.status.set("Teste cancelado: a coleta anterior ainda esta encerrando.")
+                self.root.deiconify()
+                return
+            x, y = pyautogui.position()
+            def worker():
+                try:
+                    sent = self._game_click(x, y, test=True)
+                    self.events.put(("status", (
+                        "Clique enviado ao Windows. Confira se a nave se moveu."
+                        if sent else "Teste cancelado antes do clique.")))
+                except Exception as exc:
+                    self.events.put(("status", "Falha no teste de clique: " + str(exc)))
+                finally:
+                    self.input_test_cancel.set()
+            threading.Thread(target=worker, daemon=True).start()
+
+        self.root.after(3000, fire)
+
+    def _game_click(self, x, y, test=False):
+        """Mantem Interstellar; Krypton pode usar SendInput ou o metodo anterior."""
+        ready = self._test_click_allowed if test else self._ready_to_click
+        wait = self.input_test_cancel.wait if test else self._sleep_interruptible
+        if not ready():
             return False
-        if self.profile_id == "interstellar" or self.click_hold <= 0:
+        if self.profile_id == "interstellar":
+            pyautogui.click(x, y)
+            return True
+        if self.input_method == "windows":
+            pyautogui.failSafeCheck()
+            return send_windows_click(x, y, self.click_hold, ready, wait)
+        if self.click_hold <= 0:
             pyautogui.click(x, y)
             return True
         pyautogui.moveTo(x, y, duration=0)
-        if not self._ready_to_click():
+        if not ready():
             return False
         pyautogui.mouseDown(button="left")
         try:
-            self._sleep_interruptible(self.click_hold)
+            wait(self.click_hold)
         finally:
             pyautogui.mouseUp(button="left")
         return True
@@ -1143,7 +1265,7 @@ class AutoBoxWindow:
         self.root = root
         self.apps = {}
         self.active_app = None
-        root.title(APP_NAME + " - beta 3.5")
+        root.title(APP_NAME + " - beta 3.5.1")
         root.geometry("660x" + str(min(970, root.winfo_screenheight() - 90)))
         root.minsize(590, min(780, root.winfo_screenheight() - 90))
         self.notebook = ttk.Notebook(root)

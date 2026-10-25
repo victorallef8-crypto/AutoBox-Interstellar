@@ -3,6 +3,13 @@
 Aplicativo experimental para Windows 11 que reconhece boxes do jogo por captura
 de tela e opera o mouse localmente. **Nao e um produto oficial do jogo.**
 
+## Beta 3.5.1
+
+- Metodo alternativo Windows (SendInput) para o cliente Krypton.
+- Botao para testar um clique com o cursor posicionado manualmente.
+- Verifica o retorno do Windows e libera o botao ao interromper a espera.
+- Interstellar mantem o metodo anterior; aceitacao pelo Krypton ainda precisa de teste.
+
 ## Beta 3.5
 
 - Duas abas: Interstellar e Krypton, com calibracoes e ajustes separados.

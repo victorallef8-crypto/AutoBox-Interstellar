@@ -1,3 +1,21 @@
+BETA 3.5.1 - TESTE DE CLIQUE PARA O CLIENTE KRYPTON
+
+A aba Krypton agora usa Windows (SendInput) por padrao. O metodo anterior
+continua disponivel em Metodo do clique. Interstellar permanece com seu metodo.
+
+TESTE SEM COLETA:
+1. Na aba Krypton, selecione Windows (SendInput) e Salvar ajustes.
+2. Clique em Testar clique no jogo (3 segundos).
+3. Volte ao Krypton e coloque o mouse sobre uma box antes de terminar a contagem.
+4. Aguarde o clique unico e observe se a nave se move. F9 cancela.
+O teste nao aprende boxes nem inicia a coleta.
+
+O retorno de SendInput indica eventos inseridos no Windows, nao confirma
+que o cliente do jogo os aceitou. Falhas de envio sao mostradas no status.
+Este metodo respeita as restricoes de permissao normais do Windows.
+Referencia: https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-sendinput
+Validado em simulacao; ainda depende de teste no cliente Krypton.
+
 BETA 3.5 - ABAS INTERSTELLAR E KRYPTON
 
 Cada aba guarda mapa, minimapa, mensagens, modelo de box e ajustes separados.
