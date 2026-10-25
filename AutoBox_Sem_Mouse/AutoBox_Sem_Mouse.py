@@ -89,6 +89,7 @@ class AutoBoxSemMouse:
         root.geometry("1000x" + str(min(820, root.winfo_screenheight()-90)))
         root.minsize(760,min(620,root.winfo_screenheight()-80))
         self._draw()
+        self._draw_world_page()
         self._refresh()
         self._bind_keys()
         root.after(100, self._drain)

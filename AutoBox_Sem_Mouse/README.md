@@ -41,3 +41,5 @@ Beta 0.4.0: motor de decisao por ID/revisao e coordenadas em validacao. Selecion
 A aba Dados inclui registro passivo de uma coleta manual (30 s) e copia de diagnostico com nomes de campos, destino, referencias a boxes conhecidas e aumento observado do contador. Ignora comandos cumulativos antigos e nao grava tokens, chat ou valores de campos desconhecidos. O registro e necessario para validar o adaptador de execucao antes de automatizar farm por dados. A coleta visual continua sendo o unico modo automatico.
 
 Validacao: 108 testes passaram, alem do replay das 22 mensagens. A observacao do EventSource nao exige mais que a pagina ja esteja em /play no instante da requisicao. A recepcao ao vivo, o comando manual e a execucao futura por dados ainda precisam de validacao no jogo.
+
+Beta 0.4.1: corrige a aba Dados vazia: seus campos e botoes agora sao montados ao iniciar, mesmo sem conexao. Teste de regressao reproduziu a falha antes da correcao; 109 testes passaram. Leitura e coleta reais ainda precisam de validacao no jogo.

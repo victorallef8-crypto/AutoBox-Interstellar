@@ -65,6 +65,19 @@ class AppTests(unittest.TestCase):
         for key in ("combat","recovery"):
             self.assertEqual(self.app.notebook.tab(self.app.pages[key],"state"),"disabled")
 
+    def test_data_tab_contains_status_fields_and_diagnostic_buttons(self):
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+        widgets=list(descendants(self.app.pages["data"]))
+        texts=[str(w.cget("text")) for w in widgets if "text" in w.keys()]
+        self.assertIn("Registrar uma coleta manual (30 segundos)",texts)
+        self.assertIn("Copiar diagnóstico da coleta",texts)
+        bindings=[str(w.cget("textvariable")) for w in widgets if "textvariable" in w.keys()]
+        for variable in self.app.world_vars.values():
+            self.assertIn(str(variable),bindings)
+
     def test_active_time_excludes_pauses_and_repeated_start_events(self):
         previous=(self.app.running,self.app.active_started,self.app.active_elapsed)
         self.app.running=False; self.app.active_elapsed=0

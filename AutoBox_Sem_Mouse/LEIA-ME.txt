@@ -1,4 +1,4 @@
-AUTOBOX SEM MOUSE — BETA 0.4.0
+AUTOBOX SEM MOUSE — BETA 0.4.1
 
 Programa novo e independente, exclusivo de coleta no Interstellar.
 Nao importa nem executa o AutoBox antigo. Nao tem Krypton ou combate a NPC.
@@ -102,3 +102,5 @@ Replay local das 22 mensagens fornecidas: estado reconstruido e box mais proxima
 A recepcao passiva foi testada com CDP simulado; a conexao ao jogo real ainda precisa de validacao.
 A coleta real dentro do jogo ainda depende de validacao.
 Nao ha garantia contra banimento. Nenhum mecanismo de ocultacao de automacao foi adicionado.
+
+Beta 0.4.1: corrige a aba Dados vazia: seus campos e botoes agora sao montados ao iniciar, mesmo sem conexao. Teste de regressao reproduziu a falha antes da correcao; 109 testes passaram. Leitura e coleta reais ainda precisam de validacao no jogo.

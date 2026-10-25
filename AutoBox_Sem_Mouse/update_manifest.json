@@ -1,6 +1,6 @@
 {
-  "version": "0.4.0",
+  "version": "0.4.1",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "af58313345638577385308b2ecda6c7491fcd3cd1fb32c4deee26b2388c0257e",
-  "notes": "Motor de decisao por ID e coordenadas em validacao na aba Dados. Registro passivo de uma coleta manual e copia de diagnostico. Ainda nao executa farm automatico por dados; F8 continua visual."
+  "sha256": "433bc7a0ead073aaa54bf42727203f0a27ef4a6e6d283c162a7f0f1d0d06dd42",
+  "notes": "Corrige a aba Dados vazia. Campos de leitura, plano e botoes de diagnostico aparecem ao iniciar, mesmo sem conexao. A coleta por dados continua em validacao."
 }
