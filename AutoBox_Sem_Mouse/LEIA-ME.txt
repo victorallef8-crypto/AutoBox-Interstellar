@@ -1,4 +1,4 @@
-AUTOBOX SEM MOUSE — BETA 0.1.0
+AUTOBOX SEM MOUSE — BETA 0.1.1
 
 Programa novo e independente, exclusivo de coleta no Interstellar.
 Nao importa nem executa o AutoBox antigo. Nao tem Krypton ou combate a NPC.
@@ -13,7 +13,8 @@ PREPARAR
 2. Se nao localizar o navegador, selecione opera.exe ou launcher.exe do Opera GX.
 3. Faca o login manualmente nessa sessao separada.
 4. Marque o mapa, aprenda uma box clicando precisamente no centro e marque apenas a nave.
-5. Marque opcionalmente a zona segura NO MINIMAPA para patrulhar e as mensagens de recompensa.
+5. Marque uma zona segura NO MINIMAPA para patrulhar e tentar retornar em caso de radiacao.
+   Mensagens de recompensa sao opcionais.
 6. F8 inicia; F9 pausa; F10 para. Pode usar outra janela do computador.
 
 No primeiro teste, mantenha o Opera dedicado aberto, mesmo atras de outras janelas.
@@ -25,10 +26,19 @@ COMO COLETA
 - Recaptura a posicao antes de clicar, com ate seis correcoes por tentativa.
 - Cliques nao sao considerados prova de progresso.
 - Recompensa nova confirma coleta; desaparecimento perto da nave apenas libera nova busca.
-- Ha limite de tempo e parada quando o navegador falha ou surge aviso visual de perigo/morte.
+- Com radiacao detectada, prioriza cliques no centro da zona segura marcada.
+- Se o aviso persistir por 12 segundos, pausa para verificacao. Tela de morte pausa sem clicar.
+- Sem nenhuma box detectada por 24 segundos, envia retorno a zona marcada e pausa.
+- Tres alvos seguidos sem progresso tambem interrompem a busca.
+- A zona marcada deve ficar dentro da parte segura do minimapa; retorno nao garante protecao.
 - O historico e a previa mostram o que o bot tentou fazer.
 
 DIAGNOSTICO
+Use Testar deteccao (sem mover a nave) antes de iniciar: os retangulos cianos
+mostram os candidatos reconhecidos. Se mostrar zero, envie um print dessa imagem.
+Mantenha o zoom desejado (inclusive 33%) ao aprender e testar.
+A calibracao usa imagem congelada; ESC cancela.
+
 Use Ver imagem e ponto do ultimo clique. A coleta pausa e a cruz vermelha
 mostra o ponto enviado ao navegador. Confira se esta no centro do box.
 A previa fica na memoria local; nao e enviada automaticamente.
@@ -44,6 +54,6 @@ Use Verificar atualizacoes deste bot nas proximas versoes.
 O atualizador verifica SHA-256 e substitui somente os arquivos conhecidos.
 
 ESTADO DESTA BETA
-Testes de logica, interface e navegador simulado foram executados.
+48 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
 A coleta real dentro do jogo ainda depende de validacao.
 Nao ha garantia contra banimento. Nenhum mecanismo de ocultacao de automacao foi adicionado.

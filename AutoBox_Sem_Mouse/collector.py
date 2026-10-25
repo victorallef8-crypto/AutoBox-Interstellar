@@ -1,7 +1,6 @@
 """Coleta exclusiva pela pagina. Um unico alvo por vez, com diagnostico visual."""
-import random
 import time
-from controller import CollectionState, inside, track
+from controller import CollectionState, inside, track, center
 from vision import locate_boxes, new_reward_message, radiation_visible, find_death_panel
 
 def crop(frame, area):
@@ -21,6 +20,11 @@ class Collector:
         self.notice_streak = 0
         self.last_patrol = -100
         self.last_status = None
+        self.search_started = None
+        self.patrol_step = 0
+        self.last_escape = -100
+        self.radiation_started = None
+        self.failed_targets = 0
 
     def ready(self):
         return not self.stop.is_set() and self.session.ready.is_set()
@@ -66,16 +70,54 @@ class Collector:
         self.status("Aproximando do mesmo box — clique %s/6" % self.state.target.clicks)
         return True
 
+
+    def return_to_safe_zone(self, now):
+        safe = self.config.get("minimap")
+        if not safe:
+            self.status("Sem zona segura marcada. Coleta pausada; confira a nave.")
+            return False
+        # Valida o retangulo antes de usar coordenadas de navegacao.
+        crop(self.capture(), safe)
+        if self.ready() and self.session.request("click", center(safe), allowed=self.ready):
+            self.last_escape = now
+            return True
+        return False
+
     def run(self):
         self.emit("running", True)
         try:
             while self.ready():
                 frame = self.capture()
-                if radiation_visible(frame) or find_death_panel(frame) is not None:
-                    self.status("Aviso de perigo ou morte. Coleta pausada para verificacao.")
-                    return
                 now = time.monotonic()
+                if find_death_panel(frame) is not None:
+                    self.status("Tela de morte detectada. Coleta pausada.")
+                    return
+                if radiation_visible(frame):
+                    if self.radiation_started is None:
+                        self.radiation_started = now
+                    self.state.finish(now, failed=True)
+                    self.baseline = None
+                    if now - self.last_escape >= 2:
+                        if not self.return_to_safe_zone(now):
+                            return
+                        self.status("Radiacao: retornando ao centro da zona segura marcada.")
+                    if now - self.radiation_started >= 12:
+                        self.status("Radiacao persiste apos retorno. Pausado; confira a zona segura.")
+                        return
+                    self.stop.wait(.2)
+                    continue
+                self.radiation_started = None
                 matches = self.boxes(frame)
+                if matches:
+                    self.search_started = None
+                elif self.search_started is None:
+                    self.search_started = now
+                elif now - self.search_started >= 24:
+                    returned = self.return_to_safe_zone(now)
+                    self.status("Nenhuma box reconhecida por 24 s. " +
+                                ("Retorno enviado a zona marcada. " if returned else "") +
+                                "Pausado: use Testar deteccao para conferir a imagem.")
+                    return
                 if self.state.target is None:
                     point = self.state.choose(matches, now)
                     if point is not None:
@@ -91,12 +133,13 @@ class Collector:
                     # Candidatos apenas temporariamente filtrados nao causam outra ordem de voo.
                     safe = self.config.get("minimap")
                     if not matches and safe and now - self.last_patrol >= 6:
-                        mx, my = min(12, safe["width"]/4), min(10, safe["height"]/4)
-                        point = (random.uniform(safe["left"]+mx, safe["left"]+safe["width"]-mx),
-                                 random.uniform(safe["top"]+my, safe["top"]+safe["height"]-my))
+                        # Alterna quatro regioes internas; nao insiste num destino unico.
+                        fx, fy = ((.3,.3),(.7,.7),(.7,.3),(.3,.7))[self.patrol_step % 4]
+                        point = (safe["left"] + safe["width"]*fx, safe["top"] + safe["height"]*fy)
                         if self.ready() and self.session.request("click", point, allowed=self.ready):
                             self.last_patrol = now
-                            self.status("Procurando boxes na zona marcada do minimapa...")
+                            self.patrol_step += 1
+                            self.status("0 boxes reconhecidas. Busca %s/4 na zona do minimapa." % self.patrol_step)
                     else:
                         self.status("Procurando boxes..." if safe else "Procurando boxes — sem ronda configurada.")
                     self.stop.wait(.2)
@@ -116,6 +159,11 @@ class Collector:
                                  "departed": "Alvo saiu de vista junto da nave. Buscando o proximo.",
                                  "failed": "Tentativa sem progresso. Buscando outro alvo."}[action])
                     self.state.finish(now, failed=action == "failed")
+                    self.failed_targets = self.failed_targets + 1 if action == "failed" else 0
+                    if self.failed_targets >= 3:
+                        self.return_to_safe_zone(now)
+                        self.status("Tres alvos sem progresso. Pausado para conferir a deteccao.")
+                        return
                     self.baseline = None
                 self.stop.wait(.18)
         except Exception as exc:

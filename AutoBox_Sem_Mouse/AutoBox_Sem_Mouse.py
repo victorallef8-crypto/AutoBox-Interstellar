@@ -17,6 +17,7 @@ from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
 from collector import Collector
 from controller import inside
+from vision import locate_boxes
 import updater
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxSemMouse"
@@ -121,6 +122,7 @@ class AutoBoxSemMouse:
         ttk.Label(settings, text="Confianca da imagem (0,60 a 0,95)").pack(side="left")
         ttk.Entry(settings, textvariable=self.threshold, width=8).pack(side="left", padx=8)
         ttk.Button(settings, text="Salvar", command=self.save).pack(side="left")
+        ttk.Button(frame, text="Testar deteccao (sem mover a nave)", command=self.test_detection).pack(fill="x", pady=3)
         ttk.Button(frame, text="Ver imagem e ponto do ultimo clique", command=self.preview).pack(fill="x", pady=3)
         ttk.Button(frame, text="Verificar atualizacoes deste bot", command=self.check_updates).pack(fill="x", pady=3)
         ttk.Label(frame, text="Historico da sessao").pack(anchor="w", pady=(6,2))
@@ -265,12 +267,12 @@ class AutoBoxSemMouse:
         if image.size != (self.viewport["width"], self.viewport["height"]):
             self.say("A imagem mudou de tamanho. Reabra e calibre novamente.")
             return
-        self.root.iconify()
         overlay = tk.Toplevel(self.root)
+        overlay.title("Calibracao — imagem congelada")
         overlay.overrideredirect(True)
         overlay.geometry("%sx%s+0+0" % image.size)
         overlay.attributes("-topmost", True)
-        overlay.focus_force()
+        overlay.after_idle(overlay.focus_force)
         canvas = tk.Canvas(overlay, width=image.width, height=image.height, highlightthickness=0, cursor="crosshair")
         canvas.pack()
         photo = ImageTk.PhotoImage(image)
@@ -280,7 +282,7 @@ class AutoBoxSemMouse:
                  "minimap":"Arraste uma zona segura DENTRO do minimapa", "notice":"Arraste somente as mensagens novas de recompensa",
                  "sample":"Clique precisamente no CENTRO de uma box"}[mode]
         canvas.create_rectangle(8,8,min(image.width-8,800),45,fill="#17364c",outline="cyan")
-        canvas.create_text(18,26,text=label+" | ESC cancela",fill="white",anchor="w",font=("Segoe UI",12))
+        canvas.create_text(18,26,text="IMAGEM CONGELADA | "+label+" | ESC cancela",fill="white",anchor="w",font=("Segoe UI",12))
         start, drawn = [None], [None]
         def finish():
             overlay.destroy()
@@ -302,7 +304,7 @@ class AutoBoxSemMouse:
                     image.crop((x-15,y-15,x+16,y+16)).save(MODEL_PATH)
                     self.say("Modelo de box salvo.")
             else:
-                x1,x2=sorted((start[0][0],event.x)); y1,y2=sorted((start[0][1],event.y))
+                x1,x2=sorted((max(0,min(image.width,start[0][0])),max(0,min(image.width,event.x)))); y1,y2=sorted((max(0,min(image.height,start[0][1])),max(0,min(image.height,event.y))))
                 area={"left":x1,"top":y1,"width":x2-x1,"height":y2-y1}
                 minimum=150 if mode=="map" else 20
                 if area["width"] >= minimum and area["height"] >= minimum:
@@ -316,6 +318,57 @@ class AutoBoxSemMouse:
         canvas.bind("<B1-Motion>",move)
         canvas.bind("<ButtonRelease-1>",up)
         overlay.bind("<Escape>",lambda event: finish())
+
+
+    def test_detection(self):
+        self.stop_event.set()
+        if self.worker is not None and self.worker.is_alive():
+            self.root.after(100, self.test_detection)
+            return
+        if not self.session.ready.is_set():
+            self.say("Abra a sessao dedicada primeiro.")
+            return
+        if not valid_area(self.cfg.get("map"), self.viewport) or not MODEL_PATH.is_file():
+            self.say("Marque o mapa dentro da imagem e aprenda uma box primeiro.")
+            return
+        if not self.save():
+            return
+        area = dict(self.cfg["map"])
+        threshold = self.cfg["threshold"]
+        def capture():
+            try:
+                data = self.session.request("screenshot")
+                frame = self._decode(data)
+                sample = cv2.imread(str(MODEL_PATH))
+                if frame is None or sample is None:
+                    raise ValueError("Imagem ou modelo indisponivel.")
+                x,y,w,h = (int(area[k]) for k in ("left","top","width","height"))
+                matches = locate_boxes(frame[y:y+h,x:x+w], sample, threshold=threshold)
+                points = [(px+x,py+y,score) for px,py,score in matches]
+                self.events.put(("detection", (data,points)))
+            except Exception as exc:
+                self.events.put(("status", "Teste interrompido: "+str(exc)))
+        threading.Thread(target=capture, daemon=True).start()
+
+    def show_detection(self, data, points):
+        image = Image.open(io.BytesIO(data)).convert("RGB")
+        original = image.size
+        image.thumbnail((self.root.winfo_screenwidth()-80,self.root.winfo_screenheight()-180))
+        sx,sy = image.width/original[0],image.height/original[1]
+        window = tk.Toplevel(self.root)
+        window.title("Teste de deteccao — coleta pausada")
+        ttk.Label(window, text="%s candidatos. As cruzes devem ficar nas boxes. Nenhum clique foi enviado." % len(points),
+                  padding=8).pack()
+        canvas = tk.Canvas(window,width=image.width,height=image.height,highlightthickness=0)
+        canvas.pack()
+        photo = ImageTk.PhotoImage(image); canvas._photo = photo
+        canvas.create_image(0,0,anchor="nw",image=photo)
+        for x,y,score in points:
+            x,y = x*sx,y*sy
+            canvas.create_rectangle(x-10,y-10,x+10,y+10,outline="cyan",width=2)
+            canvas.create_text(x+12,y,text="%.2f" % score,anchor="w",fill="cyan")
+        window.lift()
+        self.say("Teste: %s candidatos reconhecidos. Confira as marcacoes na imagem." % len(points))
 
     def preview(self):
         self.pause()
@@ -371,6 +424,8 @@ class AutoBoxSemMouse:
                 {"start":self.start,"pause":self.pause,"stop":self.stop}[data]()
             elif event=="status":
                 self.say(data)
+            elif event=="detection":
+                self.show_detection(*data)
             elif event=="preview":
                 self.last_preview=data
             elif event=="attempt":

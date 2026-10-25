@@ -75,6 +75,35 @@ class CollectorTests(unittest.TestCase):
         self.vision.radiation_visible.return_value=True
         self.bot.run()
         self.assertEqual(self.clicks,[])
+    def test_radiation_prioritizes_safe_zone_instead_of_box(self):
+        self.bot.config["minimap"]={"left":1000,"top":600,"width":100,"height":80}
+        self.vision.radiation_visible.return_value=True
+        self.bot.run()
+        self.assertTrue(self.clicks)
+        self.assertTrue(all(point == (1050,640) for point in self.clicks))
+        self.assertFalse(any(event=="attempt" for event,data in self.events))
+        self.assertTrue(any("Radiacao persiste" in data for event,data in self.events if event=="status"))
+
+    def test_missing_boxes_returns_to_safe_zone_and_stops_after_timeout(self):
+        self.point=lambda:None
+        self.bot.config["minimap"]={"left":1000,"top":600,"width":100,"height":80}
+        def wait(seconds):
+            self.clock.now += seconds
+            if self.clock.now > 40:
+                self.stop.set()
+        self.stop.wait=wait
+        self.bot.run()
+        self.assertLess(self.clock.now,26)
+        self.assertEqual(self.clicks[-1],(1050,640))
+        self.assertEqual(len(set(self.clicks[:-1])),4)
+        self.assertTrue(any("24 s" in data for event,data in self.events if event=="status"))
+
+    def test_death_never_sends_navigation(self):
+        self.vision.find_death_panel.return_value=(1,2,3,4)
+        self.bot.config["minimap"]={"left":1000,"top":600,"width":100,"height":80}
+        self.bot.run()
+        self.assertEqual(self.clicks,[])
+
     def test_reward_counts_separately_from_attempt(self):
         self.config["notice"]={"left":0,"top":0,"width":120,"height":30}
         self.point=lambda: ((900-min(self.clock.now,3)*100,300) if self.clock.now<3.3 else None)

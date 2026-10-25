@@ -9,3 +9,5 @@ Configure mapa, modelo de box e area da nave. Minimap e notificacoes sao opciona
 Esta beta possui configuracoes e atualizador proprios. A logica e a interface foram verificadas com navegador simulado; a coleta real ainda precisa de validacao. Nao ha garantia de ausencia de banimento.
 
 Consulte LEIA-ME.txt para detalhes.
+
+Beta 0.1.1: detector com mais escalas e recorte do objeto luminoso; teste visual de deteccao sem cliques; busca limitada a 24 s sem candidatos, alternancia de patrulha e retorno ao centro da zona marcada ao reconhecer radiacao. Retorno depende de calibracao correta e precisa de validacao no jogo.

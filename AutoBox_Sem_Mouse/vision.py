@@ -13,14 +13,29 @@ def locate_boxes(frame_bgr: np.ndarray, sample_bgr: np.ndarray,
     if frame_bgr is None or sample_bgr is None:
         return []
     frame_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-    sample_gray = cv2.cvtColor(sample_bgr, cv2.COLOR_BGR2GRAY)
+    # Recorta o objeto luminoso para nao comparar o fundo que muda durante o voo.
+    gray = cv2.cvtColor(sample_bgr, cv2.COLOR_BGR2GRAY)
+    cutoff = max(60, int(gray.max() * .30))
+    mask = (gray >= cutoff).astype(np.uint8)
+    count, labels, stats, centers = cv2.connectedComponentsWithStats(mask)
+    candidates = [i for i in range(1, count) if stats[i, cv2.CC_STAT_AREA] >= 4]
+    if not candidates:
+        return []
+    middle = (gray.shape[1]/2, gray.shape[0]/2)
+    component = min(candidates, key=lambda i: (centers[i][0]-middle[0])**2 + (centers[i][1]-middle[1])**2)
+    x, y, w, h, _ = stats[component]
+    x1, y1 = max(0, x-2), max(0, y-2)
+    x2, y2 = min(gray.shape[1], x+w+2), min(gray.shape[0], y+h+2)
+    sample_gray = gray[y1:y2, x1:x2]
+    # Mantem o centro do objeto, mesmo quando o clique de aprendizagem ficou deslocado.
+    object_center = (x+w/2-x1, y+h/2-y1)
     height, width = frame_gray.shape
     proposals: list[tuple[int, int, float]] = []
 
-    for scale in (0.85, 1.0, 1.15):
-        sw = max(9, round(sample_gray.shape[1] * scale))
-        sh = max(9, round(sample_gray.shape[0] * scale))
-        if sw >= width or sh >= height:
+    for scale in (0.33, 0.40, 0.50, 0.60, 0.70, 0.85, 1.0, 1.15, 1.33, 1.50, 2.0, 2.5, 3.0):
+        sw = round(sample_gray.shape[1] * scale)
+        sh = round(sample_gray.shape[0] * scale)
+        if min(sw, sh) < 7 or sw >= width or sh >= height:
             continue
         resized = cv2.resize(sample_gray, (sw, sh), interpolation=cv2.INTER_LINEAR)
         if float(resized.std()) < 8.0:
@@ -31,11 +46,11 @@ def locate_boxes(frame_bgr: np.ndarray, sample_bgr: np.ndarray,
         maxima = cv2.dilate(scores, np.ones((neighborhood, neighborhood), np.uint8))
         ys, xs = np.where((scores >= threshold) & (scores >= maxima - 1e-6))
         for y, x in zip(ys.tolist(), xs.tolist()):
-            cx, cy = x + sw // 2, y + sh // 2
+            cx, cy = x + round(object_center[0] * sw / sample_gray.shape[1]), y + round(object_center[1] * sh / sample_gray.shape[0])
             # Exige que haja um centro luminoso, nao so a mesma textura de fundo.
             patch = frame_bgr[max(0, cy - 4): min(height, cy + 5),
                               max(0, cx - 4): min(width, cx + 5)]
-            if patch.size and (not require_bright or int(np.max(np.min(patch, axis=2))) >= 175):
+            if patch.size and (not require_bright or int(np.max(np.min(patch, axis=2))) >= 120):
                 proposals.append((cx, cy, float(scores[y, x])))
 
     proposals.sort(key=lambda p: p[2], reverse=True)
