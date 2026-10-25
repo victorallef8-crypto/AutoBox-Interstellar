@@ -115,6 +115,43 @@ class CollectorTests(unittest.TestCase):
     def test_no_minimap_config_never_sends_patrol_click(self):
         self.point=lambda:None; self.bot.run()
         self.assertEqual(self.clicks,[])
+    def test_box_at_ship_edge_remains_in_detection(self):
+        self.point=lambda:(519,300)
+        self.assertEqual(self.bot.boxes(Frame())[0][:2],(519,300))
+
+    def test_full_map_includes_box_below_old_marking_and_masks_minimap(self):
+        config=dict(self.config,full_map=True,minimap={"left":800,"top":600,"width":100,"height":80})
+        self.bot=self.module.Collector(self.session,config,object(),self.stop,
+            lambda event,data:self.events.append((event,data)),lambda data:Frame())
+        self.point=lambda:(950,650)
+        self.assertEqual(self.bot.boxes(Frame())[0][:2],(950,650))
+        self.point=lambda:(850,640)
+        self.assertEqual(self.bot.boxes(Frame()),[])
+
+    def test_no_patrol_is_sent_while_current_box_is_approaching(self):
+        self.bot.config["minimap"]={"left":1000,"top":600,"width":100,"height":80}
+        def wait(seconds):
+            self.clock.now+=seconds
+            if self.clock.now>=3.5: self.stop.set()
+        self.stop.wait=wait
+        self.bot.run()
+        self.assertTrue(self.clicks)
+        self.assertTrue(all(x<1000 and y==300 for x,y in self.clicks))
+        self.assertEqual(sum(event=="attempt" for event,data in self.events),1)
+
+    def test_small_detection_loss_does_not_drop_target_or_patrol(self):
+        self.bot.state.acquire((800,300),0)
+        self.bot.state.clicked((800,300),0)
+        self.bot.config["minimap"]={"left":1000,"top":600,"width":100,"height":80}
+        self.point=lambda:None
+        def wait(seconds):
+            self.clock.now+=seconds
+            if self.clock.now>=2: self.stop.set()
+        self.stop.wait=wait
+        self.bot.run()
+        self.assertIsNotNone(self.bot.state.target)
+        self.assertEqual(self.clicks,[])
+
     def test_bad_calibration_stops_before_click(self):
         self.bot.config["map"]={"left":1200,"top":0,"width":1000,"height":600}
         self.bot.run()

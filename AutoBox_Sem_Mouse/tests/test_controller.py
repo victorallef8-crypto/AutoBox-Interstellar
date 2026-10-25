@@ -43,8 +43,9 @@ class ControllerTests(unittest.TestCase):
         self.state.acquire((900,300),0)
         self.assertEqual(self.state.observe((600,300),30),"failed")
     def test_near_ship_disappearance_releases_quickly(self):
-        self.state.acquire((550,300),0)
-        self.assertEqual(self.state.observe(None,.3),"wait")
+        self.state.acquire((515,300),0)
+        self.assertEqual(self.state.observe(None,.2),"wait")
+        self.assertEqual(self.state.observe(None,.4),"wait")
         self.assertEqual(self.state.observe(None,.6),"departed")
     def test_disappearance_is_not_confirmation(self):
         self.state.acquire((550,300),0)
@@ -52,10 +53,29 @@ class ControllerTests(unittest.TestCase):
         self.assertNotEqual(self.state.observe(None,.6),"confirmed")
     def test_distant_disappearance_fails_instead_of_collecting(self):
         self.state.acquire((900,300),0)
-        self.assertEqual(self.state.observe(None,2),"failed")
+        self.assertEqual(self.state.observe(None,3.1),"failed")
     def test_reward_has_priority(self):
         self.state.acquire((900,300),0)
         self.assertEqual(self.state.observe(None,1,reward=True),"confirmed")
+    def test_box_beside_ship_is_prioritized_over_far_box(self):
+        self.assertEqual(self.state.choose([(513,300,.91),(800,300,.99)],0),(513,300))
+
+    def test_nearest_in_cooldown_does_not_cause_farther_detour(self):
+        self.state.acquire((550,300),0); self.state.finish(0,failed=True)
+        self.assertIsNone(self.state.choose([(550,300,.99),(850,300,.99)],1))
+
+    def test_disappearance_50_pixels_away_never_releases_as_arrival(self):
+        self.state.acquire((550,300),0)
+        for now in (.2,.4,.6,.8):
+            self.assertEqual(self.state.observe(None,now),"wait")
+
+    def test_prediction_tracks_camera_motion(self):
+        self.state.acquire((800,300),0)
+        self.state.observe((780,300),.2)
+        predicted=self.state.predicted(.4)
+        self.assertAlmostEqual(predicted[0],760)
+        self.assertEqual(predicted[1],300)
+
     def test_recent_failure_blocks_only_temporarily(self):
         self.state.acquire((600,300),0); self.state.finish(0,failed=True)
         self.assertIsNone(self.state.choose([(600,300,.99)],1))

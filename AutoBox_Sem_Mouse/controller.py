@@ -13,6 +13,16 @@ def center(area):
 def distance(a, b):
     return hypot(a[0] - b[0], a[1] - b[1])
 
+def detection_area(config, viewport):
+    if config.get("full_map", False):
+        top = max(0, min(int(config["map"]["top"]), viewport["height"]-1))
+        return {"left":config["map"]["left"], "top":top, "width":config["map"]["width"], "height":viewport["height"]-top}
+    return dict(config["map"])
+
+def visible_box(point, config):
+    # Objetos no minimapa nao sao boxes do espaco.
+    return not (config.get("minimap") and inside(point, config["minimap"], margin=3))
+
 def track(candidates, point, radius=60):
     nearby = sorted((candidate for candidate in candidates if distance(candidate[:2], point) <= radius),
                     key=lambda candidate: distance(candidate[:2], point))
@@ -32,25 +42,30 @@ class Target:
     last_click: float = -100
     clicks: int = 0
     missing: int = 0
+    velocity: tuple = (0., 0.)
 
 class CollectionState:
     def __init__(self, ship):
         self.ship = dict(ship)
         self.origin = center(ship)
-        self.arrival_radius = max(65, hypot(ship["width"] / 2, ship["height"] / 2) + 30)
+        self.arrival_radius = 22
         self.target = None
         self.blocked = []
 
     def allowed(self, point):
-        return not inside(point, self.ship, margin=4)
+        # Preserva boxes ao lado e embaixo da nave; protege apenas o centro.
+        return distance(point, self.origin) > 7
 
     def choose(self, candidates, now):
         self.blocked = [(point, until) for point, until in self.blocked if until > now]
-        available = [p for p in candidates if self.allowed(p[:2])
-                     and all(distance(p[:2], point) > 18 for point, _ in self.blocked)]
+        available = [p for p in candidates if self.allowed(p[:2])]
         if not available:
             return None
-        return min(available, key=lambda p: (distance(p[:2], self.origin), -p[2]))[:2]
+        nearest = min(available, key=lambda p: (distance(p[:2], self.origin), -p[2]))[:2]
+        # Nao pula o mais proximo para voar ate outro enquanto aguarda reverificacao.
+        if any(distance(nearest, point) <= 18 for point, _ in self.blocked):
+            return None
+        return nearest
 
     def acquire(self, point, now):
         self.target = Target(point, now, now, now, distance(point, self.origin))
@@ -59,6 +74,12 @@ class CollectionState:
         self.target.point = point
         self.target.last_click = now
         self.target.clicks += 1
+
+    def predicted(self, now):
+        target = self.target
+        elapsed = min(.6, max(0, now-target.last_seen))
+        return (target.point[0] + target.velocity[0]*elapsed,
+                target.point[1] + target.velocity[1]*elapsed)
 
     def observe(self, point, now, reward=False):
         target = self.target
@@ -70,10 +91,15 @@ class CollectionState:
             return "failed"
         if point is None:
             target.missing += 1
-            if (target.missing >= 2 and target.best_distance <= self.arrival_radius
-                    and now - target.last_seen >= .5):
+            if (target.missing >= 3 and target.best_distance <= self.arrival_radius
+                    and now - target.last_seen >= .6):
                 return "departed"
-            return "failed" if now - target.last_seen >= 1.8 else "wait"
+            return "failed" if now - target.last_seen >= 3 else "wait"
+        elapsed = now-target.last_seen
+        if .04 <= elapsed <= 2:
+            vx = (point[0]-target.point[0])/elapsed
+            vy = (point[1]-target.point[1])/elapsed
+            target.velocity = (vx,vy)
         target.point = point
         target.last_seen = now
         target.missing = 0
@@ -83,7 +109,8 @@ class CollectionState:
             target.last_progress = now
         if now - target.last_progress >= 6:
             return "failed"
-        if self.allowed(point) and target.clicks < 6 and now - target.last_click >= .9:
+        correction_delay = .3 if current_distance < 100 else .9
+        if self.allowed(point) and target.clicks < 6 and now - target.last_click >= correction_delay:
             return "aim"
         return "wait"
 

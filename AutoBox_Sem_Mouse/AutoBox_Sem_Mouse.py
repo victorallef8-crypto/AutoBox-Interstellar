@@ -16,7 +16,7 @@ from PIL import Image, ImageTk
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
 from collector import Collector
-from controller import inside
+from controller import inside, detection_area, visible_box
 from vision import locate_boxes
 import updater
 
@@ -50,6 +50,7 @@ class AutoBoxSemMouse:
         self.root = root
         APP_DIR.mkdir(parents=True, exist_ok=True)
         self.cfg = read_config()
+        self.cfg.setdefault("full_map", True)
         self.viewport = {"width": max(800, min(1280, root.winfo_screenwidth()-60)),
                          "height": max(500, min(720, root.winfo_screenheight()-120))}
         if self.cfg.get("viewport") != self.viewport:
@@ -69,6 +70,7 @@ class AutoBoxSemMouse:
         self.stats = tk.StringVar(value="Tentativas: 0 | Confirmadas: 0 | Sem progresso: 0")
         self.threshold = tk.StringVar(value=str(self.cfg.get("threshold", .9)))
         self.area_labels = {}
+        self.full_map = tk.BooleanVar(value=self.cfg["full_map"])
         root.title("AutoBox Sem Mouse — beta " + updater.CURRENT_VERSION)
         root.geometry("710x" + str(min(900, root.winfo_screenheight()-90)))
         self._draw()
@@ -109,6 +111,8 @@ class AutoBoxSemMouse:
             self.area_labels[key] = var
             ttk.Label(calibrate, textvariable=var).grid(row=row, column=1, sticky="w", padx=10)
         calibrate.columnconfigure(0, weight=1)
+        ttk.Checkbutton(calibrate, text="Incluir boxes na faixa inferior do jogo (excluir minimapa)",
+                        variable=self.full_map, command=self.save).grid(row=5,column=0,columnspan=2,sticky="w",pady=5)
         controls = ttk.LabelFrame(frame, text="3. Coleta", padding=10)
         controls.pack(fill="x", pady=(10,0))
         buttons = ttk.Frame(controls)
@@ -158,6 +162,7 @@ class AutoBoxSemMouse:
             if not .6 <= threshold <= .95:
                 raise ValueError("Use confianca entre 0,60 e 0,95.")
             self.cfg["threshold"] = threshold
+            self.cfg["full_map"] = bool(self.full_map.get())
             temporary = CONFIG_PATH.with_suffix(".tmp")
             temporary.write_text(json.dumps(self.cfg, indent=2), encoding="utf-8")
             os.replace(temporary, CONFIG_PATH)
@@ -333,7 +338,8 @@ class AutoBoxSemMouse:
             return
         if not self.save():
             return
-        area = dict(self.cfg["map"])
+        area = detection_area(self.cfg, self.viewport)
+        config = dict(self.cfg)
         threshold = self.cfg["threshold"]
         def capture():
             try:
@@ -344,7 +350,7 @@ class AutoBoxSemMouse:
                     raise ValueError("Imagem ou modelo indisponivel.")
                 x,y,w,h = (int(area[k]) for k in ("left","top","width","height"))
                 matches = locate_boxes(frame[y:y+h,x:x+w], sample, threshold=threshold)
-                points = [(px+x,py+y,score) for px,py,score in matches]
+                points = [(px+x,py+y,score) for px,py,score in matches if visible_box((px+x,py+y),config)]
                 self.events.put(("detection", (data,points)))
             except Exception as exc:
                 self.events.put(("status", "Teste interrompido: "+str(exc)))

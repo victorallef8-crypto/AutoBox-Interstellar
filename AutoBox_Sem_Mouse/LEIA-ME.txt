@@ -1,4 +1,4 @@
-AUTOBOX SEM MOUSE — BETA 0.1.2
+AUTOBOX SEM MOUSE — BETA 0.1.3
 
 Programa novo e independente, exclusivo de coleta no Interstellar.
 Nao importa nem executa o AutoBox antigo. Nao tem Krypton ou combate a NPC.
@@ -13,6 +13,8 @@ PREPARAR
 2. Se nao localizar o navegador, selecione opera.exe ou launcher.exe do Opera GX.
 3. Faca o login manualmente nessa sessao separada.
 4. Marque o mapa, aprenda uma box clicando precisamente no centro e marque apenas a nave.
+   A opcao Incluir boxes na faixa inferior vem ligada: cobre a parte espacial abaixo da
+   marcacao antiga e ignora o minimapa marcado. Desative se essa faixa contiver outra interface.
 5. Marque uma zona segura NO MINIMAPA para patrulhar e tentar retornar em caso de radiacao.
    Mensagens de recompensa sao opcionais.
 6. F8 inicia; F9 pausa; F10 para. Pode usar outra janela do computador.
@@ -22,7 +24,11 @@ Navegador minimizado e computador bloqueado ainda nao foram validados.
 
 COMO COLETA
 - Escolhe o alvo detectado mais perto da nave marcada.
-- Mantem um unico alvo durante a aproximacao.
+- Mantem um unico alvo durante a aproximacao e suspende a patrulha.
+- Aguarda reverificar o mais proximo em vez de pular para um alvo mais distante.
+- Rastreamento local rapido acompanha o deslocamento do alvo com a camera.
+- Protege apenas o centro da nave, permitindo reconhecer boxes ao lado e embaixo dela.
+- Desaparecimento a 50 ou 65 pixels da nave nao e tratado como chegada.
 - Recaptura a posicao antes de clicar, com ate seis correcoes por tentativa.
 - Cliques nao sao considerados prova de progresso.
 - Recompensa nova confirma coleta; desaparecimento perto da nave apenas libera nova busca.
@@ -59,6 +65,6 @@ Use Verificar atualizacoes deste bot nas proximas versoes.
 O atualizador verifica SHA-256 e substitui somente os arquivos conhecidos.
 
 ESTADO DESTA BETA
-56 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
+64 testes de logica, interface, navegador simulado e imagem com OpenCV foram executados.
 A coleta real dentro do jogo ainda depende de validacao.
 Nao ha garantia contra banimento. Nenhum mecanismo de ocultacao de automacao foi adicionado.

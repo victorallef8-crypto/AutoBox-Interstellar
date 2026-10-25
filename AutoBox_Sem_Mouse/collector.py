@@ -1,6 +1,6 @@
 """Coleta exclusiva pela pagina. Um unico alvo por vez, com diagnostico visual."""
 import time
-from controller import CollectionState, inside, track, center
+from controller import CollectionState, track, center, detection_area, visible_box
 from vision import locate_boxes, new_reward_message, radiation_visible, find_death_panel
 
 def crop(frame, area):
@@ -25,6 +25,8 @@ class Collector:
         self.last_escape = -100
         self.radiation_started = None
         self.failed_targets = 0
+        self.search_area = detection_area(config, session.viewport)
+        self.empty_frames = 0
 
     def ready(self):
         return not self.stop.is_set() and self.session.ready.is_set()
@@ -41,24 +43,25 @@ class Collector:
         viewport = self.session.viewport
         if frame.shape[:2] != (viewport["height"], viewport["width"]):
             raise RuntimeError("Tamanho da pagina mudou. Reabra a sessao e calibre novamente.")
+        crop(frame, self.config["map"])
         return frame
 
     def boxes(self, frame, area=None):
-        area = area or self.config["map"]
+        area = area or self.search_area
         matches = locate_boxes(crop(frame, area), self.sample,
                                threshold=self.config.get("threshold", .9))
         return [(x + area["left"], y + area["top"], score) for x, y, score in matches
-                if self.state.allowed((x + area["left"], y + area["top"]))]
+                if visible_box((x + area["left"], y + area["top"]), self.config)]
 
-    def aim(self, expected):
-        frame = self.capture()
-        map_area = self.config["map"]
-        left = max(map_area["left"], round(expected[0]) - 70)
-        top = max(map_area["top"], round(expected[1]) - 70)
-        right = min(map_area["left"] + map_area["width"], round(expected[0]) + 71)
-        bottom = min(map_area["top"] + map_area["height"], round(expected[1]) + 71)
+    def aim(self, expected, frame=None):
+        frame = self.capture() if frame is None else frame
+        map_area = self.search_area
+        left = max(map_area["left"], round(expected[0]) - 110)
+        top = max(map_area["top"], round(expected[1]) - 110)
+        right = min(map_area["left"] + map_area["width"], round(expected[0]) + 111)
+        bottom = min(map_area["top"] + map_area["height"], round(expected[1]) + 111)
         area = {"left": left, "top": top, "width": right-left, "height": bottom-top}
-        point = track(self.boxes(frame, area), expected, radius=45)
+        point = track(self.boxes(frame, area), expected, radius=80)
         if point is None or not self.state.allowed(point) or not self.ready():
             return False
         if self.baseline is None and self.config.get("notice"):
@@ -107,23 +110,38 @@ class Collector:
                     self.stop.wait(.2)
                     continue
                 self.radiation_started = None
-                matches = self.boxes(frame)
+                if self.state.target is not None:
+                    # Rastreamento local rapido; varredura completa so entre coletas.
+                    expected = self.state.predicted(now)
+                    bounds = self.search_area
+                    left=max(bounds["left"],round(expected[0])-140)
+                    top=max(bounds["top"],round(expected[1])-140)
+                    right=min(bounds["left"]+bounds["width"],round(expected[0])+141)
+                    bottom=min(bounds["top"]+bounds["height"],round(expected[1])+141)
+                    matches = self.boxes(frame, {"left":left,"top":top,"width":right-left,"height":bottom-top}) if right>left and bottom>top else []
+                else:
+                    matches = self.boxes(frame)
                 if matches:
                     self.search_started = None
+                    self.empty_frames = 0
                 elif self.search_started is None:
                     self.search_started = now
+                    self.empty_frames = 0
                 elif now - self.search_started >= 24:
                     returned = self.return_to_safe_zone(now)
                     self.status("Nenhuma box reconhecida por 24 s. " +
                                 ("Retorno enviado a zona marcada. " if returned else "") +
                                 "Pausado: use Testar deteccao para conferir a imagem.")
                     return
+                if not matches:
+                    self.empty_frames += 1
                 if self.state.target is None:
                     point = self.state.choose(matches, now)
                     if point is not None:
                         self.state.acquire(point, now)
                         self.baseline = None
                         self.notice_streak = 0
+                        # A varredura completa pode envelhecer o quadro; recaptura antes do primeiro clique.
                         if self.aim(point):
                             self.emit("attempt", None)
                         else:
@@ -132,7 +150,7 @@ class Collector:
                         continue
                     # Candidatos apenas temporariamente filtrados nao causam outra ordem de voo.
                     safe = self.config.get("minimap")
-                    if not matches and safe and now - self.last_patrol >= 6:
+                    if not matches and self.empty_frames >= 3 and safe and now - self.last_patrol >= 6:
                         # Alterna quatro regioes internas; nao insiste num destino unico.
                         fx, fy = ((.3,.3),(.7,.7),(.7,.3),(.3,.7))[self.patrol_step % 4]
                         point = (safe["left"] + safe["width"]*fx, safe["top"] + safe["height"]*fy)
@@ -141,7 +159,7 @@ class Collector:
                             self.patrol_step += 1
                             self.status("0 boxes reconhecidas. Busca %s/4 na zona do minimapa." % self.patrol_step)
                     else:
-                        self.status("Procurando boxes..." if safe else "Procurando boxes — sem ronda configurada.")
+                        self.status("Reverificando o box mais proximo..." if matches else ("Procurando boxes..." if safe else "Procurando boxes — sem ronda configurada."))
                     self.stop.wait(.2)
                     continue
                 reward = False
@@ -149,14 +167,14 @@ class Collector:
                     current = crop(frame, self.config["notice"])
                     self.notice_streak = self.notice_streak + 1 if new_reward_message(self.baseline, current) else 0
                     reward = self.notice_streak >= 2
-                point = track(matches, self.state.target.point)
+                point = track(matches, self.state.predicted(now), radius=80)
                 action = self.state.observe(point, now, reward)
                 if action == "aim":
-                    self.aim(point)
+                    self.aim(point, frame)
                 elif action in ("confirmed", "departed", "failed"):
                     self.emit(action, None)
                     self.status({"confirmed": "Recompensa confirmada. Proximo box.",
-                                 "departed": "Alvo saiu de vista junto da nave. Buscando o proximo.",
+                                 "departed": "Alvo desapareceu junto da nave. Selecionando o mais proximo.",
                                  "failed": "Tentativa sem progresso. Buscando outro alvo."}[action])
                     self.state.finish(now, failed=action == "failed")
                     self.failed_targets = self.failed_targets + 1 if action == "failed" else 0
