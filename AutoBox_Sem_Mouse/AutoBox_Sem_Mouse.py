@@ -12,7 +12,7 @@ from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
-from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker, NpcTestWorker, NpcFarmWorker, GalaxyWorker
+from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker, NpcTestWorker, NpcFarmWorker, GalaxyWorker, SkylabWorker
 import updater
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxSemMouse"
@@ -44,6 +44,10 @@ class AutoBoxSemMouse:
         self.stop_event = threading.Event()
         self.stop_event.set()
         self.worker = None
+        self.skylab_worker=None
+        self.skylab_stop=threading.Event();self.skylab_stop.set()
+        self.skylab_status=tk.StringVar(value="Parado. Abra o Skylab no jogo antes de iniciar.")
+        self.skylab_reserve=tk.StringVar(value=str(self.cfg.get("skylab_reserve",0)))
         self.gg_worker=None
         self.gg_stop=threading.Event();self.gg_stop.set()
         self.gg_enabled=tk.BooleanVar(value=False)
@@ -429,17 +433,67 @@ class AutoBoxSemMouse:
         ttk.Button(body,text="Parar giros",command=self.gg_stop.set).pack(fill="x")
         ttk.Label(body,textvariable=self.gg_status,wraplength=650).pack(anchor="w",pady=10)
         body=self._scroll_page(self.pages["skylab"])
-        ttk.Label(body,text="Skylab — planejamento até nível 20",style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(body,text="Automação pendente de validação dos módulos, custos, pré-requisitos e fim de cada upgrade. Não usa conclusão instantânea nem compra recursos.",wraplength=650).pack(anchor="w",pady=10)
-        ttk.Button(body,text="Exportar integração atual para validar Skylab e camuflagem",command=self.export_client_integration).pack(fill="x")
-        ttk.Label(body,text="No jogo, abra Skylab e a CPU de camuflagem antes de exportar. Envie o arquivo no chat.",wraplength=650).pack(anchor="w",pady=8)
+        ttk.Label(body,text="Skylab — melhorias até nível 20",style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(body,text="Abra o Skylab no jogo e mantenha o painel aberto. Constrói um módulo por vez com créditos e minérios; aguarda a conclusão antes do próximo. Transporte termina no nível 1.",wraplength=650).pack(anchor="w",pady=8)
+        ttk.Label(body,text="Reserva mínima de créditos").pack(anchor="w")
+        ttk.Entry(body,textvariable=self.skylab_reserve,width=18).pack(anchor="w")
+        buttons=ttk.Frame(body);buttons.pack(fill="x",pady=8)
+        ttk.Button(buttons,text="Iniciar melhorias",command=self.start_skylab).pack(side="left",padx=(0,6))
+        ttk.Button(buttons,text="Parar Skylab",command=self.stop_skylab).pack(side="left")
+        ttk.Label(body,textvariable=self.skylab_status,wraplength=650).pack(anchor="w",pady=6)
+        self.skylab_table=ttk.Treeview(body,columns=("module","level","status","remaining"),show="headings",height=12)
+        for key,title,width in (("module","Módulo",180),("level","Nível",65),("status","Situação",180),("remaining","Tempo restante",120)):
+            self.skylab_table.heading(key,text=title);self.skylab_table.column(key,width=width,minwidth=60)
+        self.skylab_table.pack(fill="x",pady=8)
+        ttk.Label(body,text="Não gasta Uridium, não compra robôs, não transfere recursos e não liga ou desliga módulos. Parar impede novas melhorias; não cancela uma construção já aceita pelo jogo. Não retoma sozinho ao reabrir o bot.",wraplength=650).pack(anchor="w",pady=6)
+        ttk.Button(body,text="Exportar integração para diagnóstico",command=self.export_client_integration).pack(fill="x")
         ttk.Label(self.pages["data"],text="CPU de camuflagem automática: aguardando validação dos dados do cliente.",wraplength=650).pack(side="bottom",fill="x")
+
+
+    def skylab_active(self):
+        return self.skylab_worker is not None and self.skylab_worker.is_alive()
+
+    def stop_skylab(self):
+        self.skylab_stop.set()
+        self.skylab_status.set("Skylab encerrando. Uma construção já enviada pode continuar no jogo.")
+
+    def start_skylab(self):
+        if self.closing or self.skylab_active():return
+        if self.gg_active():
+            self.skylab_status.set("Pare os giros do Galaxy Gate antes de iniciar o Skylab.");return
+        if not self.session.ready.is_set():
+            self.skylab_status.set("Abra o jogo pelo bot e depois o Skylab no jogo.");return
+        try:
+            reserve=int(self.skylab_reserve.get())
+            if not 0<=reserve<=1000000000:raise ValueError()
+        except ValueError:
+            self.skylab_status.set("Informe uma reserva de créditos entre 0 e 1.000.000.000.");return
+        self.cfg["skylab_reserve"]=reserve
+        if not self.save():return
+        self.skylab_stop.clear()
+        engine=SkylabWorker(self.session,self.skylab_stop,lambda e,d:self.events.put((e,d)),reserve=reserve)
+        self.skylab_worker=threading.Thread(target=engine.run,daemon=True)
+        self.skylab_worker.start()
+        self.skylab_status.set("Skylab iniciado. Lendo módulos e recursos.")
+
+    def update_skylab_rows(self,rows):
+        reasons={"concluido":"Concluído","construindo":"Construindo","pronto":"Pronto",
+                 "modulo_basico":"Aguarda módulo básico","creditos":"Aguarda créditos",
+                 "minerios":"Aguarda minérios","energia":"Aguarda energia"}
+        for row in rows:
+            seconds=int(row.get("remaining",0))
+            remaining=(str(seconds//3600)+"h "+str(seconds%3600//60)+"m "+str(seconds%60)+"s") if row.get("job") else "—"
+            values=(row["name"],str(row["level"])+"/"+str(row["max"]),reasons.get(row["reason"],row["reason"]),remaining)
+            if self.skylab_table.exists(row["id"]):self.skylab_table.item(row["id"],values=values)
+            else:self.skylab_table.insert("","end",iid=row["id"],values=values)
 
     def gg_active(self):
         return self.gg_worker is not None and self.gg_worker.is_alive()
 
     def start_galaxy(self):
         if self.closing or self.gg_active(): return
+        if self.skylab_active():
+            self.gg_status.set("Pare o Skylab antes de girar energias.");return
         if not self.gg_enabled.get():
             self.gg_status.set("Marque Habilitar giros automáticos antes de iniciar.");return
         if self.npc_active() or (self.worker is not None and self.worker.is_alive()):
@@ -516,16 +570,19 @@ class AutoBoxSemMouse:
         self.combat_status.set("NPC parado. Aguarde encerrar os tiros; o próximo início abre uma nova sessão.")
 
     def pause_all(self):
+        self.skylab_stop.set()
         self.gg_stop.set()
         self.pause()
         self.pause_npc()
 
     def stop_all(self):
+        self.skylab_stop.set()
         self.gg_stop.set()
         self.stop()
         self.stop_npc()
 
     def record_combat(self):
+        self.skylab_stop.set()
         self.gg_stop.set()
         if self.gg_active():
             self.root.after(100,self.record_combat)
@@ -602,6 +659,7 @@ class AutoBoxSemMouse:
             self.say(str(exc))
 
     def export_client_integration(self):
+        self.skylab_stop.set()
         self.gg_stop.set()
         if self.gg_active():
             self.root.after(100,self.export_client_integration)
@@ -926,6 +984,7 @@ class AutoBoxSemMouse:
         threading.Thread(target=check,daemon=True).start()
 
     def _download(self, manifest):
+        self.skylab_stop.set()
         self.gg_stop.set()
         self.stop_event.set()
         self.npc_stop_event.set()
@@ -947,6 +1006,11 @@ class AutoBoxSemMouse:
                 break
             if event=="command":
                 {"start":self.start,"pause":self.pause,"stop":self.stop}[data]()
+            elif event=="skylab_status":
+                self.skylab_status.set(data)
+                self.say(data)
+            elif event=="skylab_rows":
+                self.update_skylab_rows(data)
             elif event=="gg_status":
                 self.gg_status.set(data)
                 self.say(data)
@@ -987,6 +1051,7 @@ class AutoBoxSemMouse:
         self.root.after(100,self._drain)
 
     def close(self, after=None):
+        self.skylab_stop.set()
         if self.closing:
             return
         self.closing=True

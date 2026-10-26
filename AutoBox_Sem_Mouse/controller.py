@@ -753,3 +753,71 @@ class GalaxyWorker:
             self.emit("status",str(exc))
         finally:
             self.stop.set()
+
+
+class SkylabWorker:
+    """One normal upgrade at a time; unknown outcomes stop instead of retrying."""
+    def __init__(self,session,stop,emit,target=20,reserve=0,clock=None):
+        if type(target) is not int or not 1<=target<=20 or type(reserve) is not int or not 0<=reserve<=1000000000:
+            raise ValueError("Limites do Skylab inválidos.")
+        self.session=session;self.stop=stop;self.emit=emit
+        self.settings=dict(target=target,reserve=reserve)
+        self.clock=clock or time.monotonic
+        self.pending=None;self.context=None;self.last_status=None
+    def status(self,text):
+        if text!=self.last_status:
+            self.last_status=text;self.emit("skylab_status",text)
+    def request(self,action,**extra):
+        return self.session.request("skylab",dict(self.settings,action=action,**extra),allowed=lambda:not self.stop.is_set())
+    def run(self):
+        try:
+            while not self.stop.is_set():
+                snap=self.request("inspect")
+                if self.stop.is_set():break
+                if not isinstance(snap,dict) or snap.get("action")!="snapshot" or not snap.get("rows"):
+                    raise ValueError("Leitura do Skylab indisponível.")
+                context=(snap.get("owner"),snap.get("life"))
+                if None in context:raise ValueError("Identificação da sessão ausente.")
+                if self.context is None:self.context=context
+                elif self.context!=context:raise ValueError("Conta ou vida mudou; reinicie o Skylab após conferir o jogo.")
+                self.emit("skylab_rows",snap["rows"])
+                rows=snap["rows"];now=self.clock()
+                if self.pending:
+                    p=self.pending;row=next((r for r in rows if r["id"]==p["module"]),None)
+                    if not row:raise ValueError("Módulo perdido durante confirmação.")
+                    if snap["revision"]>p["revision"] and (row["level"]>=p["next_level"] or
+                        (row.get("job") or {}).get("level")==p["next_level"]):
+                        self.status("Construção confirmada: "+row["name"]+" → nível "+str(p["next_level"]))
+                        self.pending=None
+                    elif now-p["sent_at"]>=30:
+                        raise ValueError("Construção sem confirmação. Skylab parado; confira o jogo antes de reiniciar.")
+                    if self.stop.wait(2):break
+                    continue
+                jobs=[r for r in rows if r.get("job")]
+                if jobs:
+                    self.status("Aguardando construção: "+", ".join(r["name"] for r in jobs))
+                elif all(r["level"]>=r["max"] for r in rows):
+                    self.status("Skylab: todos os módulos atingiram o nível solicitado.");return
+                else:
+                    order=("basic","solar","storage","prometium","endurium","terbium","transport","xeno","prometid","duranium","promerium","seprom")
+                    eligible=[r for r in rows if r["reason"]=="pronto"]
+                    eligible.sort(key=lambda r:(r["level"],order.index(r["id"]) if r["id"] in order else 99))
+                    if eligible:
+                        row=eligible[0]
+                        if self.stop.is_set():break
+                        result=self.request("upgrade",owner=context[0],life=context[1],revision=snap["revision"],module=row["id"],level=row["level"])
+                        if self.stop.is_set():break
+                        if not isinstance(result,dict):raise ValueError("Resposta de construção indisponível.")
+                        if result.get("action")=="sent":
+                            self.pending=dict(module=row["id"],next_level=row["level"]+1,revision=snap["revision"],sent_at=now)
+                            self.status("Aguardando confirmação: "+row["name"])
+                        elif result.get("action") not in ("changed","wait","cancelled"):
+                            raise ValueError("Construção não reconhecida; confira o Skylab.")
+                    else:
+                        self.status("Aguardando recursos, créditos, energia ou pré-requisitos. Confira os módulos abaixo.")
+                if self.stop.wait(2 if self.pending else 10):break
+            self.status("Skylab parado. Construções já iniciadas continuam no jogo.")
+        except Exception as exc:
+            self.status("Skylab interrompido: "+str(exc))
+        finally:
+            self.stop.set()

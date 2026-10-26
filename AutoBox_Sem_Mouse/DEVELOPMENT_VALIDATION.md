@@ -36,3 +36,12 @@ O workflow autoboxv-validation roda em windows-latest, com permissão somente de
 Não houve batalha real no Shadow Galaxy neste trabalho. Alcance efetivo, parâmetros de perseguição, latência, reação do servidor e NPCs agrupados exigem validação na conta. O layout foi verificado por testes de widgets; aparência em outras escalas de tela ainda requer conferência visual.
 
 A numeração, o ZIP de produção, os manifestos e o mecanismo de atualização foram preservados. Nenhuma tag, release ou merge é publicado por este trabalho. Supabase não foi implementado.
+
+
+## Skylab — integração em desenvolvimento
+
+Baseado nos arquivos skylab.js, skylab-catalog.js e tech-factory.js fornecidos pelo usuário. Usa somente o botão nativo de construção normal, com verificação dos custos, reserva de créditos, minérios, nível básico, energia e construção ativa. Não chama ações de conclusão instantânea, robôs ou transporte. Módulo básico pode subir mesmo com déficit de energia para desbloquear a próxima melhoria solar.
+
+Worker independente: um upgrade por confirmação, comparação de módulo/nível/revisão, interrupção em resultado desconhecido após 30 segundos. Parar tudo, diagnóstico, atualização e fechamento interrompem novas ações. Janela Tkinter atualizada por fila. Sem publicação; validação real requer abrir Skylab no jogo.
+
+Testes adicionados: 11 Python/Tkinter e ponte JavaScript simulada para limites, falta de créditos/minérios, energia, pré-requisito básico, construção ativa, leitura perdida, conta alterada, resultado não confirmado, cliques repetidos, parada e contagem regressiva.

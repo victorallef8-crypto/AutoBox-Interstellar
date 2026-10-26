@@ -58,7 +58,15 @@ Galaxy Gate gira lotes selecionados de 100/50/10/5/1, com limite por execução.
 Consumo de Uridium é opcional e respeita a reserva configurada; aguarda confirmação de cada lote.
 Pause coleta/combate. Abra o painel no jogo e confirme o aviso inicial se solicitado.
 Não entra nem combate nos portais.
-Skylab automático e CPU de camuflagem continuam pendentes de integração.
+Skylab: abra o painel Skylab no jogo, configure a reserva mínima de créditos e clique Iniciar melhorias no bot.
+Melhora um módulo por vez até 20 (transporte: 1), respeitando recursos e pré-requisitos.
+Aguarda cada construção terminar; não acelera com Uridium nem compra robôs ou minérios.
+Não altera o estado ligado/desligado dos módulos. Se a produção estiver parada, corrija no jogo.
+Parar Skylab impede novas construções; não cancela as já aceitas pelo jogo.
+Pode acompanhar coleta/NPC, mas não roda junto com giros do Galaxy Gate.
+Dados perdidos, morte, troca de conta ou construção sem confirmação interrompem o Skylab.
+O painel deve permanecer aberto no jogo e o bot em execução; não retoma sozinho ao reabrir.
+CPU de camuflagem continua pendente de integração.
 
 DIAGNÓSTICOS
 Navegador, diagnósticos e leitura técnica ficam em Avançado.
