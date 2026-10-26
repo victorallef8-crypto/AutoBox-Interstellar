@@ -1,6 +1,6 @@
 {
-  "version": "0.13.0",
+  "version": "0.14.0",
   "zip_url": "https://raw.githubusercontent.com/victorallef8-crypto/AutoBox-Interstellar/main/AutoBox_Sem_Mouse/AutoBox_Sem_Mouse.zip",
-  "sha256": "ba600036b3a6455f3c56dbb229525fbe51e4ab9e3f7b12326eb35995212c136c",
-  "notes": "Uridium/h em 30 segundos para coleta e NPC; reparo ao iniciar com pouca vida; reposição opcional de munições e Galaxy Gate com limites. Skylab/camuflagem aguardam integração."
+  "sha256": "f4aa54ebf2d44c6677ebb35d5ea069e11e8099b99b4b41fa1503e9ef524279af",
+  "notes": "AutoBoxV: painel compacto, HP e escudo, rendimento da última hora e por tempo ativo, controles independentes e perseguição opcional para finalizar NPCs. Perseguição desativada por padrão; teste acompanhado no jogo."
 }
