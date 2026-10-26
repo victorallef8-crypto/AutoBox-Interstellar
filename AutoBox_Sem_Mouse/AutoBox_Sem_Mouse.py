@@ -196,20 +196,6 @@ class AutoBoxSemMouse:
         ttk.Label(connection, textvariable=self.session_label, style="Heading.TLabel").pack(anchor="e")
         ttk.Label(connection, textvariable=self.running_label, style="Muted.TLabel").pack(anchor="e")
 
-        # Controles sempre visiveis, inclusive ao consultar outra aba.
-        controls = ttk.LabelFrame(shell, text="Coleta de boxes", padding=10)
-        controls.pack(side="bottom", fill="x", pady=(12,0))
-        buttons = ttk.Frame(controls); buttons.pack(fill="x")
-        for label, command, style in (("Iniciar coleta (F8)",self.start,"Start.TButton"),
-                                       ("Pausar (F9)",self.pause,"TButton"),
-                                       ("Parar (F10)",self.stop,"TButton")):
-            ttk.Button(buttons,text=label,command=command,style=style).pack(
-                side="left",fill="x",expand=True,padx=3)
-        status_message=ttk.Label(controls,textvariable=self.status,wraplength=900)
-        status_message.pack(anchor="w",pady=(8,3))
-        controls.bind("<Configure>",lambda event:status_message.configure(wraplength=max(100,event.width-24)))
-        ttk.Label(controls,textvariable=self.stats,style="Muted.TLabel").pack(anchor="w")
-
         self.notebook = ttk.Notebook(shell)
         self.notebook.pack(fill="both", expand=True)
         self.pages = {}
@@ -272,6 +258,27 @@ class AutoBoxSemMouse:
         self.log.configure(yscrollcommand=log_scroll.set)
         log_scroll.pack(side="right",fill="y")
         self.log.pack(fill="both",expand=True)
+
+        # Comandos independentes na aba Painel; reutilizam os mesmos métodos das abas.
+        quick=ttk.LabelFrame(dashboard,text="Controle rápido",padding=12)
+        quick.pack(fill="x",pady=(12,8))
+        for heading,actions in (
+            ("Farm de coleta",(("Iniciar coleta (F8)",self.start,"Start.TButton"),
+                               ("Pausar coleta (F9)",self.pause,"TButton"),
+                               ("Parar coleta (F10)",self.stop,"TButton"))),
+            ("NPC Killer",(("Iniciar NPC",self.start_npc_test,"Start.TButton"),
+                           ("Pausar NPC",self.pause_npc,"TButton"),
+                           ("Parar NPC",self.stop_npc,"TButton")))):
+            ttk.Label(quick,text=heading,style="Heading.TLabel").pack(anchor="w",pady=(4,5))
+            actions_row=ttk.Frame(quick);actions_row.pack(fill="x",pady=(0,9))
+            for label,command,button_style in actions:
+                ttk.Button(actions_row,text=label,command=command,style=button_style).pack(
+                    side="left",fill="x",expand=True,padx=3)
+        status_message=ttk.Label(quick,textvariable=self.status,wraplength=900)
+        status_message.pack(anchor="w",pady=(4,3))
+        quick.bind("<Configure>",lambda event:status_message.configure(wraplength=max(100,event.width-24)))
+        ttk.Label(quick,textvariable=self.npc_summary,style="Muted.TLabel").pack(anchor="w")
+        ttk.Label(quick,textvariable=self.stats,style="Muted.TLabel").pack(anchor="w")
 
         browser=self._scroll_page(self.pages["browser"])
         ttk.Label(browser,text="Sessão dedicada do Opera GX",style="Heading.TLabel").pack(anchor="w",pady=(0,12))
