@@ -36,5 +36,5 @@ if __name__=='__main__':
         raise SystemExit
     root=app.tk.Tk()
     app.AutoBoxSemMouse(root)
-    root.title('AutoBox Interstellar — Usuário '+user_updater.CURRENT_VERSION)
+    root.title('AutoBoxV — Usuário '+user_updater.CURRENT_VERSION)
     root.mainloop()

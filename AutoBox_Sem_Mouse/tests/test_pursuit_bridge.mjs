@@ -1,0 +1,24 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const source=fs.readFileSync(new URL('../browser_session.py',import.meta.url),'utf8');
+const script=JSON.parse(source.match(/^NPC_SCRIPT = (.+)$/m)[1]);
+const sent=[],npc={id:'npc',respawnRevision:1,x:3000,y:3000,hp:100,maxHp:1000};
+const me={x:2300,y:3000,hp:100,maxHp:100,mapId:'3-2',respawnRevision:1,attacking:true,targetId:'npc',ammo:100,speed:300};
+const state={me,npcs:[npc],world:{width:20000,height:20000}};
+const env={window:{PeriodWindows:{renderer:{state,worldAt:()=>({x:0,y:0}),hitTarget:()=>npc}},
+DarkOrbitGroups:{isPingArmed:()=>false,onFollow:p=>sent.push(p)}},document:{getElementById:()=>({})}};
+vm.createContext(env);const run=vm.runInContext('('+script+')',env);
+const target={action:'approach',pursuit:true,id:'npc',revision:1,map:'3-2',life:1,min_hp:40,radius:450,lead_x:100,lead_y:0};
+assert.equal(run(target).action,'move_sent');assert.equal(sent.at(-1).x,2650);
+npc.x+=50;assert.equal(run(target).action,'move_sent');assert.equal(sent.at(-1).x,2700);
+npc.y+=40;assert.equal(run({...target,lead_x:-50,lead_y:40}).action,'move_sent');
+assert.ok(Number.isFinite(sent.at(-1).x));assert.ok(Number.isFinite(sent.at(-1).y));
+let count=sent.length;
+me.hp=30;assert.equal(run(target).action,'low_hp');assert.equal(sent.length,count);me.hp=100;
+me.targetId='other';assert.equal(run(target).action,'not_attacking');assert.equal(sent.length,count);
+me.targetId='npc';state.npcs=[];assert.equal(run(target).action,'gone');assert.equal(sent.length,count);
+state.npcs=[npc];me.mapId='1-1';assert.equal(run(target).action,'changed');assert.equal(sent.length,count);
+me.mapId='3-2';npc.x=50;npc.y=50;me.x=10;me.y=50;
+assert.equal(run({...target,lead_x:0,lead_y:0}).action,'blocked');assert.equal(sent.length,count);
+me.x=2300;me.y=3000;npc.x=3000;npc.y=3000;state.npcs=[npc,{id:'risk',x:2500,y:3000,hp:100}];
+assert.equal(run(target).action,'blocked');assert.equal(sent.length,count);
+console.log('Pursuit: smooth destination updates, same target, HP/map/target/bounds guards passed.');

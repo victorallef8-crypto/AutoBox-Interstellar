@@ -34,7 +34,7 @@ class AppTests(unittest.TestCase):
         cls.root.destroy(); cls.temp.cleanup()
 
     def test_standalone_starts_without_old_app_import(self):
-        self.assertIn("AutoBox Sem Mouse",self.root.title())
+        self.assertIn("AutoBoxV",self.root.title())
         self.assertNotIn("AutoBox_Interstellar",sys.modules)
     def test_settings_persist_in_standalone_directory(self):
         self.app.max_deaths.set("5"); self.assertTrue(self.app.save())
