@@ -113,7 +113,7 @@ class AutoBoxSemMouse:
         self.data_planner = DataFarmPlanner(arrival_radius=180)
         self.farm_plan = tk.StringVar(value="Aguardando dados para planejar.")
         self.manual_probe_status = tk.StringVar(value="Registre uma coleta manual para validar o comando.")
-        root.title("AutoBox Sem Mouse — beta " + updater.CURRENT_VERSION)
+        root.title("AutoBoxV — " + updater.CURRENT_VERSION)
         root.geometry("940x" + str(min(820, root.winfo_screenheight()-90)))
         root.minsize(760,min(620,root.winfo_screenheight()-80))
         self._draw()
@@ -138,6 +138,9 @@ class AutoBoxSemMouse:
         style.configure("Card.TLabel", background="#1e293b", foreground="#94a3b8")
         style.configure("Count.TLabel", background="#1e293b", foreground="#67e8f9",
                         font=("Segoe UI", 20, "bold"))
+        style.configure("Balance.TLabel", background="#1e293b", foreground="#f8fafc", font=("Segoe UI", 23, "bold"))
+        style.configure("Income.TLabel", background="#1e293b", foreground="#67e8f9", font=("Segoe UI", 22, "bold"))
+        style.configure("BalanceName.TLabel", background="#1e293b", foreground="#94a3b8", font=("Segoe UI", 11))
         style.configure("TButton", background="#263449", padding=(12,8))
         style.map("TButton", background=[("active","#334b68"),("disabled","#1e293b")],
                   foreground=[("disabled","#64748b")])
@@ -186,8 +189,8 @@ class AutoBoxSemMouse:
         header = ttk.Frame(shell)
         header.pack(fill="x", pady=(0,14))
         title = ttk.Frame(header); title.pack(side="left")
-        ttk.Label(title, text="AutoBox Interstellar", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(title, text="Sem mouse  /  beta "+updater.CURRENT_VERSION,
+        ttk.Label(title, text="AutoBoxV", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title, text="Interstellar  •  versão "+updater.CURRENT_VERSION,
                   style="Muted.TLabel").pack(anchor="w")
         connection = ttk.Frame(header); connection.pack(side="right")
         ttk.Label(connection, textvariable=self.session_label, style="Heading.TLabel").pack(anchor="e")
@@ -233,16 +236,30 @@ class AutoBoxSemMouse:
             card.grid(row=0,column=column,sticky="ew",padx=(0,8) if column<2 else 0)
             ttk.Label(card,text=label,style="Card.TLabel").pack(anchor="w")
             ttk.Label(card,textvariable=self.counter_vars[key],style="Count.TLabel").pack(anchor="w")
-        balances=ttk.LabelFrame(dashboard,text="Conta e rendimento",padding=10)
-        balances.pack(fill="x",pady=(10,0))
-        for index,(key,label) in enumerate((("uridium","Uridium"),("credits","Créditos"),("xp","XP"),
-                ("honor","Honra"),("level","Nível"),("booty_keys","Chaves verdes"),
-                ("earned","Uridium do farm nesta sessão"),("hourly","Uridium por hora"))):
+        ttk.Label(dashboard,text="SALDO DA CONTA",style="Heading.TLabel").pack(anchor="w",pady=(14,6))
+        balances=ttk.Frame(dashboard); balances.pack(fill="x")
+        for col,(key,label) in enumerate((("uridium","URIDIUM"),("credits","CRÉDITOS"))):
+            balances.columnconfigure(col,weight=1)
+            card=ttk.Frame(balances,padding=16,style="Card.TFrame")
+            card.grid(row=0,column=col,sticky="ew",padx=(0,6) if col==0 else (6,0))
+            ttk.Label(card,text=label,style="BalanceName.TLabel").pack(anchor="w")
+            ttk.Label(card,textvariable=self.account_vars[key],style="Balance.TLabel").pack(anchor="w",pady=(7,0))
+        ttk.Label(dashboard,text="RENDIMENTO DO FARM",style="Heading.TLabel").pack(anchor="w",pady=(16,6))
+        income=ttk.Frame(dashboard); income.pack(fill="x")
+        for col,(key,label) in enumerate((("earned","URIDIUM NESTA SESSÃO"),("hourly","MÉDIA DE URIDIUM / HORA"))):
+            income.columnconfigure(col,weight=1)
+            card=ttk.Frame(income,padding=16,style="Card.TFrame")
+            card.grid(row=0,column=col,sticky="ew",padx=(0,6) if col==0 else (6,0))
+            ttk.Label(card,text=label,style="BalanceName.TLabel").pack(anchor="w")
+            ttk.Label(card,textvariable=self.account_vars[key],style="Income.TLabel").pack(anchor="w",pady=(7,0))
+        details=ttk.LabelFrame(dashboard,text="Outras informações",padding=10)
+        details.pack(fill="x",pady=(12,0))
+        for index,(key,label) in enumerate((("xp","XP"),("honor","Honra"),("level","Nível"),("booty_keys","Chaves verdes"))):
             row,col=divmod(index,2)
-            ttk.Label(balances,text=label,style="Muted.TLabel").grid(row=row,column=col*2,sticky="w",padx=6,pady=4)
-            ttk.Label(balances,textvariable=self.account_vars[key]).grid(row=row,column=col*2+1,sticky="e",padx=10)
-        balances.columnconfigure(1,weight=1)
-        balances.columnconfigure(3,weight=1)
+            ttk.Label(details,text=label,style="Muted.TLabel").grid(row=row,column=col*2,sticky="w",padx=6,pady=5)
+            ttk.Label(details,textvariable=self.account_vars[key]).grid(row=row,column=col*2+1,sticky="e",padx=10)
+        details.columnconfigure(1,weight=1)
+        details.columnconfigure(3,weight=1)
         ttk.Label(dashboard,textvariable=self.active_time,style="Muted.TLabel").pack(anchor="w",pady=12)
         shortcuts=ttk.Frame(dashboard); shortcuts.pack(fill="x",pady=(0,12))
         ttk.Button(shortcuts,text="Configurar coleta",command=lambda:self.notebook.select(self.pages["data"])).pack(side="left",padx=(0,8))
