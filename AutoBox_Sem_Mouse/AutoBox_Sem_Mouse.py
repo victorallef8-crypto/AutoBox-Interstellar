@@ -68,6 +68,10 @@ class AutoBoxSemMouse:
         self.opening = False
         self.closing = False
         self.attempts = self.confirmed = self.failed = 0
+        self.collect_state="stopped"
+        self.collect_summary=tk.StringVar(value="Parado")
+        self.vitals_text={k:tk.StringVar(value="—") for k in ("hp","shield")}
+        self.map_summary=tk.StringVar(value="Mapa — | Boxes próximas —")
         self.running = False
         self.active_started = 0.
         self.active_elapsed = 0.
@@ -92,6 +96,9 @@ class AutoBoxSemMouse:
         self.npc_rocket=tk.StringVar(value=self.cfg.get("npc_rocket","none"))
         self.npc_radius=tk.StringVar(value=str(self.cfg.get("npc_radius",450)))
         self.npc_repair=tk.BooleanVar(value=self.cfg.get("npc_repair",False))
+        self.pursuit_enabled=tk.BooleanVar(value=self.cfg.get("pursuit_enabled",False))
+        self.pursuit_fields={key:tk.StringVar(value=str(self.cfg.get("pursuit_"+key,default))) for key,default in
+            (("hp",20),("radius",450),("max_distance",3000),("seconds",60))}
         self.npc_portal_fight=tk.BooleanVar(value=self.cfg.get("npc_portal_fight",False))
         self.last_npc_report=None
         self.combat_status=tk.StringVar(value="Farm contínuo: alvos marcados, munições escolhidas e recuperação por vida.")
@@ -109,7 +116,7 @@ class AutoBoxSemMouse:
         self.earnings_elapsed=0.
         self.earnings_last=None
         self.earnings_active=False
-        self.account_vars = {key:tk.StringVar(value="—") for key in ("uridium","credits","xp","honor","level","earned","hourly","booty_keys")}
+        self.account_vars = {key:tk.StringVar(value="—") for key in ("uridium","credits","xp","honor","level","earned","last_hour","hourly","booty_keys")}
         self.data_planner = DataFarmPlanner(arrival_radius=180)
         self.farm_plan = tk.StringVar(value="Aguardando dados para planejar.")
         self.manual_probe_status = tk.StringVar(value="Registre uma coleta manual para validar o comando.")
@@ -139,7 +146,10 @@ class AutoBoxSemMouse:
         style.configure("Count.TLabel", background="#1e293b", foreground="#67e8f9",
                         font=("Segoe UI", 20, "bold"))
         style.configure("Balance.TLabel", background="#1e293b", foreground="#f8fafc", font=("Segoe UI", 23, "bold"))
-        style.configure("Income.TLabel", background="#1e293b", foreground="#67e8f9", font=("Segoe UI", 22, "bold"))
+        style.configure("Income.TLabel", background="#1e293b", foreground="#4ade80", font=("Segoe UI", 16, "bold"))
+        style.configure("HP.Horizontal.TProgressbar",background="#22c55e",troughcolor="#263449")
+        style.configure("Shield.Horizontal.TProgressbar",background="#3b82f6",troughcolor="#263449")
+        style.configure("Compact.TButton",padding=(8,4))
         style.configure("BalanceName.TLabel", background="#1e293b", foreground="#94a3b8", font=("Segoe UI", 11))
         style.configure("TButton", background="#263449", padding=(12,8))
         style.map("TButton", background=[("active","#334b68"),("disabled","#1e293b")],
@@ -190,7 +200,7 @@ class AutoBoxSemMouse:
         header.pack(fill="x", pady=(0,14))
         title = ttk.Frame(header); title.pack(side="left")
         ttk.Label(title, text="AutoBoxV", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(title, text="Interstellar  •  versão "+updater.CURRENT_VERSION,
+        ttk.Label(title, text="Shadow Galaxy  •  versão "+updater.CURRENT_VERSION,
                   style="Muted.TLabel").pack(anchor="w")
         connection = ttk.Frame(header); connection.pack(side="right")
         ttk.Label(connection, textvariable=self.session_label, style="Heading.TLabel").pack(anchor="e")
@@ -211,74 +221,61 @@ class AutoBoxSemMouse:
             advanced.add(page,text=title)
 
         dashboard = self._scroll_page(self.pages["dashboard"])
-        ttk.Button(dashboard,text="Iniciar jogo",command=self.open_browser,style="Start.TButton").pack(anchor="w",pady=(0,10))
-        ttk.Label(dashboard,text="Modo disponível: coleta de boxes  •  alvo mais próximo primeiro",
-                  style="Muted.TLabel").pack(anchor="w",pady=(3,12))
-        cards = ttk.Frame(dashboard); cards.pack(fill="x")
-        for column, (key,label) in enumerate((("attempts","Tentativas"),("confirmed","Confirmadas"),
-                                             ("failed","Sem progresso"))):
-            cards.columnconfigure(column,weight=1)
-            card=ttk.Frame(cards,padding=14,style="Card.TFrame")
-            card.grid(row=0,column=column,sticky="ew",padx=(0,8) if column<2 else 0)
+        dashboard.configure(padding=8)
+        toolbar=ttk.Frame(dashboard);toolbar.pack(fill="x",pady=(0,8))
+        ttk.Button(toolbar,text="Iniciar jogo",command=self.open_browser,style="Compact.TButton").pack(side="left")
+        ttk.Button(toolbar,text="Verificar atualizações",command=self.check_updates,style="Compact.TButton").pack(side="right")
+        balances=ttk.Frame(dashboard);balances.pack(fill="x")
+        for col,(key,label) in enumerate((("uridium","Uridium total"),("credits","Créditos"))):
+            balances.columnconfigure(col,weight=1,uniform="balance")
+            card=ttk.Frame(balances,padding=6,style="Card.TFrame");card.grid(row=0,column=col,sticky="ew",padx=(0,6) if col==0 else 0)
             ttk.Label(card,text=label,style="Card.TLabel").pack(anchor="w")
-            ttk.Label(card,textvariable=self.counter_vars[key],style="Count.TLabel").pack(anchor="w")
-        ttk.Label(dashboard,text="SALDO DA CONTA",style="Heading.TLabel").pack(anchor="w",pady=(14,6))
-        balances=ttk.Frame(dashboard); balances.pack(fill="x")
-        for col,(key,label) in enumerate((("uridium","URIDIUM"),("credits","CRÉDITOS"))):
-            balances.columnconfigure(col,weight=1)
-            card=ttk.Frame(balances,padding=16,style="Card.TFrame")
-            card.grid(row=0,column=col,sticky="ew",padx=(0,6) if col==0 else (6,0))
-            ttk.Label(card,text=label,style="BalanceName.TLabel").pack(anchor="w")
-            ttk.Label(card,textvariable=self.account_vars[key],style="Balance.TLabel").pack(anchor="w",pady=(7,0))
-        ttk.Label(dashboard,text="RENDIMENTO DO FARM",style="Heading.TLabel").pack(anchor="w",pady=(16,6))
-        income=ttk.Frame(dashboard); income.pack(fill="x")
-        for col,(key,label) in enumerate((("earned","URIDIUM NESTA SESSÃO"),("hourly","MÉDIA DE URIDIUM / HORA"))):
-            income.columnconfigure(col,weight=1)
-            card=ttk.Frame(income,padding=16,style="Card.TFrame")
-            card.grid(row=0,column=col,sticky="ew",padx=(0,6) if col==0 else (6,0))
-            ttk.Label(card,text=label,style="BalanceName.TLabel").pack(anchor="w")
-            ttk.Label(card,textvariable=self.account_vars[key],style="Income.TLabel").pack(anchor="w",pady=(7,0))
-        details=ttk.LabelFrame(dashboard,text="Outras informações",padding=10)
-        details.pack(fill="x",pady=(12,0))
-        for index,(key,label) in enumerate((("xp","XP"),("honor","Honra"),("level","Nível"),("booty_keys","Chaves verdes"))):
-            row,col=divmod(index,2)
-            ttk.Label(details,text=label,style="Muted.TLabel").grid(row=row,column=col*2,sticky="w",padx=6,pady=5)
-            ttk.Label(details,textvariable=self.account_vars[key]).grid(row=row,column=col*2+1,sticky="e",padx=10)
-        details.columnconfigure(1,weight=1)
-        details.columnconfigure(3,weight=1)
-        ttk.Label(dashboard,textvariable=self.active_time,style="Muted.TLabel").pack(anchor="w",pady=12)
-        shortcuts=ttk.Frame(dashboard); shortcuts.pack(fill="x",pady=(0,12))
-        ttk.Button(shortcuts,text="Configurar coleta",command=lambda:self.notebook.select(self.pages["data"])).pack(side="left",padx=(0,8))
-        ttk.Button(shortcuts,text="Verificar atualizações deste bot",command=self.check_updates).pack(side="left")
-        ttk.Label(dashboard,text="Histórico da sessão",style="Heading.TLabel").pack(anchor="w",pady=(4,8))
-        self.log=tk.Text(dashboard,height=4,state="disabled",wrap="word",background="#0b1220",
-                         foreground="#cbd5e1",insertbackground="white",relief="flat",padx=10,pady=10,
-                         font=("Consolas",10))
-        log_scroll=ttk.Scrollbar(dashboard,orient="vertical",command=self.log.yview)
-        self.log.configure(yscrollcommand=log_scroll.set)
-        log_scroll.pack(side="right",fill="y")
-        self.log.pack(fill="both",expand=True)
-
-        # Comandos independentes na aba Painel; reutilizam os mesmos métodos das abas.
-        quick=ttk.LabelFrame(dashboard,text="Controle rápido",padding=12)
-        quick.pack(fill="x",pady=(12,8))
-        for heading,actions in (
-            ("Farm de coleta",(("Iniciar coleta (F8)",self.start,"Start.TButton"),
-                               ("Pausar coleta (F9)",self.pause,"TButton"),
-                               ("Parar coleta (F10)",self.stop,"TButton"))),
-            ("NPC Killer",(("Iniciar NPC",self.start_npc_test,"Start.TButton"),
-                           ("Pausar NPC",self.pause_npc,"TButton"),
-                           ("Parar NPC",self.stop_npc,"TButton")))):
-            ttk.Label(quick,text=heading,style="Heading.TLabel").pack(anchor="w",pady=(4,5))
-            actions_row=ttk.Frame(quick);actions_row.pack(fill="x",pady=(0,9))
-            for label,command,button_style in actions:
-                ttk.Button(actions_row,text=label,command=command,style=button_style).pack(
-                    side="left",fill="x",expand=True,padx=3)
-        status_message=ttk.Label(quick,textvariable=self.status,wraplength=900)
-        status_message.pack(anchor="w",pady=(4,3))
-        quick.bind("<Configure>",lambda event:status_message.configure(wraplength=max(100,event.width-24)))
-        ttk.Label(quick,textvariable=self.npc_summary,style="Muted.TLabel").pack(anchor="w")
-        ttk.Label(quick,textvariable=self.stats,style="Muted.TLabel").pack(anchor="w")
+            ttk.Label(card,textvariable=self.account_vars[key],style="Balance.TLabel").pack(anchor="w")
+        income=ttk.LabelFrame(dashboard,text="Rendimento do farm",padding=4);income.pack(fill="x",pady=6)
+        for col,(key,label) in enumerate((("last_hour","Última hora"),("hourly","Média por hora"))):
+            income.columnconfigure(col,weight=1,uniform="income")
+            card=ttk.Frame(income,style="Card.TFrame",padding=6);card.grid(row=0,column=col,sticky="ew",padx=2)
+            ttk.Label(card,text=label,style="Card.TLabel").pack(anchor="w")
+            ttk.Label(card,textvariable=self.account_vars[key],style="Income.TLabel").pack(anchor="w")
+        details=ttk.Frame(dashboard);details.pack(fill="x",pady=4)
+        for col,(key,label) in enumerate((("xp","XP"),("honor","Honra"),("level","Nível"),("booty_keys","Chaves verdes"))):
+            details.columnconfigure(col,weight=1)
+            cell=ttk.Frame(details);cell.grid(row=0,column=col,sticky="w")
+            ttk.Label(cell,text=label,style="Muted.TLabel").pack(side="left",padx=(0,6))
+            ttk.Label(cell,textvariable=self.account_vars[key]).pack(side="left")
+        stats=ttk.LabelFrame(dashboard,text="Estatísticas da coleta",padding=6);stats.pack(fill="x",pady=4)
+        for col,(key,label) in enumerate((("attempts","Tentativas"),("confirmed","Confirmadas"),("failed","Sem progresso"))):
+            stats.columnconfigure(col,weight=1)
+            cell=ttk.Frame(stats);cell.grid(row=0,column=col,sticky="w")
+            ttk.Label(cell,text=label+": ",style="Muted.TLabel").pack(side="left")
+            ttk.Label(cell,textvariable=self.counter_vars[key]).pack(side="left")
+        ship=ttk.LabelFrame(dashboard,text="Situação da nave",padding=4);ship.pack(fill="x",pady=4)
+        self.vitals_bars={}
+        for col,(key,label,style) in enumerate((("hp","HP","HP.Horizontal.TProgressbar"),("shield","Escudo","Shield.Horizontal.TProgressbar"))):
+            ship.columnconfigure(col,weight=1,uniform="vitals")
+            cell=ttk.Frame(ship);cell.grid(row=0,column=col,sticky="ew",padx=4)
+            ttk.Label(cell,text=label).pack(side="left")
+            ttk.Label(cell,textvariable=self.vitals_text[key]).pack(side="right")
+            bar=ttk.Progressbar(ship,maximum=100,style=style);bar.grid(row=1,column=col,sticky="ew",padx=4,pady=4)
+            self.vitals_bars[key]=bar
+        ttk.Label(ship,textvariable=self.map_summary,style="Muted.TLabel").grid(row=2,column=0,columnspan=2,sticky="w")
+        quick=ttk.Frame(dashboard);quick.pack(fill="x",pady=4)
+        self.quick_buttons={}
+        for row,(mode,title,state,commands) in enumerate((
+            ("collect","Farm de coleta",self.collect_summary,(self.start,self.pause,self.stop)),
+            ("npc","NPC Killer",self.npc_summary,(self.start_npc_test,self.pause_npc,self.stop_npc)))):
+            group=ttk.LabelFrame(quick,text=title,padding=4);group.pack(fill="x",pady=3)
+            ttk.Label(group,textvariable=state,wraplength=370).pack(side="left",fill="x",expand=True)
+            for action,command in zip(("Iniciar","Pausar","Parar"),commands):
+                button=ttk.Button(group,text=action,command=command,style="Compact.TButton",width=9)
+                button.pack(side="left",padx=2);self.quick_buttons[(mode,action)]=button
+        ttk.Label(dashboard,textvariable=self.combat_status,wraplength=720,style="Muted.TLabel").pack(anchor="w",pady=3)
+        recent=ttk.Frame(dashboard);recent.pack(fill="x")
+        ttk.Label(recent,text="Atividades recentes").pack(side="left")
+        ttk.Button(recent,text="Parar tudo",command=self.stop_all,style="Compact.TButton").pack(side="right")
+        self.log=tk.Text(dashboard,height=3,state="disabled",wrap="word",background="#0b1220",
+                         foreground="#cbd5e1",relief="flat",padx=8,pady=4,font=("Segoe UI",9))
+        self.log.pack(fill="x",pady=4)
 
         browser=self._scroll_page(self.pages["browser"])
         ttk.Label(browser,text="Sessão dedicada do Opera GX",style="Heading.TLabel").pack(anchor="w",pady=(0,12))
@@ -381,8 +378,17 @@ class AutoBoxSemMouse:
         ttk.Label(test,text="Míssil (none = desativado)").grid(row=7,column=0,sticky="w")
         ttk.Combobox(test,textvariable=self.npc_rocket,state="readonly",values=("none","r310","plt2026","plt2021","plt3030")).grid(row=7,column=1,sticky="w")
         ttk.Label(test,text="Com pouca vida ao iniciar, o bot repara no portal antes de lutar. Tenha estoque das munições escolhidas. Laser sem confirmação de seleção encerra o farm; míssil vazio não é comprado. "
-            "F9/F10 interrompem todos os modos. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal; após recuperar 90% de vida, o farm retoma.",
+            "Os botões Pausar NPC e Parar NPC interrompem o combate. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal; após recuperar 90% de vida, o farm retoma.",
             wraplength=680,style="Muted.TLabel").grid(row=9,column=0,columnspan=2,sticky="w")
+        pursuit=ttk.LabelFrame(body,text="Perseguição para finalização",padding=10)
+        pursuit.pack(fill="x",pady=6)
+        ttk.Checkbutton(pursuit,text="Perseguir NPC ferido em fuga",variable=self.pursuit_enabled).pack(anchor="w")
+        for key,label in (("hp","HP do NPC para ativar (5–50%)"),("radius","Distância desejada (150–600)"),
+                          ("max_distance","Distância máxima absoluta (1000–8000)"),("seconds","Tempo máximo (10–180 segundos)")):
+            row=ttk.Frame(pursuit);row.pack(fill="x",pady=2)
+            ttk.Label(row,text=label).pack(side="left")
+            ttk.Entry(row,textvariable=self.pursuit_fields[key],width=10).pack(side="right")
+        ttk.Label(pursuit,text="Mantém o mesmo alvo. Segurança de vida, mapa e falta de progresso continuam valendo. Lutar junto ao portal tem prioridade.",wraplength=650).pack(anchor="w")
         shop=ttk.LabelFrame(body,text="Reposição automática de munições",padding=10)
         shop.pack(fill="x",pady=8)
         ttk.Checkbutton(shop,text="Comprar o laser selecionado acima",variable=self.buy_laser).pack(anchor="w")
@@ -409,7 +415,7 @@ class AutoBoxSemMouse:
         ttk.Button(body,text="Encerrar registro",command=self.finish_combat_recording).pack(fill="x",pady=4)
         ttk.Button(body,text="Copiar diagnóstico da luta",command=self.copy_combat_report).pack(fill="x",pady=4)
         ttk.Label(body,textvariable=self.combat_report_status,wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
-        ttk.Label(body,text="O registro manual só observa. Iniciar farm de NPCs continua após cada derrota confirmada. F9/F10 encerram o farm. F8 continua iniciando a coleta de boxes.",
+        ttk.Label(body,text="O registro manual só observa. Iniciar farm de NPCs continua após cada derrota confirmada. Pausar/Parar NPC encerram o combate; F8/F9/F10 controlam a coleta.",
                   wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
 
     def _draw_services(self):
@@ -495,7 +501,7 @@ class AutoBoxSemMouse:
         generation=self.npc_generation
         self.npc_stop_event=threading.Event()
         engine=NpcFarmWorker(self.session,self.npc_stop_event,lambda event,data:self.events.put(("npc_event",(generation,event,data))),
-            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}))
+            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}),pursuit_enabled=self.pursuit_enabled.get(),**{"pursuit_"+k:int(v.get()) for k,v in self.pursuit_fields.items()})
         engine.kills=previous_kills
         self.npc_engine=engine
         self.npc_state="running"
@@ -701,6 +707,7 @@ class AutoBoxSemMouse:
             text+="  |  Tempo estimado: %.1f s" % decision["eta"]
         self.farm_plan.set(text)
         self.manual_probe_status.set(self.session.get_manual_probe_report()["status"])
+        self._update_vitals(data)
         if not data.get("fresh"): return
         self.world_vars["map"].set(data["map"])
         self.world_vars["position"].set("X %.1f  /  Y %.1f" % data["position"])
@@ -711,6 +718,20 @@ class AutoBoxSemMouse:
         self.world_vars["nearest"].set(nearest["id"] if nearest else "Nenhuma box disponível")
         self.world_vars["distance"].set("%.1f unidades do mapa" % nearest["distance"] if nearest else "—")
         self.world_vars["sequence"].set("%s  /  recebida há %.1f s" % (data["sequence"],data["age"]))
+
+    def _update_vitals(self,data):
+        import math
+        for key in ("hp","shield"):
+            value=data.get(key+"_percent") if data.get("fresh") else None
+            known=type(value) in (int,float) and math.isfinite(value) and 0<=value<=100
+            self.vitals_text[key].set(("%.1f%%" % value) if known else "Indisponível")
+            self.vitals_bars[key]["value"]=value if known else 0
+        if data.get("fresh"):
+            position=data.get("position")
+            suffix=(" | X %.0f · Y %.0f" % tuple(position)) if isinstance(position,(list,tuple)) and len(position)==2 else ""
+            self.map_summary.set("Mapa "+str(data.get("map","—"))+" | Boxes próximas: "+str(data.get("boxes","—"))+suffix)
+        else:
+            self.map_summary.set("Mapa — | Boxes próximas —")
 
     def _set_running(self, value):
         now = time.monotonic()
@@ -728,12 +749,18 @@ class AutoBoxSemMouse:
         if self.running:
             elapsed += max(0,time.monotonic()-self.active_started)
         self.account_vars["earned"].set(format(self.earnings.total,",.0f").replace(",","."))
+        self.account_vars["last_hour"].set(format(self.earnings.last_hour(),",.0f").replace(",",".")+" U")
         rate=self.earnings.hourly(self.earnings_elapsed)
         self.account_vars["hourly"].set("Calculando (30 s de farm)…" if rate is None else format(rate,",.0f").replace(",",".") + " U/h")
         seconds = int(elapsed)
         self.active_time.set("Tempo em coleta: %02d:%02d:%02d" % (seconds//3600,seconds//60%60,seconds%60))
         self.session_label.set("Opera conectado" if self.session.ready.is_set() else "Opera desconectado")
-        self.running_label.set("Coletando boxes" if self.running and not self.stop_event.is_set() else "Coleta pausada")
+        alive=self.worker is not None and self.worker.is_alive()
+        if not alive and self.stop_event.is_set() and self.collect_state=="running": self.collect_state="stopped"
+        collect_label={"running":"Executando","paused":"Pausado","stopped":"Parado"}[self.collect_state]
+        if alive and self.stop_event.is_set(): collect_label="Encerrando"
+        self.collect_summary.set(collect_label)
+        self.running_label.set("Coleta — "+collect_label)
         active=self.npc_active()
         label={"running":"Farmando", "paused":"Pausado", "stopped":"Parado"}[self.npc_state]
         if active and self.npc_stop_event.is_set(): label="Encerrando ataque"
@@ -755,14 +782,19 @@ class AutoBoxSemMouse:
         self.status.set(text)
         self.log.configure(state="normal")
         self.log.insert("end", time.strftime("%H:%M:%S") + " — " + text + "\n")
-        if int(self.log.index("end-1c").split(".")[0]) > 70:
-            self.log.delete("1.0", "20.0")
+        lines=int(self.log.index("end-1c").split(".")[0])
+        if lines>21: self.log.delete("1.0",str(lines-20)+".0")
         self.log.see("end")
         self.log.configure(state="disabled")
 
 
     def save(self):
         try:
+            for key,(low,high) in {"hp":(5,50),"radius":(150,600),"max_distance":(1000,8000),"seconds":(10,180)}.items():
+                value=int(self.pursuit_fields[key].get())
+                if not low<=value<=high: raise ValueError("Limite inválido na perseguição: "+key)
+                self.cfg["pursuit_"+key]=value
+            self.cfg["pursuit_enabled"]=self.pursuit_enabled.get()
             for key,var in self.buy_fields.items():
                 value=int(var.get())
                 if value<0 or value>1000000000 or ("quantity" in key and not 1<=value<=100000):
@@ -845,7 +877,7 @@ class AutoBoxSemMouse:
             return
         if self.worker is not None and self.worker.is_alive():
             if self.stop_event.is_set():
-                self.root.after(100, self.start)
+                self.say("Coleta encerrando. Aguarde antes de iniciar novamente.")
             return
         if not self.session.ready.is_set():
             self.say("Abra a sessao dedicada primeiro.")
@@ -869,14 +901,17 @@ class AutoBoxSemMouse:
                                  "death_state":self.death_state})
         self.worker=threading.Thread(target=engine.run,daemon=True)
         self.worker.start()
+        self.collect_state="running"
         self.say("Coleta por dados iniciada. Mantém o alvo até a coleta; F9 pausa.")
         return
 
     def pause(self):
+        self.collect_state="paused"
         self.stop_event.set()
         self.say("Pausado. F8 inicia uma nova busca.")
 
     def stop(self):
+        self.collect_state="stopped"
         self.stop_event.set()
         self.say("Parado.")
 
@@ -920,7 +955,7 @@ class AutoBoxSemMouse:
             except queue.Empty:
                 break
             if event=="command":
-                {"start":self.start,"pause":self.pause_all,"stop":self.stop_all}[data]()
+                {"start":self.start,"pause":self.pause,"stop":self.stop}[data]()
             elif event=="gg_status":
                 self.gg_status.set(data)
                 self.say(data)
@@ -946,6 +981,7 @@ class AutoBoxSemMouse:
                 self.attempts+=1
             elif event=="confirmed":
                 self.confirmed+=1
+                self.say("Box coletada e confirmada.")
             elif event=="failed":
                 self.failed+=1
             elif event=="update":

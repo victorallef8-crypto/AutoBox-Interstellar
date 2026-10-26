@@ -272,7 +272,9 @@ class DataCollector:
 
 class SessionEarnings:
     """Conta recompensas novas de boxes e combate durante o farm ativo."""
-    def __init__(self):
+    def __init__(self, clock=None):
+        self.clock=clock or time.monotonic
+        self.recent=[]
         self.seen = set()
         self.order = []
         self.total = 0
@@ -292,13 +294,57 @@ class SessionEarnings:
                     and not event.get("petCollected") and not event.get("pet")
                     and type(amount) in (int,float) and isfinite(amount) and amount>0):
                 self.total += amount
+                stamp=self.clock()
+                server,event_time=snapshot.get("server_time"),event.get("time")
+                if type(server) in (int,float) and type(event_time) in (int,float) and isfinite(server) and isfinite(event_time):
+                    stamp-=max(0,server-event_time)
+                self.recent.append((stamp,amount))
         self.primed = True
         while len(self.order)>2000:
             self.seen.discard(self.order.pop(0))
 
+    def last_hour(self):
+        cutoff=self.clock()-3600
+        self.recent=[(stamp,amount) for stamp,amount in self.recent if stamp>cutoff]
+        return sum(amount for _,amount in self.recent)
+
     def hourly(self, seconds):
         return self.total*3600/seconds if seconds>=30 else None
 
+
+
+class FinishPursuit:
+    """Bounded pursuit of one wounded target; navigation stays in the existing bridge."""
+    def __init__(self,enabled=False,hp=20,radius=450,max_distance=3000,seconds=60):
+        if not (5<=hp<=50 and 150<=radius<=600 and 1000<=max_distance<=8000 and 10<=seconds<=180):
+            raise ValueError("Configuração de perseguição inválida.")
+        self.enabled=enabled;self.hp=hp;self.radius=radius
+        self.max_distance=max_distance;self.seconds=seconds
+        self.active=False;self.started=None;self.previous=None;self.velocity=(0.,0.)
+    def step(self,npc,ship,now,engaged):
+        if not self.enabled:return False
+        x,y=npc["x"],npc["y"];d=distance(ship,(x,y))
+        fleeing=False
+        if self.previous:
+            then,px,py=self.previous;dt=now-then
+            if dt>0:
+                vx,vy=(x-px)/dt,(y-py)/dt
+                speed=distance((0,0),(vx,vy))
+                if speed>1000:vx*=1000/speed;vy*=1000/speed
+                self.velocity=(self.velocity[0]*.65+vx*.35,self.velocity[1]*.65+vy*.35)
+                fleeing=d>self.radius+20 and ((x-px)*(x-ship[0])+(y-py)*(y-ship[1]))/max(d,1)>2
+        self.previous=(now,x,y)
+        hp,maximum=npc.get("hp"),npc.get("maxHp")
+        known=type(hp) in (int,float) and type(maximum) in (int,float) and isfinite(hp) and isfinite(maximum) and maximum>0 and hp>0
+        if not engaged or not known or hp/maximum*100>self.hp+5:
+            self.active=False
+            return False
+        if not self.active and hp/maximum*100<=self.hp and fleeing:
+            self.active=True;self.started=now
+        if self.active:
+            if d>self.max_distance: raise ValueError("Finalização cancelada: distância máxima de perseguição.")
+            if now-self.started>=self.seconds: raise ValueError("Finalização cancelada: tempo máximo de perseguição.")
+        return self.active
 
 class CombatTargetGone(Exception):
     """Alvo saiu da leitura durante o envio do comando."""
@@ -310,7 +356,7 @@ class CombatLowHealth(Exception):
 
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
-    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None):
+    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None,pursuit_enabled=False,pursuit_hp=20,pursuit_radius=450,pursuit_max_distance=3000,pursuit_seconds=60):
         self.session=session; self.stop=stop; self.emit=emit
         self.kinds=set(kind if isinstance(kind,(list,tuple,set)) else [kind])
         self.kind=", ".join(sorted(self.kinds))
@@ -318,6 +364,7 @@ class NpcTestWorker:
         self.orbit=orbit; self.radius=max(150,min(800,radius)); self.repair_portal=repair_portal; self.direction=1
         self.ammo=ammo; self.rocket=rocket; self.next_rocket=0
         self.restock=restock or {}; self.next_restock=0
+        self.pursuit=FinishPursuit(pursuit_enabled,pursuit_hp,pursuit_radius,pursuit_max_distance,pursuit_seconds)
         self.finish_stop=True; self.minimum_start_hp=80; self.max_fight_seconds=180
         self.portal_fight=portal_fight; self.fight_gate=None; self.gate_best=float("inf")
         self.target=None; self.context=None; self.pending=None; self.next_move=0
@@ -505,6 +552,11 @@ class NpcTestWorker:
                 if now-self.progress>15: raise ValueError("Sem aproximação ou dano por 15 segundos.")
                 combat=snap.get("combat",{})
                 selected=str(combat.get("target_id"))==str(current["id"])
+                was_pursuing=self.pursuit.active
+                pursuing=self.pursuit.step(current,snap["position"],now,selected and combat.get("attacking") is True and not self.portal_fight)
+                self.report["pursuit_active"]=pursuing
+                if pursuing and not was_pursuing: self.emit("status","Perseguição para finalização iniciada: "+str(current["id"]))
+                elif was_pursuing and not pursuing: self.emit("status","Finalização encerrada; retomando comportamento normal.")
                 if self.pending:
                     name,sent=self.pending
                     confirmed=(name=="select" and selected) or (name=="attack" and combat.get("attacking") is True) or (name=="ammo" and combat.get("selectedAmmo")==self.ammo)
@@ -527,6 +579,15 @@ class NpcTestWorker:
                         raise ValueError("Ataque não aceito: "+result.get("action","?"))
                     self.pending=("ammo" if result.get("action")=="ammo_sent" else "attack",now)
                     self.publish("Aguardando confirmação do ataque; mantendo o mesmo NPC.")
+                elif pursuing:
+                    if now>=self.next_move:
+                        vx,vy=self.pursuit.velocity
+                        result=self.action("approach",close_approach=False,radius=self.pursuit.radius,
+                            pursuit=True,lead_x=max(-150,min(150,vx*.4)),lead_y=max(-150,min(150,vy*.4)))
+                        self.next_move=now+.2
+                        if result.get("action") not in ("move_sent","in_range"):
+                            raise ValueError("Finalização cancelada: rota indisponível.")
+                    self.publish("Perseguindo NPC para finalização")
                 elif selected and self.portal_fight:
                     if now>=self.next_move:
                         result=self.action("portal_lure",gate=self.fight_gate); self.next_move=now+.15
@@ -560,7 +621,7 @@ class NpcTestWorker:
                         if result.get("action")!="orbiting":
                             raise ValueError("Movimento circular não aceito: "+result.get("action","?"))
                         self.direction=result.get("direction",self.direction)
-                    self.publish(("Circulando e atacando " if self.orbit else "Atacando ")+self.kind+" com "+self.ammo.upper()+". F9 interrompe o teste.")
+                    self.publish(("Circulando e atacando " if self.orbit else "Atacando ")+self.kind+" com "+self.ammo.upper()+". Use Pausar NPC para interromper.")
                 if self.stop.wait(.1): break
         except CombatTargetGone:
             self.confirm_target_end()
@@ -576,7 +637,11 @@ class NpcTestWorker:
         except Exception as exc:
             self.publish(str(exc))
         finally:
-            if self.stop.is_set(): self.publish("Teste cancelado.")
+            if self.pursuit.active:
+                self.emit("status","Finalização encerrada: "+("cancelamento manual." if self.stop.is_set() else self.report["status"]))
+            self.pursuit.active=False
+            self.report["pursuit_active"]=False
+            if self.stop.is_set(): self.publish("Farm cancelado.")
             self.cease_fire()
             if self.finish_stop: self.stop.set()
             if self.target is not None and not self.report["stop_confirmed"]:
