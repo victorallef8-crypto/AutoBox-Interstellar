@@ -45,10 +45,9 @@ Circular e levar NPC ao portal continuam opcionais. Portal não garante imunidad
 
 PERSEGUIÇÃO PARA FINALIZAÇÃO
 Desativada por padrão. Ative na aba Kill NPC para testar acompanhado.
-Padrão: NPC com até 20% de HP; distância desejada 450.
-HP configurável de 5 a 50%; distância de 150 a 600 unidades.
-Limite absoluto de distância: 1000 a 8000, padrão 3000.
-Tempo máximo: 10 a 180 segundos, padrão 60.
+Uma única caixa ativa a perseguição de perto para NPCs em fuga com até 20% de HP.
+Usa distância de 150 unidades, independentemente da distância normal de combate.
+Limites internos de segurança: 3000 unidades e 60 segundos; não exigem configuração.
 Acompanha o mesmo NPC ferido em fuga com correções suaves, sem trocar alvo.
 Mantém proteções de vida, morte, mapa, alvo perdido, falta de progresso e risco no trajeto.
 O modo de luta no portal tem prioridade sobre esta perseguição.

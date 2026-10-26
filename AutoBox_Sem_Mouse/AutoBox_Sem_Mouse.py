@@ -97,8 +97,6 @@ class AutoBoxSemMouse:
         self.npc_radius=tk.StringVar(value=str(self.cfg.get("npc_radius",450)))
         self.npc_repair=tk.BooleanVar(value=self.cfg.get("npc_repair",False))
         self.pursuit_enabled=tk.BooleanVar(value=self.cfg.get("pursuit_enabled",False))
-        self.pursuit_fields={key:tk.StringVar(value=str(self.cfg.get("pursuit_"+key,default))) for key,default in
-            (("hp",20),("radius",450),("max_distance",3000),("seconds",60))}
         self.npc_portal_fight=tk.BooleanVar(value=self.cfg.get("npc_portal_fight",False))
         self.last_npc_report=None
         self.combat_status=tk.StringVar(value="Farm contínuo: alvos marcados, munições escolhidas e recuperação por vida.")
@@ -382,13 +380,8 @@ class AutoBoxSemMouse:
             wraplength=680,style="Muted.TLabel").grid(row=9,column=0,columnspan=2,sticky="w")
         pursuit=ttk.LabelFrame(body,text="Perseguição para finalização",padding=10)
         pursuit.pack(fill="x",pady=6)
-        ttk.Checkbutton(pursuit,text="Perseguir NPC ferido em fuga",variable=self.pursuit_enabled).pack(anchor="w")
-        for key,label in (("hp","HP do NPC para ativar (5–50%)"),("radius","Distância desejada (150–600)"),
-                          ("max_distance","Distância máxima absoluta (1000–8000)"),("seconds","Tempo máximo (10–180 segundos)")):
-            row=ttk.Frame(pursuit);row.pack(fill="x",pady=2)
-            ttk.Label(row,text=label).pack(side="left")
-            ttk.Entry(row,textvariable=self.pursuit_fields[key],width=10).pack(side="right")
-        ttk.Label(pursuit,text="Mantém o mesmo alvo. Segurança de vida, mapa e falta de progresso continuam valendo. Lutar junto ao portal tem prioridade.",wraplength=650).pack(anchor="w")
+        ttk.Checkbutton(pursuit,text="Perseguir de perto para finalizar",variable=self.pursuit_enabled).pack(anchor="w")
+        ttk.Label(pursuit,text="Segue bem perto do NPC em fuga com até 20% de vida, ignorando a distância normal de combate. Mantém as proteções de vida, mapa e falta de progresso. Lutar junto ao portal tem prioridade.",wraplength=650).pack(anchor="w")
         shop=ttk.LabelFrame(body,text="Reposição automática de munições",padding=10)
         shop.pack(fill="x",pady=8)
         ttk.Checkbutton(shop,text="Comprar o laser selecionado acima",variable=self.buy_laser).pack(anchor="w")
@@ -501,7 +494,7 @@ class AutoBoxSemMouse:
         generation=self.npc_generation
         self.npc_stop_event=threading.Event()
         engine=NpcFarmWorker(self.session,self.npc_stop_event,lambda event,data:self.events.put(("npc_event",(generation,event,data))),
-            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}),pursuit_enabled=self.pursuit_enabled.get(),**{"pursuit_"+k:int(v.get()) for k,v in self.pursuit_fields.items()})
+            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}),pursuit_enabled=self.pursuit_enabled.get())
         engine.kills=previous_kills
         self.npc_engine=engine
         self.npc_state="running"
@@ -790,10 +783,8 @@ class AutoBoxSemMouse:
 
     def save(self):
         try:
-            for key,(low,high) in {"hp":(5,50),"radius":(150,600),"max_distance":(1000,8000),"seconds":(10,180)}.items():
-                value=int(self.pursuit_fields[key].get())
-                if not low<=value<=high: raise ValueError("Limite inválido na perseguição: "+key)
-                self.cfg["pursuit_"+key]=value
+            for key in ("hp","radius","max_distance","seconds"):
+                self.cfg.pop("pursuit_"+key,None)
             self.cfg["pursuit_enabled"]=self.pursuit_enabled.get()
             for key,var in self.buy_fields.items():
                 value=int(var.get())

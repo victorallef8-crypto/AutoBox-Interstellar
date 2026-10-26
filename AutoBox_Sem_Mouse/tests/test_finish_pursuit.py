@@ -69,6 +69,7 @@ class FinishPursuitTests(unittest.TestCase):
         engine,session,events=self.exercise("death")
         moves=[p for _,p in session.calls if p.get("pursuit")]
         self.assertTrue(moves)
+        self.assertEqual({p["radius"] for p in moves},{150})
         self.assertEqual({p["id"] for p in moves},{"mordon"})
         self.assertTrue(engine.report["kill_confirmed"])
         self.assertFalse(engine.report["pursuit_active"])

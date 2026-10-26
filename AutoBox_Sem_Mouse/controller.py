@@ -315,7 +315,7 @@ class SessionEarnings:
 
 class FinishPursuit:
     """Bounded pursuit of one wounded target; navigation stays in the existing bridge."""
-    def __init__(self,enabled=False,hp=20,radius=450,max_distance=3000,seconds=60):
+    def __init__(self,enabled=False,hp=20,radius=150,max_distance=3000,seconds=60):
         if not (5<=hp<=50 and 150<=radius<=600 and 1000<=max_distance<=8000 and 10<=seconds<=180):
             raise ValueError("Configuração de perseguição inválida.")
         self.enabled=enabled;self.hp=hp;self.radius=radius
@@ -356,7 +356,7 @@ class CombatLowHealth(Exception):
 
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
-    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None,pursuit_enabled=False,pursuit_hp=20,pursuit_radius=450,pursuit_max_distance=3000,pursuit_seconds=60):
+    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None,pursuit_enabled=False,pursuit_hp=20,pursuit_radius=150,pursuit_max_distance=3000,pursuit_seconds=60):
         self.session=session; self.stop=stop; self.emit=emit
         self.kinds=set(kind if isinstance(kind,(list,tuple,set)) else [kind])
         self.kind=", ".join(sorted(self.kinds))

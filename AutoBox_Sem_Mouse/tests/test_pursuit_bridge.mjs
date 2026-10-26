@@ -12,6 +12,8 @@ assert.equal(run(target).action,'move_sent');assert.equal(sent.at(-1).x,2650);
 npc.x+=50;assert.equal(run(target).action,'move_sent');assert.equal(sent.at(-1).x,2700);
 npc.y+=40;assert.equal(run({...target,lead_x:-50,lead_y:40}).action,'move_sent');
 assert.ok(Number.isFinite(sent.at(-1).x));assert.ok(Number.isFinite(sent.at(-1).y));
+assert.equal(run({...target,radius:150,lead_x:0,lead_y:0}).action,'move_sent');
+assert.ok(Math.abs(Math.hypot(sent.at(-1).x-npc.x,sent.at(-1).y-npc.y)-150)<.001);
 let count=sent.length;
 me.hp=30;assert.equal(run(target).action,'low_hp');assert.equal(sent.length,count);me.hp=100;
 me.targetId='other';assert.equal(run(target).action,'not_attacking');assert.equal(sent.length,count);
