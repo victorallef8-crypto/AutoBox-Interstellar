@@ -106,6 +106,8 @@ class AutoBoxSemMouse:
         self.combat_status=tk.StringVar(value="Farm contínuo: alvos marcados, munições escolhidas e recuperação por vida.")
         self.combat_report_status=tk.StringVar(value="Registro ainda não iniciado.")
         self.map_boxes=[]
+        self.cloak_enabled=tk.BooleanVar(value=self.cfg.get("cloak",False))
+        self.cloak_status=tk.StringVar(value="Camuflagem automática desativada." if not self.cloak_enabled.get() else "Camuflagem aguardando início da coleta.")
         self.green = tk.BooleanVar(value=self.cfg.get("green",False))
         self.reconnect = tk.BooleanVar(value=self.cfg.get("reconnect",True))
         self.respawn = tk.StringVar(value=self.cfg.get("respawn","Desativado"))
@@ -447,7 +449,11 @@ class AutoBoxSemMouse:
         self.skylab_table.pack(fill="x",pady=8)
         ttk.Label(body,text="Não gasta Uridium, não compra robôs, não transfere recursos e não liga ou desliga módulos. Parar impede novas melhorias; não cancela uma construção já aceita pelo jogo. Não retoma sozinho ao reabrir o bot.",wraplength=650).pack(anchor="w",pady=6)
         ttk.Button(body,text="Exportar integração para diagnóstico",command=self.export_client_integration).pack(fill="x")
-        ttk.Label(self.pages["data"],text="CPU de camuflagem automática: aguardando validação dos dados do cliente.",wraplength=650).pack(side="bottom",fill="x")
+        cloak=ttk.LabelFrame(self.pages["data"],text="Camuflagem na coleta",padding=8)
+        cloak.pack(fill="x",pady=6)
+        ttk.Checkbutton(cloak,text="Manter nave camuflada (usa cargas da CPU equipada)",variable=self.cloak_enabled,command=self.save).pack(anchor="w")
+        ttk.Label(cloak,textvariable=self.cloak_status,wraplength=650).pack(anchor="w")
+        ttk.Label(cloak,text="Não compra CPUs. Aguarda o fim dos tiros e a recarga. Alterações valem no próximo início da coleta.",wraplength=650).pack(anchor="w")
 
 
     def skylab_active(self):
@@ -870,6 +876,7 @@ class AutoBoxSemMouse:
             if not 1<=deaths<=100 or not 0<=cost<=100000:
                 raise ValueError("Mortes: 1 a 100; custo: 0 a 100000.")
             self.cfg.update(respawn=self.respawn.get(),max_deaths=deaths,max_cost=cost)
+            self.cfg["cloak"] = self.cloak_enabled.get()
             self.cfg["green"] = self.green.get()
             self.cfg["reconnect"] = self.reconnect.get()
             for key in ("collection_mode","threshold","full_map","map","ship","notice","minimap"):
@@ -944,22 +951,25 @@ class AutoBoxSemMouse:
         self.stop_event=threading.Event()
         self.earnings.observe(snapshot,False)
         engine=DataCollector(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
-                             settings={"green":self.green.get(),"reconnect":self.reconnect.get(),"farm_map":self.cfg.get("collect_map",""),
+                             settings={"green":self.green.get(),"cloak":self.cloak_enabled.get(),"reconnect":self.reconnect.get(),"farm_map":self.cfg.get("collect_map",""),
                                  "respawn":{"Base":"base","Portal":"portal","Local":"spot"}.get(self.respawn.get()),
                                  "max_deaths":self.cfg["max_deaths"],"max_cost":self.cfg["max_cost"],
                                  "death_state":self.death_state})
         self.worker=threading.Thread(target=engine.run,daemon=True)
         self.worker.start()
         self.collect_state="running"
+        self.cloak_status.set("Verificando camuflagem durante a coleta." if self.cloak_enabled.get() else "Camuflagem automática desativada.")
         self.say("Coleta por dados iniciada. Mantém o alvo até a coleta; F9 pausa.")
         return
 
     def pause(self):
+        self.cloak_status.set("Camuflagem automática parada junto com a coleta.")
         self.collect_state="paused"
         self.stop_event.set()
         self.say("Pausado. F8 inicia uma nova busca.")
 
     def stop(self):
+        self.cloak_status.set("Camuflagem automática parada junto com a coleta.")
         self.collect_state="stopped"
         self.stop_event.set()
         self.say("Parado.")
@@ -1006,6 +1016,9 @@ class AutoBoxSemMouse:
                 break
             if event=="command":
                 {"start":self.start,"pause":self.pause,"stop":self.stop}[data]()
+            elif event=="cloak_status":
+                self.cloak_status.set(data)
+                self.say(data)
             elif event=="skylab_status":
                 self.skylab_status.set(data)
                 self.say(data)

@@ -149,6 +149,50 @@ class TravelWorker:
             self.emit("running",False)
 
 
+
+class CloakKeeper:
+    """Collection-only use of equipped cloak charges, with bounded acknowledgement."""
+    def __init__(self,session,stop,emit,clock=None):
+        self.session=session;self.stop=stop;self.emit=emit
+        self.clock=clock or time.monotonic
+        self.pending=None;self.next_check=0;self.last_status=None
+    def status(self,message):
+        if message!=self.last_status:
+            self.last_status=message;self.emit("cloak_status",message)
+    def step(self):
+        now=self.clock()
+        if self.stop.is_set() or now<self.next_check:return
+        self.next_check=now+1
+        payload={"action":"inspect" if self.pending else "ensure"}
+        if self.pending:payload.update(owner=self.pending["owner"],life=self.pending["life"])
+        result=self.session.request("cloak",payload,allowed=lambda:not self.stop.is_set())
+        if self.stop.is_set():return
+        if not isinstance(result,dict):raise ValueError("Camuflagem: leitura indisponível.")
+        action=result.get("action")
+        if self.pending:
+            if action=="active":
+                self.pending=None;self.next_check=now+5
+                self.status("Camuflagem ativa e confirmada.")
+            elif action=="dead":
+                self.pending=None;self.status("Camuflagem aguardando renascimento.")
+            elif now-self.pending["sent_at"]>=20:
+                raise ValueError("Camuflagem sem confirmação. Coleta parada para evitar repetir cargas; confira o jogo.")
+            return
+        if action=="sent":
+            if result.get("owner") is None or result.get("life") is None:
+                raise ValueError("Camuflagem enviada sem identificação; confira o jogo.")
+            self.pending=dict(result,sent_at=now)
+            self.status("Ativando CPU de camuflagem; aguardando confirmação.")
+        else:
+            messages={"active":"Camuflagem ativa.","combat":"Camuflagem aguarda o fim dos tiros.",
+                "jump":"Camuflagem aguarda o salto.","unequipped":"Equipe uma CPU de camuflagem; coleta continua sem camuflagem.",
+                "empty":"CPU sem cargas; coleta continua sem camuflagem.",
+                "wait":"Camuflagem aguarda disponibilidade/recarga.",
+                "dead":"Camuflagem aguardando renascimento."}
+            if action not in messages:raise ValueError("Resposta de camuflagem desconhecida.")
+            self.status(messages[action])
+            if action in ("unequipped","empty","wait"):self.next_check=now+5
+
 class DataCollector:
     """Executa um alvo por vez pela interface do cliente; nao monta pacotes HTTP."""
     def __init__(self, session, stop_event, emit, clock=None, settings=None):
@@ -159,6 +203,7 @@ class DataCollector:
         self.planner=DataFarmPlanner(arrival_radius=180, include_green=self.settings.get("green",False))
         self.travel=MapTravel(session,stop_event,emit,self.settings.get("farm_map",""),self.clock)
         self.travelling=False
+        self.cloak=CloakKeeper(session,stop_event,emit,self.clock) if self.settings.get("cloak") else None
 
     def run(self):
         last_status=None; attempted=None
@@ -225,6 +270,8 @@ class DataCollector:
                         self.emit("status","Renascimento concluído. Recupere a vida antes de iniciar novamente.")
                         break
                     self.emit("running",True)
+                if self.cloak and snapshot.get("fresh") and (snapshot.get("hp_percent") or 0)>25:
+                    self.cloak.step()
                 destination=self.settings.get("farm_map","")
                 if destination and snapshot.get("fresh") and snapshot.get("map")!=destination:
                     if not self.travelling:
@@ -264,6 +311,7 @@ class DataCollector:
                         allowed=lambda:not self.stop.is_set())
                 if self.stop.wait(.15): break
         except Exception as exc:
+            if self.cloak:self.emit("cloak_status","Camuflagem automática interrompida: "+str(exc))
             self.emit("status","Coleta por dados pausada: "+str(exc))
         finally:
             self.stop.set()

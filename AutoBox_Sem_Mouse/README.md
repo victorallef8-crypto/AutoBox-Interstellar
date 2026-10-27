@@ -66,7 +66,14 @@ Parar Skylab impede novas construções; não cancela as já aceitas pelo jogo.
 Pode acompanhar coleta/NPC, mas não roda junto com giros do Galaxy Gate.
 Dados perdidos, morte, troca de conta ou construção sem confirmação interrompem o Skylab.
 O painel deve permanecer aberto no jogo e o bot em execução; não retoma sozinho ao reabrir.
-CPU de camuflagem continua pendente de integração.
+CAMUFLAGEM NA COLETA
+Marque Manter nave camuflada na aba Coleta antes de iniciar. Vem desmarcada.
+Usa cargas da CPU equipada na configuração ativa, sem comprar nem equipar outra.
+Espera o fim dos tiros, salto e recarga; confirma camuflagem antes de repetir.
+Sem CPU/cargas, avisa e continua a coleta sem camuflagem.
+Sem confirmação em 20 segundos, interrompe a coleta para evitar repetir cargas.
+F9/F10 também interrompem a camuflagem; não funciona no NPC Killer.
+Alterações na caixa valem no próximo início. Ainda requer validação real no jogo.
 
 DIAGNÓSTICOS
 Navegador, diagnósticos e leitura técnica ficam em Avançado.

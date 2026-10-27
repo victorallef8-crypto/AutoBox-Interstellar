@@ -45,3 +45,10 @@ Baseado nos arquivos skylab.js, skylab-catalog.js e tech-factory.js fornecidos p
 Worker independente: um upgrade por confirmação, comparação de módulo/nível/revisão, interrupção em resultado desconhecido após 30 segundos. Parar tudo, diagnóstico, atualização e fechamento interrompem novas ações. Janela Tkinter atualizada por fila. Sem publicação; validação real requer abrir Skylab no jogo.
 
 Testes adicionados: 11 Python/Tkinter e ponte JavaScript simulada para limites, falta de créditos/minérios, energia, pré-requisito básico, construção ativa, leitura perdida, conta alterada, resultado não confirmado, cliques repetidos, parada e contagem regressiva.
+
+
+## Camuflagem na coleta
+
+Integração pelos dados me.cloaked, loadout.extras e specials do cliente exportado. Aciona DarkOrbitQuickbar.onAction somente para CL04K equipada com cargas e sem impedimento informado pelo próprio cliente. Nenhuma compra, mudança de equipamento ou uso no NPC Killer.
+
+7 testes Python adicionais e ponte JavaScript simulada: confirmação, perda e reativação, resultado desconhecido, recarga, CPU ausente, estoque vazio, morte, salto, combate, troca de sessão, parada e modo desativado. Total local: 183 testes Python/Tkinter. Validação em partida real pendente; sem publicação.

@@ -1,0 +1,24 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const src=fs.readFileSync(new URL('../browser_session.py',import.meta.url),'utf8');
+const script=JSON.parse(src.match(/^CLOAK_SCRIPT = (.+)$/m)[1]);
+const calls=[],me={id:'p',respawnRevision:1,hp:100,cloaked:false,loadout:{extras:['cl04km']},specials:{revision:1,stock:{cl04km:10},cooldowns:{}}};
+const W={state:{me},readOnly:false};
+const env={window:{PeriodWindows:W,DarkOrbitStarter:{items:{cl04km:{cloakCPU:true}}},
+DarkOrbitQuickbar:{onAction:id=>calls.push(id)},DarkOrbitQuickbarModel:{specialUnavailableReason:(id,me)=>me.specials.cooldowns[id]>0?'cooldown':''}}};
+vm.createContext(env);const run=vm.runInContext('('+script+')',env);
+const ensure=()=>run({action:'ensure'});
+assert.equal(ensure().action,'sent');assert.deepEqual(calls,['cl04km']);
+me.cloaked=true;assert.equal(ensure().action,'active');me.cloaked=false;
+me.attacking=true;assert.equal(ensure().action,'combat');me.attacking=false;
+me.pendingJump={};assert.equal(ensure().action,'jump');me.pendingJump=null;
+me.loadout.extras=[];assert.equal(ensure().action,'unequipped');me.loadout.extras=['cl04km'];
+me.specials.stock.cl04km=0;assert.equal(ensure().action,'empty');me.specials.stock.cl04km=10;
+me.specials.cooldowns.cl04km=10;assert.equal(ensure().action,'wait');me.specials.cooldowns.cl04km=0;
+me.hp=0;assert.equal(ensure().action,'dead');me.hp=100;
+assert.equal(run({action:'inspect'}).action,'inactive');
+assert.throws(()=>run({action:'inspect',owner:'other',life:1}),/Sessão mudou/);
+assert.throws(()=>run({action:'buy'}),/inválida/);
+delete me.cloaked;assert.throws(ensure,/indisponível/);me.cloaked=false;
+W.readOnly=true;assert.throws(ensure,/indisponível/);
+assert.equal(calls.length,1);
+console.log('Cloak: equipped charges only, no purchases, active/combat/jump/cooldown/session guards passed.');

@@ -24,5 +24,7 @@ jobs:
         run: node AutoBox_Sem_Mouse/tests/test_pursuit_bridge.mjs
       - name: Ponte Skylab simulada
         run: node AutoBox_Sem_Mouse/tests/test_skylab_bridge.mjs
+      - name: Ponte de camuflagem simulada
+        run: node AutoBox_Sem_Mouse/tests/test_cloak_bridge.mjs
       - name: Empacotar e testar executável (sem release)
         run: python AutoBox_Sem_Mouse/distribution/build_user.py
