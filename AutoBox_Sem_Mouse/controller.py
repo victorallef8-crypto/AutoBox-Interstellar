@@ -5,6 +5,19 @@ import time
 def distance(a,b):
     return hypot(a[0]-b[0],a[1]-b[1])
 
+
+def normalize_npc_profiles(profiles):
+    if not isinstance(profiles,dict):return {}
+    valid={}
+    for name,p in profiles.items():
+        if not isinstance(name,str) or not isinstance(p,dict):continue
+        if (type(p.get("priority")) is int and -100<=p["priority"]<=100
+                and type(p.get("radius")) is int and 150<=p["radius"]<=800
+                and p.get("ammo") in ("lcb10","mcb25","mcb50","ucb100","sab50","rsb75")
+                and type(p.get("orbit")) is bool):
+            valid[name]={k:p[k] for k in ("priority","radius","ammo","orbit")}
+    return valid
+
 class DataFarmPlanner:
     """Motor por identidade e coordenadas; emite decisoes, nunca envia comandos."""
     def __init__(self, arrival_radius=100., include_green=False):
@@ -13,6 +26,7 @@ class DataFarmPlanner:
         self.reset()
 
     def reset(self):
+        self.deferred = {}
         self.target = None
         self.map_id = None
         self.respawn = None
@@ -21,6 +35,11 @@ class DataFarmPlanner:
         self.best_distance = float("inf")
         self.last_distance = float("inf")
         self.baseline = None
+
+    def defer_target(self, now):
+        if self.target is not None:
+            self.deferred[self.key(self.target)]=now+30
+        self.target=None
 
     @staticmethod
     def key(box):
@@ -44,6 +63,8 @@ class DataFarmPlanner:
         position=snapshot["position"]
         boxes=[b for b in snapshot.get("candidates",[]) if b.get("kind") in (None,"box","bonus") or
                (self.include_green and b.get("kind")=="booty" and (snapshot.get("booty_keys") or 0)>0)]
+        self.deferred={key:until for key,until in self.deferred.items() if until>now}
+        boxes=[b for b in boxes if self.key(b) not in self.deferred]
         if self.target is None:
             if not boxes:
                 return {"phase":"search","reason":"Nenhuma box disponivel nos dados."}
@@ -214,6 +235,10 @@ class DataCollector:
             while not self.stop.is_set():
                 snapshot=self.session.get_world_snapshot()
                 now=self.clock()
+                if (self.settings.get("min_hp") is not None and snapshot.get("fresh")
+                        and (snapshot.get("hp_percent") is None or snapshot["hp_percent"]<=self.settings["min_hp"])):
+                    self.emit("status","Coleta entre combates interrompida para avaliar reparo.")
+                    break
                 if not snapshot.get("fresh") and self.settings.get("reconnect"):
                     if disconnected is None:
                         disconnected=now
@@ -294,8 +319,14 @@ class DataCollector:
                 if status!=last_status:
                     self.emit("status",decision["reason"]+(" Alvo: "+decision["target_id"] if decision.get("target_id") else ""))
                     last_status=status
-                if phase in ("paused","recover","stalled"):
-                    if phase=="stalled": self.emit("failed",None)
+                if phase=="stalled":
+                    self.emit("failed",None)
+                    self.emit("status","Recurso sem progresso; ignorado por 30 s. Procurando outro alvo.")
+                    self.planner.defer_target(now)
+                    attempted=None
+                    if self.stop.wait(.5):break
+                    continue
+                if phase in ("paused","recover"):
                     break
                 if phase=="confirmed": self.emit("confirmed",None)
                 elif phase=="unconfirmed": self.emit("failed",None)
@@ -404,7 +435,7 @@ class CombatLowHealth(Exception):
 
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
-    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None,pursuit_enabled=False,pursuit_hp=20,pursuit_radius=150,pursuit_max_distance=3000,pursuit_seconds=60):
+    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None,pursuit_enabled=False,pursuit_hp=20,pursuit_radius=150,pursuit_max_distance=3000,pursuit_seconds=60,npc_profiles=None):
         self.session=session; self.stop=stop; self.emit=emit
         self.kinds=set(kind if isinstance(kind,(list,tuple,set)) else [kind])
         self.kind=", ".join(sorted(self.kinds))
@@ -420,6 +451,8 @@ class NpcTestWorker:
         self.damage=False; self.baseline_xp=None; self.last_phase=None; self.previous_distance=None
         self.attack_sent=False
         self.baseline_kills=set()
+        self.npc_profiles=normalize_npc_profiles(npc_profiles)
+        self.lock_retries=0
         self.report={"mode":"single_npc_test","kind":self.kind,"allowed_kinds":sorted(self.kinds),"laser":ammo,"missile":rocket,"status":"Preparando","actions":[],
                      "damage_observed":False,"kill_confirmed":False,"stop_confirmed":False}
 
@@ -560,6 +593,30 @@ class NpcTestWorker:
                     if not travel.step(snap):
                         if self.stop.wait(.5): break
                         continue
+                if self.target is None:
+                    if hp<self.minimum_start_hp: raise ValueError("Recupere a vida antes de iniciar outra luta.")
+                    combat=snap.get("combat",{})
+                    if combat.get("attacking"): raise ValueError("Pare o ataque atual antes do teste.")
+
+                    candidates=[n for n in snap.get("npc_candidates",[]) if
+                                (n.get("kind") or n.get("type")) in self.kinds and
+                                type(n.get("hp")) in (int,float) and n["hp"]>0 and
+                                type(n.get("respawnRevision")) is int]
+                    if not candidates: raise ValueError("Nenhum NPC desse tipo disponível no mapa.")
+                    self.target=dict(min(candidates,key=lambda n:(
+                        self.npc_profiles.get(n.get("kind") or n.get("type"),{}).get("priority",0),
+                        distance(snap["position"],(n["x"],n["y"])))))
+                    self.kind=self.target.get("kind") or self.target.get("type")
+                    profile=self.npc_profiles.get(self.kind,{})
+                    self.ammo=profile.get("ammo",self.ammo)
+                    self.radius=max(150,min(800,profile.get("radius",self.radius)))
+                    self.orbit=profile.get("orbit",self.orbit)
+                    self.report.update(kind=self.kind,laser=self.ammo,radius=self.radius)
+                    self.context={"map":snap["map"],"life":snap.get("respawn_revision")}
+                    self.baseline_xp=snap.get("account",{}).get("xp")
+                    self.progress=now
+                    self.report["target_id"]=self.target["id"]
+                    self.report["map"]=snap["map"]
                 if self.restock and now>=self.next_restock:
                     for kind,item in (("laser",self.ammo),("missile",self.rocket)):
                         if not self.restock.get(kind) or item=="none": continue
@@ -571,24 +628,6 @@ class NpcTestWorker:
                         elif result.get("action")=="funds":
                             self.emit("status","Compra não realizada: saldo/reserva insuficiente para "+item)
                     self.next_restock=now+5
-                if self.target is None:
-                    if hp<self.minimum_start_hp: raise ValueError("Recupere a vida antes de iniciar outra luta.")
-                    combat=snap.get("combat",{})
-                    if combat.get("attacking"): raise ValueError("Pare o ataque atual antes do teste.")
-
-                    candidates=[n for n in snap.get("npc_candidates",[]) if
-                                (n.get("kind") or n.get("type")) in self.kinds and
-                                type(n.get("hp")) in (int,float) and n["hp"]>0 and
-                                type(n.get("respawnRevision")) is int]
-                    if not candidates: raise ValueError("Nenhum NPC desse tipo disponível no mapa.")
-                    self.target=dict(min(candidates,key=lambda n:distance(snap["position"],(n["x"],n["y"]))))
-                    self.kind=self.target.get("kind") or self.target.get("type")
-                    self.report["kind"]=self.kind
-                    self.context={"map":snap["map"],"life":snap.get("respawn_revision")}
-                    self.baseline_xp=snap.get("account",{}).get("xp")
-                    self.progress=now
-                    self.report["target_id"]=self.target["id"]
-                    self.report["map"]=snap["map"]
                 if snap["map"]!=self.context["map"] or snap.get("respawn_revision")!=self.context["life"]:
                     raise ValueError("Mapa ou vida da nave mudou durante o teste.")
                 current=next((n for n in snap.get("npc_candidates",[]) if str(n["id"])==str(self.target["id"])
@@ -624,7 +663,12 @@ class NpcTestWorker:
                     if confirmed:
                         self.pending=None
                         self.progress=now
-                    elif now-sent>5: raise ValueError("Comando "+name+" não foi confirmado pelo jogo.")
+                    elif now-sent>5:
+                        if name=="select" and self.lock_retries<2 and combat.get("attacking") is False:
+                            self.lock_retries+=1;self.pending=None
+                            self.publish("Mira não confirmada; recuperando seleção (%s/2)." % self.lock_retries)
+                            continue
+                        raise ValueError("Comando "+name+" não foi confirmado pelo jogo.")
                     else:
                         if self.stop.wait(.1): break
                         continue
@@ -716,11 +760,36 @@ class NpcTestWorker:
             self.emit("running",False)
 
 
+class BudgetStop:
+    """A collection slice shares global cancellation but cannot stop its parent farm."""
+    def __init__(self,parent,seconds,clock=None):
+        self.parent=parent;self.clock=clock or time.monotonic
+        self.deadline=self.clock()+seconds;self.done=False
+    def is_set(self):return self.done or self.parent.is_set() or self.clock()>=self.deadline
+    def set(self):self.done=True
+    def wait(self,seconds):
+        if self.is_set():return True
+        self.parent.wait(min(seconds,max(0,self.deadline-self.clock())))
+        return self.is_set()
+
+
 class NpcFarmWorker:
     """Encadeia lutas confirmadas; falhas e F9 encerram o ciclo."""
     def __init__(self,session,stop,emit,**settings):
         self.session=session; self.stop=stop; self.emit=emit; self.settings=settings
         self.kills=0; self.last=None
+        self.hybrid=self.settings.pop("hybrid",False)
+        self.collect_settings=self.settings.pop("collect_settings",{})
+        self.settings["npc_profiles"]=normalize_npc_profiles(self.settings.get("npc_profiles"))
+
+    def collect_interval(self):
+        budget=BudgetStop(self.stop,10,self.settings.get("clock"))
+        def relay(event,data):
+            if event=="running":return
+            if event in ("confirmed","failed"):budget.set()
+            self.emit(event,data)
+        settings=dict(self.collect_settings,reconnect=False,respawn="Desativado",min_hp=self.settings.get("min_hp",40))
+        DataCollector(self.session,budget,relay,clock=self.settings.get("clock"),settings=settings).run()
 
     def relay(self,event,data):
         if event=="running": return
@@ -763,6 +832,7 @@ class NpcFarmWorker:
                             for n in snap.get("npc_candidates",[]))
                 if not present and (not destination or snap.get("map")==destination):
                     self.emit("status","Aguardando NPC dos tipos marcados. Derrotados: "+str(self.kills))
+                    if self.hybrid:self.collect_interval()
                     if self.stop.wait(1): break
                     continue
                 engine=NpcTestWorker(self.session,self.stop,self.relay,**self.settings)
@@ -776,6 +846,7 @@ class NpcFarmWorker:
                 if engine.report.get("kill_confirmed"):
                     self.kills+=1
                     self.relay("npc_report",engine.report)
+                    if self.hybrid and not self.stop.is_set():self.collect_interval()
                 elif not engine.report.get("recovered"):
                     break
                 if self.stop.wait(.2): break

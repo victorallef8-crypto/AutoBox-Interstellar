@@ -84,3 +84,26 @@ A automação não tem garantia contra banimento.
 VALIDAÇÃO DA 0.14.0
 164 testes Python/Tkinter, ponte de navegação simulada e empacotamento/autoteste Windows.
 Painel conferido com dados simulados. Perseguição não foi testada em batalha real nesta entrega.
+
+## Cockpit compacto (em desenvolvimento na PR #2)
+
+AutoBoxV passa a abrir em uma janela compacta com minimapa baseado em dados,
+informações da nave e controles de farm. **Configurações** abre a interface completa;
+**Modo compacto** no painel retorna à janela pequena. A visualização é independente
+da janela do jogo e não transmite vídeo. Leitura indisponível limpa o minimapa.
+
+Em **Kill NPC**, a tabela de perfis permite definir prioridade, laser, distância e
+órbita por tipo. Um número menor tem maior prioridade. NPCs sem perfil usam as
+opções gerais. Salve o perfil e reinicie o farm para aplicar.
+
+No cockpit, **Matar + coletar** alterna lutas e pequenas sessões de coleta de caixas.
+Combate e coleta não executam movimentos em paralelo. Minérios ainda dependem da
+integração real. O modo de coleta entre lutas respeita a vida mínima do combate.
+
+**Minimizar jogo (teste)** controla a janela dedicada; **Mostrar jogo** a restaura.
+O funcionamento minimizado ainda exige teste real no Opera GX/Windows e na VPS.
+Esta PR não publica atualização e a versão estável permanece 0.14.0.
+
+![Prévia do cockpit com dados simulados](../docs/cockpit-preview.png)
+
+Pendências e critérios de validação: [DEVELOPMENT_VALIDATION.md](DEVELOPMENT_VALIDATION.md).

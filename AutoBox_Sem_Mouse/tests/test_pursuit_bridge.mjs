@@ -23,4 +23,10 @@ me.mapId='3-2';npc.x=50;npc.y=50;me.x=10;me.y=50;
 assert.equal(run({...target,lead_x:0,lead_y:0}).action,'blocked');assert.equal(sent.length,count);
 me.x=2300;me.y=3000;npc.x=3000;npc.y=3000;state.npcs=[npc,{id:'risk',x:2500,y:3000,hp:100}];
 assert.equal(run(target).action,'blocked');assert.equal(sent.length,count);
+// The same recent route is not sent twice; a changed target position still updates it.
+state.npcs=[npc];me.x=2300;me.y=3000;npc.x=3000;npc.y=3000;
+env.window.PeriodWindows.renderer.__autoboxMove=null;
+assert.equal(run(target).action,'move_sent');count=sent.length;
+assert.equal(run(target).action,'move_sent');assert.equal(sent.length,count);
+npc.x+=60;assert.equal(run(target).action,'move_sent');assert.equal(sent.length,count+1);
 console.log('Pursuit: smooth destination updates, same target, HP/map/target/bounds guards passed.');

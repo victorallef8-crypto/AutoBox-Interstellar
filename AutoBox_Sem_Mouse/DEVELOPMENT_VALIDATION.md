@@ -82,3 +82,64 @@ tiros, recompensa atrasada, seleção de NPC distante visível, fora da tela e e
 movimento residual após seleção, PET/grupo, parada manual e prioridade de portal.
 Confirmar que a nave não precisa encostar para mirar e que o farm encadeia as kills.
 Não mesclar nem publicar; versão, manifestos e ZIPs de produção preservados.
+
+## Cockpit compacto e decisões de farm (2026-10-27)
+
+Implementado com código próprio, mantendo AutoBoxV. A abertura usa uma janela
+compacta de 760x560, com controles Iniciar/Pausar/Parar, seletor de modo, pin de
+janela e acesso à interface completa. A escolha do modo de janela é persistida.
+Minimapa usa coordenadas recebidas: nave, NPCs, alvo, recursos, portais, destino e
+rastro limitado a 80 posições. Limpa o mapa quando a leitura fica indisponível e
+reinicia o rastro após mudança de mapa/renascimento. Mantém proporção do mapa e
+limita quantidade de marcadores para não bloquear Tkinter. Não é vídeo do jogo.
+A prévia em docs/cockpit-preview.png usa exclusivamente dados simulados e traz
+esse aviso na própria imagem; não é evidência de farm real.
+
+Perfis por NPC: prioridade (-100 a 100, menor primeiro), laser, distância e órbita.
+Sem perfil, usa valores gerais. Os perfis são validados e copiados ao iniciar o
+farm; alterações valem no próximo início. Reposição é avaliada após escolher o
+perfil para não comprar automaticamente a munição geral para um alvo com perfil.
+
+Combate: seleção sem confirmação pode ser tentada novamente até duas vezes,
+somente com ataque explicitamente inativo. Ctrl/ataque sem confirmação não ganha
+repetição cega. Movimentos quase iguais (<25 unidades em menos de 600 ms) para a
+mesma sessão são deduplicados no cliente; mudanças maiores continuam atualizando
+a rota. Proteções e regras de finalização/portal permanecem.
+
+Coleta: um recurso sem progresso é adiado por 30 s e o coletor procura outro. O
+adiamento é por ID/revisão; desaparecimento continua sem contar como coleta sem
+prova. O modo Matar + coletar usa o mesmo worker e intercala uma coleta de até
+10 s entre lutas, ou na ausência de NPC. Só inicia coleta entre lutas após parar
+os tiros com confirmação; limite de HP do combate também interrompe essa coleta.
+Não coleta durante a órbita: essa otimização ainda está no roteiro.
+
+Janela do jogo: operação Browser.setWindowBounds via CDP, executada no mesmo
+thread do navegador, com restauração normal. Flags do Chromium tentam reduzir
+throttling de segundo plano. Isso NÃO comprova funcionamento minimizado no Opera
+GX/Windows real. Dados antigos continuam bloqueando ações e limpam o minimapa.
+Não houve sessão do Interstellar disponível no navegador conectado nesta etapa.
+
+Validação local: suíte completa de 205 testes executada com display Xvfb temporário;
+204 passaram. Única falha é a premissa de SSLContext inicialmente sem certificados
+no teste do atualizador (ambiente injeta um CA). Não removida nem tratada como
+aprovação total. As três pontes JavaScript simuladas passaram. O workflow Windows
+sem release deve validar a suíte e o empacotamento deste commit antes de liberação.
+A validação Windows do commit anterior 0cf85b6 terminou com sucesso (run 12).
+
+### Continuação obrigatória antes de publicação
+
+1. Conferir CI Windows deste novo commit e resolver falhas, se existirem.
+2. Testar em partida Lordakia/Saimon com x4, NPC visível distante/encoberto,
+   perfis, seleção perdida, movimento residual, órbita, finalização e portal.
+3. Comparar janela normal e minimizada: sequência/idade da leitura, movimento,
+   mira, ataque, coleta, reconexão e recuperação; testar também VPS/RDP. Minimizar
+   não é aprovado apenas porque a leitura continua recebendo eventos.
+4. Obter exportação atual do cliente com minérios visíveis e dados de porão:
+   nomes/tipos, entidades, ação nativa e confirmação de recompensa. Nenhuma coleta
+   de minério foi habilitada com identificação inventada. Buscas pelos arquivos
+   anteriores não localizaram a exportação nesta sessão.
+5. Ainda não implementados: coleta durante combate, navegação completa com
+   obstáculos/áreas proibidas, fuga baseada em jogadores, gestão de PET, histórico
+   detalhado por NPC e ajustes adaptativos. Exigem integrações/dados e validação.
+6. Manter PR em rascunho, sem merge/release, sem alterar versão/ZIP/manifestos de
+   produção. Acumular próximos ajustes para publicação conjunta autorizada.
