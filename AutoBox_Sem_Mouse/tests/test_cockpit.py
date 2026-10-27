@@ -45,6 +45,31 @@ class MapTests(unittest.TestCase):
 
 
 class SmartFarmTests(unittest.TestCase):
+    def test_hybrid_cloak_confirmation_survives_collection_slices(self):
+        stop=Stop();session=Mock()
+        session.get_world_snapshot.return_value=dict(fresh=True,hp_percent=100,map="3-2",position=(0,0),candidates=[])
+        def request(op,payload,allowed):
+            self.assertEqual(op,"cloak")
+            return dict(action="sent",owner="p",life=1) if payload["action"]=="ensure" else dict(action="inactive")
+        session.request.side_effect=request
+        engine=NpcFarmWorker(session,stop,Mock(),hybrid=True,clock=lambda:stop.now,collect_settings=dict(cloak=True))
+        engine.collect_interval()
+        self.assertIsNotNone(engine.collection_cloak.pending)
+        with self.assertRaisesRegex(ValueError,"sem confirmação"):
+            for _ in range(3):engine.collect_interval()
+        self.assertEqual(sum(c.args[1]["action"]=="ensure" for c in session.request.call_args_list),1)
+
+    def test_hybrid_does_not_attack_before_pending_cloak_is_confirmed(self):
+        stop=Stop();session=Session(stop,damage=False);original=session.request
+        def request(op,payload,allowed):
+            if op=="cloak":return dict(action="inactive")
+            return original(op,payload,allowed)
+        session.request=request
+        engine=NpcFarmWorker(session,stop,Mock(),kind="mordon",hybrid=True,clock=lambda:stop.now,collect_settings=dict(cloak=True))
+        engine.collection_cloak.pending=dict(owner="p",life=1,sent_at=0)
+        engine.run()
+        self.assertFalse(any(p["action"]=="attack" for _,p in session.calls))
+        self.assertTrue(stop.is_set())
     def test_profiles_do_not_change_in_a_running_farm(self):
         profiles={"saimon":dict(priority=1,ammo="lcb10",radius=450,orbit=True)}
         engine=NpcFarmWorker(Mock(),Stop(),Mock(),npc_profiles=profiles)
@@ -103,6 +128,20 @@ class SmartFarmTests(unittest.TestCase):
         with patch.object(engine,"collect_interval",side_effect=collect) as callback:
             engine.run()
         callback.assert_called_once();self.assertEqual(engine.kills,1)
+        self.assertEqual(engine.stats["mordon"]["kills"],1)
+        self.assertEqual(engine.stats["mordon"]["ammo"],"lcb10")
+
+    def test_unreachable_target_is_deferred_only_after_confirmed_stop(self):
+        stop=Stop();session=Session(stop,damage=False);events=[]
+        def emit(event,data):
+            events.append((event,data))
+            if event=="status" and "ignorado por 30" in str(data):stop.set()
+        engine=NpcFarmWorker(session,stop,emit,kind="mordon",clock=lambda:stop.now)
+        engine.run()
+        self.assertTrue(engine.last.report["stop_confirmed"])
+        self.assertEqual(engine.failed_targets,1)
+        self.assertIn(("mordon",1),engine.skip_until)
+        self.assertEqual(engine.kills,0)
 
     def test_window_state_uses_cdp_and_detaches(self):
         session=BrowserSession.__new__(BrowserSession);session._game_page=Mock(return_value="page")

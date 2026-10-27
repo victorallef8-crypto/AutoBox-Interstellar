@@ -119,8 +119,8 @@ throttling de segundo plano. Isso NÃO comprova funcionamento minimizado no Oper
 GX/Windows real. Dados antigos continuam bloqueando ações e limpam o minimapa.
 Não houve sessão do Interstellar disponível no navegador conectado nesta etapa.
 
-Validação local: suíte completa de 205 testes executada com display Xvfb temporário;
-204 passaram. Única falha é a premissa de SSLContext inicialmente sem certificados
+Validação local: suíte completa de 208 testes executada com display Xvfb temporário;
+207 passaram. Única falha é a premissa de SSLContext inicialmente sem certificados
 no teste do atualizador (ambiente injeta um CA). Não removida nem tratada como
 aprovação total. As três pontes JavaScript simuladas passaram. O workflow Windows
 sem release deve validar a suíte e o empacotamento deste commit antes de liberação.
@@ -140,6 +140,23 @@ A validação Windows do commit anterior 0cf85b6 terminou com sucesso (run 12).
    anteriores não localizaram a exportação nesta sessão.
 5. Ainda não implementados: coleta durante combate, navegação completa com
    obstáculos/áreas proibidas, fuga baseada em jogadores, gestão de PET, histórico
-   detalhado por NPC e ajustes adaptativos. Exigem integrações/dados e validação.
+   persistente por NPC e ajustes adaptativos. Exigem integrações/dados e validação.
 6. Manter PR em rascunho, sem merge/release, sem alterar versão/ZIP/manifestos de
    produção. Acumular próximos ajustes para publicação conjunta autorizada.
+
+
+### Revisão de coordenação e recuperação
+
+A confirmação de camuflagem é compartilhada entre os intervalos de coleta; o modo
+combinado aguarda a confirmação pendente antes de iniciar ataque. Assim, trocar de
+intervalo não reinicia a proteção contra repetição de cargas. Resultado desconhecido
+continua encerrando o farm. Regressões cobrem o intervalo e a espera antes do ataque.
+
+Após falha de seleção ou ausência de progresso, o farm pode adiar aquele ID/revisão
+por 30 s, somente depois de confirmar a parada dos tiros. Há limite de três desvios
+consecutivos; falhas de ataque ambíguo ou recompensa não confirmada não recebem
+reinício cego. O painel completo mostra contagem, média e último tempo por ciclo e
+laser utilizado por tipo de NPC. Esses dados são da sessão, não aprendizado automático.
+
+CI Windows do cockpit inicial be85030 passou (run 14), incluindo empacotamento.
+A revisão final que inclui os guardas acima precisa do próprio resultado de CI.

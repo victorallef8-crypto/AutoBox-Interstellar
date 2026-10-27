@@ -136,7 +136,7 @@ class AutoBoxSemMouse:
         self._draw_services()
         self.cockpit = Cockpit(root, self)
         self.compact = False
-        self.full_geometry = root.geometry()
+        self.full_geometry = "940x"+str(min(820,root.winfo_screenheight()-90))
         self.set_compact(self.cfg.get("compact_view", True))
         self._bind_keys()
         root.after(100, self._drain)
@@ -440,6 +440,13 @@ class AutoBoxSemMouse:
         self.profile_table.grid(row=3,column=0,columnspan=4,sticky="ew")
         ttk.Label(profiles,text="Perfis valem no próximo início. NPC sem perfil usa as opções gerais acima.",style="Muted.TLabel").grid(row=4,column=0,columnspan=4,sticky="w",pady=4)
         self.refresh_profile_table()
+        performance=ttk.LabelFrame(body,text="Desempenho por NPC nesta sessão",padding=10)
+        performance.pack(fill="x",pady=6)
+        self.performance_table=ttk.Treeview(performance,columns=("npc","kills","average","last","ammo"),show="headings",height=4)
+        for key,label in (("npc","NPC"),("kills","Derrotados"),("average","Média/ciclo"),("last","Último ciclo"),("ammo","Laser")):
+            self.performance_table.heading(key,text=label);self.performance_table.column(key,width=100)
+        self.performance_table.pack(fill="x")
+        ttk.Label(performance,text="Tempo por ciclo inclui aproximação e confirmação. Estatísticas não trocam sua munição automaticamente.",style="Muted.TLabel",wraplength=650).pack(anchor="w",pady=4)
         ttk.Label(body,text="Teste manual (até 90 segundos):\n1. Clique em Registrar luta.\n"
             "2. No jogo, selecione um NPC fraco e ataque com a munição básica.\n"
             "3. Pare o ataque uma vez e depois ataque novamente até derrotá-lo, se for seguro.\n"
@@ -620,6 +627,8 @@ class AutoBoxSemMouse:
         engine=NpcFarmWorker(self.session,self.npc_stop_event,lambda event,data:self.events.put(("npc_event",(generation,event,data))),
             kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}),pursuit_enabled=self.pursuit_enabled.get(),npc_profiles=self.cfg.get("npc_profiles",{}),hybrid=hybrid,collect_settings={"green":self.green.get(),"cloak":self.cloak_enabled.get()})
         engine.kills=previous_kills
+        if self.npc_state=="paused" and self.npc_engine and isinstance(getattr(self.npc_engine,"stats",None),dict):
+            engine.stats=dict(self.npc_engine.stats)
         self.npc_engine=engine
         self.npc_state="running"
         self.npc_worker=threading.Thread(target=engine.run,daemon=True)
@@ -777,6 +786,11 @@ class AutoBoxSemMouse:
             ("npc_selected","NPC"),("attack_started","Ataque"),("attack_stopped","Parada"),("damage_observed","Dano")))
         self.combat_report_status.set(report["status"]+"\n"+progress)
         self.npc_table.delete(*self.npc_table.get_children())
+        performance=getattr(self.npc_engine,"stats",{}) if self.npc_engine else {}
+        if isinstance(performance,dict):
+            self.performance_table.delete(*self.performance_table.get_children())
+            for kind,row in sorted(performance.items()):
+                self.performance_table.insert("","end",values=(kind,row["kills"],"%.1f s" % (row["seconds"]/max(1,row["kills"])),"%.1f s" % row["last"],row["ammo"]))
         if data.get("fresh"):
             import math
             origin=data["position"]
@@ -867,7 +881,7 @@ class AutoBoxSemMouse:
     def set_compact(self, compact):
         compact=bool(compact)
         if compact:
-            if not self.compact:self.full_geometry=self.root.geometry()
+            if not self.compact and self.root.winfo_width()>1:self.full_geometry=self.root.geometry()
             self.main_shell.pack_forget()
             self.cockpit.pack(fill="both",expand=True)
             self.root.minsize(650,560)

@@ -107,3 +107,8 @@ Esta PR não publica atualização e a versão estável permanece 0.14.0.
 ![Prévia do cockpit com dados simulados](../docs/cockpit-preview.png)
 
 Pendências e critérios de validação: [DEVELOPMENT_VALIDATION.md](DEVELOPMENT_VALIDATION.md).
+
+O painel Kill NPC também mostra desempenho por tipo na sessão (derrotados, média
+por ciclo, último ciclo e laser). Alvos sem progresso podem ser adiados após parada
+confirmada, com limite de recuperações. O modo combinado preserva a confirmação da
+camuflagem entre intervalos e aguarda seu resultado antes de atacar.

@@ -216,7 +216,7 @@ class CloakKeeper:
 
 class DataCollector:
     """Executa um alvo por vez pela interface do cliente; nao monta pacotes HTTP."""
-    def __init__(self, session, stop_event, emit, clock=None, settings=None):
+    def __init__(self, session, stop_event, emit, clock=None, settings=None, cloak_keeper=None):
         self.settings=settings or {}
         self.deaths=self.settings.get("death_state",{"ids":set(),"count":0})
         self.session=session; self.stop=stop_event; self.emit=emit
@@ -224,7 +224,8 @@ class DataCollector:
         self.planner=DataFarmPlanner(arrival_radius=180, include_green=self.settings.get("green",False))
         self.travel=MapTravel(session,stop_event,emit,self.settings.get("farm_map",""),self.clock)
         self.travelling=False
-        self.cloak=CloakKeeper(session,stop_event,emit,self.clock) if self.settings.get("cloak") else None
+        self.cloak=cloak_keeper or (CloakKeeper(session,stop_event,emit,self.clock) if self.settings.get("cloak") else None)
+        self.error=None
 
     def run(self):
         last_status=None; attempted=None
@@ -342,6 +343,7 @@ class DataCollector:
                         allowed=lambda:not self.stop.is_set())
                 if self.stop.wait(.15): break
         except Exception as exc:
+            self.error=str(exc)
             if self.cloak:self.emit("cloak_status","Camuflagem automática interrompida: "+str(exc))
             self.emit("status","Coleta por dados pausada: "+str(exc))
         finally:
@@ -453,6 +455,7 @@ class NpcTestWorker:
         self.baseline_kills=set()
         self.npc_profiles=normalize_npc_profiles(npc_profiles)
         self.lock_retries=0
+        self.ignore_targets={}
         self.report={"mode":"single_npc_test","kind":self.kind,"allowed_kinds":sorted(self.kinds),"laser":ammo,"missile":rocket,"status":"Preparando","actions":[],
                      "damage_observed":False,"kill_confirmed":False,"stop_confirmed":False}
 
@@ -601,7 +604,8 @@ class NpcTestWorker:
                     candidates=[n for n in snap.get("npc_candidates",[]) if
                                 (n.get("kind") or n.get("type")) in self.kinds and
                                 type(n.get("hp")) in (int,float) and n["hp"]>0 and
-                                type(n.get("respawnRevision")) is int]
+                                type(n.get("respawnRevision")) is int
+                                and self.ignore_targets.get((str(n["id"]),n["respawnRevision"]),0)<=now]
                     if not candidates: raise ValueError("Nenhum NPC desse tipo disponível no mapa.")
                     self.target=dict(min(candidates,key=lambda n:(
                         self.npc_profiles.get(n.get("kind") or n.get("type"),{}).get("priority",0),
@@ -649,7 +653,9 @@ class NpcTestWorker:
                 self.previous_distance=d
                 self.best_distance=min(self.best_distance,d)
                 if now-self.started>self.max_fight_seconds: raise ValueError("Luta excedeu o limite de "+str(self.max_fight_seconds//60)+" minutos.")
-                if now-self.progress>15: raise ValueError("Sem aproximação ou dano por 15 segundos.")
+                if now-self.progress>15:
+                    self.report["recoverable"]=True
+                    raise ValueError("Sem aproximação ou dano por 15 segundos.")
                 combat=snap.get("combat",{})
                 selected=str(combat.get("target_id"))==str(current["id"])
                 was_pursuing=self.pursuit.active
@@ -668,6 +674,7 @@ class NpcTestWorker:
                             self.lock_retries+=1;self.pending=None
                             self.publish("Mira não confirmada; recuperando seleção (%s/2)." % self.lock_retries)
                             continue
+                        if name=="select":self.report["recoverable"]=True
                         raise ValueError("Comando "+name+" não foi confirmado pelo jogo.")
                     else:
                         if self.stop.wait(.1): break
@@ -778,9 +785,12 @@ class NpcFarmWorker:
     def __init__(self,session,stop,emit,**settings):
         self.session=session; self.stop=stop; self.emit=emit; self.settings=settings
         self.kills=0; self.last=None
+        self.stats={};self.skip_until={};self.failed_targets=0
         self.hybrid=self.settings.pop("hybrid",False)
         self.collect_settings=self.settings.pop("collect_settings",{})
         self.settings["npc_profiles"]=normalize_npc_profiles(self.settings.get("npc_profiles"))
+        self.collection_cloak=(CloakKeeper(session,stop,emit,self.settings.get("clock"))
+                               if self.hybrid and self.collect_settings.get("cloak") else None)
 
     def collect_interval(self):
         budget=BudgetStop(self.stop,10,self.settings.get("clock"))
@@ -789,7 +799,10 @@ class NpcFarmWorker:
             if event in ("confirmed","failed"):budget.set()
             self.emit(event,data)
         settings=dict(self.collect_settings,reconnect=False,respawn="Desativado",min_hp=self.settings.get("min_hp",40))
-        DataCollector(self.session,budget,relay,clock=self.settings.get("clock"),settings=settings).run()
+        collector=DataCollector(self.session,budget,relay,clock=self.settings.get("clock"),
+                                settings=settings,cloak_keeper=self.collection_cloak)
+        collector.run()
+        if collector.error:raise ValueError("Coleta entre combates interrompida: "+collector.error)
 
     def relay(self,event,data):
         if event=="running": return
@@ -827,8 +840,17 @@ class NpcFarmWorker:
                     if not self.last.report.get("recovered"):
                         raise ValueError("Recuperação não concluída; farm interrompido.")
                     continue
+                # Do not break a newly requested cloak with a fight before observing its result.
+                if self.collection_cloak and self.collection_cloak.pending:
+                    self.collection_cloak.step()
+                    if self.collection_cloak.pending:
+                        if self.stop.wait(.2):break
+                        continue
                 destination=self.settings.get("destination","")
+                now=(self.settings.get("clock") or time.monotonic)()
+                self.skip_until={key:until for key,until in self.skip_until.items() if until>now}
                 present=any((n.get("kind") or n.get("type")) in kinds and (n.get("hp") or 0)>0
+                            and (str(n.get("id")),n.get("respawnRevision")) not in self.skip_until
                             for n in snap.get("npc_candidates",[]))
                 if not present and (not destination or snap.get("map")==destination):
                     self.emit("status","Aguardando NPC dos tipos marcados. Derrotados: "+str(self.kills))
@@ -836,6 +858,7 @@ class NpcFarmWorker:
                     if self.stop.wait(1): break
                     continue
                 engine=NpcTestWorker(self.session,self.stop,self.relay,**self.settings)
+                engine.ignore_targets=dict(self.skip_until)
                 engine.finish_stop=False
                 engine.max_fight_seconds=900
                 engine.minimum_start_hp=80 if self.last is None else limit+.01
@@ -844,11 +867,20 @@ class NpcFarmWorker:
                 if self.stop.is_set(): break
                 if not engine.report.get("stop_confirmed"): break
                 if engine.report.get("kill_confirmed"):
-                    self.kills+=1
+                    self.kills+=1;self.failed_targets=0
+                    duration=max(0,engine.clock()-engine.started)
+                    kind=engine.report.get("kind","NPC")
+                    old=self.stats.get(kind,{"kills":0,"seconds":0})
+                    row=dict(kills=old["kills"]+1,seconds=old["seconds"]+duration,last=duration,ammo=engine.ammo)
+                    self.stats=dict(self.stats,**{kind:row})
                     self.relay("npc_report",engine.report)
                     if self.hybrid and not self.stop.is_set():self.collect_interval()
                 elif not engine.report.get("recovered"):
-                    break
+                    if engine.report.get("recoverable") and engine.target and self.failed_targets<3:
+                        self.failed_targets+=1
+                        self.skip_until[(str(engine.target["id"]),engine.target.get("respawnRevision"))]=engine.clock()+30
+                        self.emit("status","Alvo sem progresso ignorado por 30 s após parada confirmada (%s/3)." % self.failed_targets)
+                    else:break
                 if self.stop.wait(.2): break
         except Exception as exc:
             self.emit("status",str(exc))
