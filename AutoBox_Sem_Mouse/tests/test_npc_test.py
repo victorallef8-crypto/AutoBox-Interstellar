@@ -48,6 +48,117 @@ class Session:
         return {"action":"move_sent"}
 
 class NpcWorkerTests(unittest.TestCase):
+    def test_reward_cannot_confirm_without_attack_or_with_live_target(self):
+        for attacked,absent in ((False,True),(True,False)):
+            stop=Stop();session=Session(stop,damage=False)
+            engine=self.engine(session,stop)
+            engine.target=dict(session.state["npc_candidates"][0])
+            engine.context={"map":"3-4","life":1};engine.started=0
+            engine.attack_sent=attacked;engine.baseline_xp=1000
+            session.state["account"]["xp"]=1100
+            session.state["rewards"]=[dict(id="new",time=2,type="kill")]
+            if absent:session.state["npc_candidates"]=[]
+            engine.confirm_target_end()
+            self.assertFalse(engine.report["kill_confirmed"])
+
+    def test_confirmation_stops_on_map_life_or_connection_change(self):
+        for change in (dict(map="1-1"),dict(respawn_revision=2),dict(fresh=False),dict(dead=True)):
+            stop=Stop();session=Session(stop,damage=False)
+            engine=self.engine(session,stop)
+            engine.target=dict(session.state["npc_candidates"][0])
+            engine.context={"map":"3-4","life":1};engine.started=0
+            engine.attack_sent=True;engine.baseline_xp=1000
+            session.state.update(change,npc_candidates=[],account={"xp":1100})
+            engine.confirm_target_end()
+            self.assertFalse(engine.report["kill_confirmed"])
+            self.assertEqual(stop.now,0)
+
+    def test_visible_npc_is_selected_before_any_movement_at_all_distances(self):
+        for x in (200,450,1200):
+            stop=Stop();session=Session(stop)
+            session.state["npc_candidates"][0]["x"]=x
+            engine=self.engine(session,stop);engine.run()
+            self.assertEqual([p["action"] for _,p in session.calls][:2],["select","attack"])
+            self.assertTrue(engine.report["kill_confirmed"])
+
+    def test_instant_kill_without_damage_sample_or_attack_echo(self):
+        for delay in (0,3):
+            stop=Stop();session=Session(stop,damage=False);original=session.request
+            snapshot=session.get_world_snapshot;deadline=[None]
+            def request(op,payload,allowed):
+                result=original(op,payload,allowed)
+                if payload["action"]=="attack":
+                    session.state["npc_candidates"]=[]
+                    session.state["combat"].update(attacking=False,target_id=None)
+                    deadline[0]=stop.now+delay
+                return result
+            def read():
+                if deadline[0] is not None and stop.now>=deadline[0]:
+                    session.state["account"]["xp"]=1100
+                return snapshot()
+            session.request=request;session.get_world_snapshot=read
+            engine=self.engine(session,stop);engine.run()
+            self.assertTrue(engine.report["kill_confirmed"])
+            self.assertFalse(engine.report["damage_observed"])
+            self.assertTrue(engine.report["stop_confirmed"])
+            self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),1)
+            self.assertGreaterEqual(stop.now,delay)
+
+    def test_fast_kill_events_exclude_old_pet_and_box_rewards(self):
+        for event,expected in ((dict(id="new",time=2,type="kill"),True),
+                               (dict(id="old",time=1,type="kill"),False),
+                               (dict(id="pet",time=2,type="kill",pet=True),False),
+                               (dict(id="box",time=2,type="box-collected"),False)):
+            stop=Stop();session=Session(stop,damage=False);original=session.request
+            session.state["rewards"]=[dict(id="old",time=1,type="kill")]
+            def request(op,payload,allowed):
+                result=original(op,payload,allowed)
+                if payload["action"]=="attack":
+                    session.state["npc_candidates"]=[]
+                    session.state["combat"].update(attacking=False,target_id=None)
+                    session.state["rewards"].append(event)
+                return result
+            session.request=request
+            engine=self.engine(session,stop);engine.run()
+            self.assertEqual(engine.report["kill_confirmed"],expected)
+
+    def test_continuous_farm_chains_two_instant_kills(self):
+        stop=Stop();session=Session(stop,damage=False);original=session.request;spawned=[False]
+        def request(op,payload,allowed):
+            result=original(op,payload,allowed)
+            if payload["action"]=="attack":
+                session.state["npc_candidates"]=[]
+                session.state["account"]["xp"]+=100
+                session.state["combat"].update(attacking=False,target_id=None)
+            if payload["action"]=="stop" and not spawned[0]:
+                spawned[0]=True
+                session.state["npc_candidates"]=[dict(id="mordon",respawnRevision=2,kind="mordon",x=400,y=0,hp=100)]
+            return result
+        session.request=request
+        def emit(event,data):
+            if event=="npc_report" and data.get("kills")==2:stop.set()
+        engine=NpcFarmWorker(session,stop,emit,kind="mordon",clock=lambda:stop.now)
+        engine.run()
+        self.assertEqual(engine.kills,2)
+        self.assertEqual(sum(p["action"]=="attack" for _,p in session.calls),2)
+
+    def test_cancel_during_delayed_reward_wait_does_not_confirm_kill(self):
+        stop=Stop();session=Session(stop,damage=False);original=session.request
+        snapshot=session.get_world_snapshot
+        def request(op,payload,allowed):
+            result=original(op,payload,allowed)
+            if payload["action"]=="attack":
+                session.state["npc_candidates"]=[]
+                session.state["combat"].update(attacking=False,target_id=None)
+            return result
+        def read():
+            if stop.now>=1:stop.set()
+            return snapshot()
+        session.request=request;session.get_world_snapshot=read
+        engine=self.engine(session,stop);engine.run()
+        self.assertFalse(engine.report["kill_confirmed"])
+        self.assertLess(stop.now,2)
+
     def engine(self,session,stop):
         return NpcTestWorker(session,stop,lambda *e:None,clock=lambda:stop.now)
     def test_single_npc_ends_after_damage_disappearance_and_reward(self):
@@ -61,7 +172,7 @@ class NpcWorkerTests(unittest.TestCase):
         def request(op,payload,allowed):
             if payload["action"]=="select" and not visible[0]:
                 session.calls.append((op,dict(payload)));return {"action":"not_visible"}
-            if payload["action"]=="approach" and payload.get("close_approach"):
+            if payload["action"]=="approach":
                 visible[0]=True
             return original(op,payload,allowed)
         session.request=request
@@ -79,7 +190,7 @@ class NpcWorkerTests(unittest.TestCase):
         engine=self.engine(session,stop);engine.run()
         self.assertIn("Sem aproximação ou dano",engine.report["status"])
         self.assertFalse(any(p["action"]=="attack" for _,p in session.calls))
-        self.assertLessEqual(sum(p["action"]=="approach" for _,p in session.calls),45)
+        self.assertLessEqual(sum(p["action"]=="approach" for _,p in session.calls),31)
 
     def test_orbit_only_after_attack_confirmation(self):
         stop=Stop();session=Session(stop);original=session.request
@@ -204,7 +315,7 @@ class NpcWorkerTests(unittest.TestCase):
         self.assertEqual(engine.report["allowed_kinds"],["lordakia","mordon"])
         self.assertTrue(engine.report["kill_confirmed"])
 
-    def test_close_acquisition_then_pursue_same_wounded_npc_at_radius(self):
+    def test_visible_distant_acquisition_before_pursuing_same_npc_at_radius(self):
         stop=Stop();session=Session(stop);original=session.request
         session.state["npc_candidates"][0]["x"]=1200
         def request(op,payload,allowed):
@@ -225,7 +336,8 @@ class NpcWorkerTests(unittest.TestCase):
         session.request=request
         engine=self.engine(session,stop);engine.run()
         moves=[p for _,p in session.calls if p["action"]=="approach"]
-        self.assertTrue(moves[0]["close_approach"])
+        self.assertEqual(session.calls[0][1]["action"],"select")
+        self.assertFalse(any(p.get("close_approach") for p in moves))
         self.assertFalse(moves[-1]["close_approach"])
         self.assertTrue(engine.report["kill_confirmed"])
         self.assertEqual({p["id"] for _,p in session.calls},{"mordon"})

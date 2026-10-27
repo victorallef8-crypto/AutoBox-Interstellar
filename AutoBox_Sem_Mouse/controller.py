@@ -418,6 +418,8 @@ class NpcTestWorker:
         self.target=None; self.context=None; self.pending=None; self.next_move=0
         self.started=None; self.progress=None; self.best_distance=float("inf"); self.lowest=None
         self.damage=False; self.baseline_xp=None; self.last_phase=None; self.previous_distance=None
+        self.attack_sent=False
+        self.baseline_kills=set()
         self.report={"mode":"single_npc_test","kind":self.kind,"allowed_kinds":sorted(self.kinds),"laser":ammo,"missile":rocket,"status":"Preparando","actions":[],
                      "damage_observed":False,"kill_confirmed":False,"stop_confirmed":False}
 
@@ -433,6 +435,8 @@ class NpcTestWorker:
                      min_hp=self.min_hp,action=name,ammo=self.ammo,rocket=self.rocket,**options)
         result=self.session.request("npc_action",payload,allowed=lambda:not self.stop.is_set())
         if not isinstance(result,dict): return {"action":"cancelled"}
+        if name=="attack" and result.get("action") in ("attack_sent","attacking"):
+            self.attack_sent=True
         self.report["actions"].append({"seconds":round(self.clock()-self.started,2),"action":name,"result":result.get("action"),"distance":self.report.get("target_distance")})
         self.report["actions"]=self.report["actions"][-40:]
         if result.get("action")=="gone":
@@ -469,10 +473,11 @@ class NpcTestWorker:
 
     def confirm_target_end(self):
         confirmed=False
-        for _ in range(20):
+        self.publish("Aguardando confirmação da derrota e da recompensa do NPC.")
+        for _ in range(50):
             if self.stop.is_set(): break
             snap=self.session.get_world_snapshot()
-            if (not snap.get("fresh") or snap.get("map")!=self.context["map"]
+            if (self.stop.is_set() or not snap.get("fresh") or snap.get("dead") or snap.get("map")!=self.context["map"]
                 or snap.get("respawn_revision")!=self.context["life"]): break
             target=next((n for n in snap.get("npc_candidates",[]) if str(n.get("id"))==str(self.target["id"])
                          and n.get("respawnRevision")==self.target.get("respawnRevision")),None)
@@ -480,8 +485,16 @@ class NpcTestWorker:
             self.report["attacking"]=snap.get("combat",{}).get("attacking")
             self.report["hp_percent"]=snap.get("hp_percent")
             absent=target is None or target.get("hp",0)<=0
-            confirmed=(absent and self.damage and type(xp) in (int,float)
-                       and type(self.baseline_xp) in (int,float) and xp>self.baseline_xp)
+            xp_gained=(type(xp) in (int,float) and type(self.baseline_xp) in (int,float)
+                       and xp>self.baseline_xp)
+            new_kill=any(e.get("type")=="kill" and e.get("id") is not None
+                         and (e.get("id"),e.get("time")) not in self.baseline_kills
+                         and not e.get("petCollected") and not e.get("pet")
+                         for e in snap.get("rewards",[]))
+            # A fast kill can disappear before a lower HP sample or attack echo arrives.
+            # Require a dispatched attack and fresh reward evidence, never disappearance alone.
+            confirmed=absent and ((self.damage and xp_gained) or
+                                  (self.attack_sent and (xp_gained or new_kill)))
             if confirmed: break
             if self.stop.wait(.1): break
         self.report["kill_confirmed"]=confirmed
@@ -622,6 +635,10 @@ class NpcTestWorker:
                     self.report["rocket_status"]=missile.get("action")
                     self.next_rocket=now+(3.2 if missile.get("action")=="rocket_sent" else 1)
                 if selected and combat.get("attacking") is not True:
+                    if not self.attack_sent:
+                        self.baseline_xp=xp
+                        self.baseline_kills={(e.get("id"),e.get("time")) for e in snap.get("rewards",[])
+                                             if e.get("type")=="kill"}
                     result=self.action("attack")
                     if result.get("action") not in ("attack_sent","attacking","ammo_sent"):
                         raise ValueError("Ataque não aceito: "+result.get("action","?"))
@@ -645,19 +662,19 @@ class NpcTestWorker:
                         if type(gate_distance) in (int,float) and gate_distance<self.gate_best-10:
                             self.gate_best=gate_distance; self.progress=now
                     self.publish("Conduzindo o NPC e mantendo a luta perto do portal.")
-                elif (not selected and d>180) or (selected and d>self.radius+40):
+                elif selected and d>self.radius+40:
                     if now>=self.next_move:
-                        result=self.action("approach",close_approach=not selected,radius=self.radius); self.next_move=now+.15
+                        result=self.action("approach",close_approach=False,radius=self.radius); self.next_move=now+.35
                         if result.get("action") not in ("move_sent","in_range"): raise ValueError("Aproximação não aceita: "+result.get("action","?"))
-                    self.publish("Chegando perto para selecionar o NPC." if not selected else "Perseguindo o mesmo NPC na distância de ataque.")
+                    self.publish("Perseguindo o mesmo NPC na distância de ataque.")
                 elif not selected:
                     result=self.action("select")
                     if result.get("action")=="not_visible":
                         if now>=self.next_move:
-                            result=self.action("approach",close_approach=True); self.next_move=now+.35
+                            result=self.action("approach",close_approach=False,radius=self.radius); self.next_move=now+.5
                             if result.get("action") not in ("move_sent","in_range"):
                                 raise ValueError("Aproximação não aceita: "+result.get("action","?"))
-                        self.publish("Aproximando mais para selecionar o mesmo NPC na tela.")
+                        self.publish("NPC não clicável; aproximando com distância de segurança para selecionar.")
                     elif result.get("action")=="select_sent":
                         self.pending=("select",now)
                         self.publish("Aguardando confirmação do alvo NPC.")

@@ -52,3 +52,33 @@ Testes adicionados: 11 Python/Tkinter e ponte JavaScript simulada para limites, 
 Integração pelos dados me.cloaked, loadout.extras e specials do cliente exportado. Aciona DarkOrbitQuickbar.onAction somente para CL04K equipada com cargas e sem impedimento informado pelo próprio cliente. Nenhuma compra, mudança de equipamento ou uso no NPC Killer.
 
 7 testes Python adicionais e ponte JavaScript simulada: confirmação, perda e reativação, resultado desconhecido, recarga, CPU ausente, estoque vazio, morte, salto, combate, troca de sessão, parada e modo desativado. Total local: 183 testes Python/Tkinter. Validação em partida real pendente; sem publicação.
+
+## NPC Killer — prioridade 1 e mortes rápidas (2026-10-27)
+
+Seleciona primeiro todo NPC clicável, sem exigir aproximação a 180 unidades.
+Somente se a seleção retornar not_visible aproxima pela distância normal de combate,
+sem close_approach até o centro do NPC. Tentativas de aproximação de aquisição são
+espaçadas em 0,5 s; aproximação em combate normal em 0,35 s. Finalização e portal
+mantêm suas regras anteriores. A confirmação do alvo ainda antecede o ataque.
+
+Mortes entre duas leituras não precisam apresentar uma amostra intermediária de HP:
+após um ataque enviado, desaparecimento mais aumento de XP ou novo evento próprio
+de kill confirma o fim. Eventos anteriores ao ataque, caixas e eventos marcados como
+PET não servem como novo evento de kill. A janela de recompensa passa de cerca de
+2 para 5 segundos; durante a espera não envia novo ataque. Desaparecimento isolado
+continua sem confirmação. Essa correlação usa os dados disponíveis; a associação
+entre recompensa e alvo em partidas com PET/grupo exige validação real.
+
+Validação neste ambiente Linux: 159 testes Python de lógica/integração passaram,
+incluindo 38 do NPC Killer (7 novos métodos de regressão). As três pontes JavaScript
+simuladas passaram. A tentativa da suíte completa encontrou três erros de setup
+Tkinter por ausência de display e uma falha no teste do atualizador que espera um
+SSLContext sem certificados iniciais, mas este ambiente já adiciona um certificado.
+Esses quatro pontos não foram ignorados como aprovação da suíte completa. O workflow
+Windows existente continua responsável por interface e empacotamento, sem release.
+
+Pendente no Windows/jogo: Lordakia e Saimon com x4 em sequência, mortes em um/dois
+tiros, recompensa atrasada, seleção de NPC distante visível, fora da tela e encoberto,
+movimento residual após seleção, PET/grupo, parada manual e prioridade de portal.
+Confirmar que a nave não precisa encostar para mirar e que o farm encadeia as kills.
+Não mesclar nem publicar; versão, manifestos e ZIPs de produção preservados.
