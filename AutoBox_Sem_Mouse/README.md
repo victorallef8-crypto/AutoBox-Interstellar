@@ -45,10 +45,9 @@ Circular e levar NPC ao portal continuam opcionais. Portal não garante imunidad
 
 PERSEGUIÇÃO PARA FINALIZAÇÃO
 Desativada por padrão. Ative na aba Kill NPC para testar acompanhado.
-Padrão: NPC com até 20% de HP; distância desejada 450.
-HP configurável de 5 a 50%; distância de 150 a 600 unidades.
-Limite absoluto de distância: 1000 a 8000, padrão 3000.
-Tempo máximo: 10 a 180 segundos, padrão 60.
+Uma única caixa ativa a perseguição de perto para NPCs em fuga com até 20% de HP.
+Usa distância de 150 unidades, independentemente da distância normal de combate.
+Limites internos de segurança: 3000 unidades e 60 segundos; não exigem configuração.
 Acompanha o mesmo NPC ferido em fuga com correções suaves, sem trocar alvo.
 Mantém proteções de vida, morte, mapa, alvo perdido, falta de progresso e risco no trajeto.
 O modo de luta no portal tem prioridade sobre esta perseguição.
@@ -59,7 +58,22 @@ Galaxy Gate gira lotes selecionados de 100/50/10/5/1, com limite por execução.
 Consumo de Uridium é opcional e respeita a reserva configurada; aguarda confirmação de cada lote.
 Pause coleta/combate. Abra o painel no jogo e confirme o aviso inicial se solicitado.
 Não entra nem combate nos portais.
-Skylab automático e CPU de camuflagem continuam pendentes de integração.
+Skylab: abra o painel Skylab no jogo, configure a reserva mínima de créditos e clique Iniciar melhorias no bot.
+Melhora um módulo por vez até 20 (transporte: 1), respeitando recursos e pré-requisitos.
+Aguarda cada construção terminar; não acelera com Uridium nem compra robôs ou minérios.
+Não altera o estado ligado/desligado dos módulos. Se a produção estiver parada, corrija no jogo.
+Parar Skylab impede novas construções; não cancela as já aceitas pelo jogo.
+Pode acompanhar coleta/NPC, mas não roda junto com giros do Galaxy Gate.
+Dados perdidos, morte, troca de conta ou construção sem confirmação interrompem o Skylab.
+O painel deve permanecer aberto no jogo e o bot em execução; não retoma sozinho ao reabrir.
+CAMUFLAGEM NA COLETA
+Marque Manter nave camuflada na aba Coleta antes de iniciar. Vem desmarcada.
+Usa cargas da CPU equipada na configuração ativa, sem comprar nem equipar outra.
+Espera o fim dos tiros, salto e recarga; confirma camuflagem antes de repetir.
+Sem CPU/cargas, avisa e continua a coleta sem camuflagem.
+Sem confirmação em 20 segundos, interrompe a coleta para evitar repetir cargas.
+F9/F10 também interrompem a camuflagem; não funciona no NPC Killer.
+Alterações na caixa valem no próximo início. Ainda requer validação real no jogo.
 
 DIAGNÓSTICOS
 Navegador, diagnósticos e leitura técnica ficam em Avançado.
@@ -70,3 +84,31 @@ A automação não tem garantia contra banimento.
 VALIDAÇÃO DA 0.14.0
 164 testes Python/Tkinter, ponte de navegação simulada e empacotamento/autoteste Windows.
 Painel conferido com dados simulados. Perseguição não foi testada em batalha real nesta entrega.
+
+## Cockpit compacto (em desenvolvimento na PR #2)
+
+AutoBoxV passa a abrir em uma janela compacta com minimapa baseado em dados,
+informações da nave e controles de farm. **Configurações** abre a interface completa;
+**Modo compacto** no painel retorna à janela pequena. A visualização é independente
+da janela do jogo e não transmite vídeo. Leitura indisponível limpa o minimapa.
+
+Em **Kill NPC**, a tabela de perfis permite definir prioridade, laser, distância e
+órbita por tipo. Um número menor tem maior prioridade. NPCs sem perfil usam as
+opções gerais. Salve o perfil e reinicie o farm para aplicar.
+
+No cockpit, **Matar + coletar** alterna lutas e pequenas sessões de coleta de caixas.
+Combate e coleta não executam movimentos em paralelo. Minérios ainda dependem da
+integração real. O modo de coleta entre lutas respeita a vida mínima do combate.
+
+**Minimizar jogo (teste)** controla a janela dedicada; **Mostrar jogo** a restaura.
+O funcionamento minimizado ainda exige teste real no Opera GX/Windows e na VPS.
+Esta PR não publica atualização e a versão estável permanece 0.14.0.
+
+![Prévia do cockpit com dados simulados](../docs/cockpit-preview.png)
+
+Pendências e critérios de validação: [DEVELOPMENT_VALIDATION.md](DEVELOPMENT_VALIDATION.md).
+
+O painel Kill NPC também mostra desempenho por tipo na sessão (derrotados, média
+por ciclo, último ciclo e laser). Alvos sem progresso podem ser adiados após parada
+confirmada, com limite de recuperações. O modo combinado preserva a confirmação da
+camuflagem entre intervalos e aguarda seu resultado antes de atacar.

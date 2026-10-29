@@ -12,8 +12,10 @@ from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
-from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker, NpcTestWorker, NpcFarmWorker, GalaxyWorker
+from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker, NpcTestWorker, NpcFarmWorker, GalaxyWorker, SkylabWorker
 import updater
+from cockpit import Cockpit
+from controller import normalize_npc_profiles
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxSemMouse"
 CONFIG_PATH = APP_DIR / "config.json"
@@ -44,6 +46,10 @@ class AutoBoxSemMouse:
         self.stop_event = threading.Event()
         self.stop_event.set()
         self.worker = None
+        self.skylab_worker=None
+        self.skylab_stop=threading.Event();self.skylab_stop.set()
+        self.skylab_status=tk.StringVar(value="Parado. Abra o Skylab no jogo antes de iniciar.")
+        self.skylab_reserve=tk.StringVar(value=str(self.cfg.get("skylab_reserve",0)))
         self.gg_worker=None
         self.gg_stop=threading.Event();self.gg_stop.set()
         self.gg_enabled=tk.BooleanVar(value=False)
@@ -89,6 +95,7 @@ class AutoBoxSemMouse:
         self.npc_map=tk.StringVar(value=self.cfg.get("npc_map",""))
         self.npc_kind=tk.StringVar(value=self.cfg.get("npc_kind","mordon"))
         self.npc_kinds_saved=set(self.cfg.get("npc_kinds") or [self.npc_kind.get()])
+        self.cfg["npc_profiles"]=normalize_npc_profiles(self.cfg.get("npc_profiles"))
         self.npc_kind_vars={}
         self.npc_min_hp=tk.StringVar(value=str(self.cfg.get("npc_min_hp",40)))
         self.npc_orbit=tk.BooleanVar(value=self.cfg.get("npc_orbit",True))
@@ -97,13 +104,13 @@ class AutoBoxSemMouse:
         self.npc_radius=tk.StringVar(value=str(self.cfg.get("npc_radius",450)))
         self.npc_repair=tk.BooleanVar(value=self.cfg.get("npc_repair",False))
         self.pursuit_enabled=tk.BooleanVar(value=self.cfg.get("pursuit_enabled",False))
-        self.pursuit_fields={key:tk.StringVar(value=str(self.cfg.get("pursuit_"+key,default))) for key,default in
-            (("hp",20),("radius",450),("max_distance",3000),("seconds",60))}
         self.npc_portal_fight=tk.BooleanVar(value=self.cfg.get("npc_portal_fight",False))
         self.last_npc_report=None
         self.combat_status=tk.StringVar(value="Farm contínuo: alvos marcados, munições escolhidas e recuperação por vida.")
         self.combat_report_status=tk.StringVar(value="Registro ainda não iniciado.")
         self.map_boxes=[]
+        self.cloak_enabled=tk.BooleanVar(value=self.cfg.get("cloak",False))
+        self.cloak_status=tk.StringVar(value="Camuflagem automática desativada." if not self.cloak_enabled.get() else "Camuflagem aguardando início da coleta.")
         self.green = tk.BooleanVar(value=self.cfg.get("green",False))
         self.reconnect = tk.BooleanVar(value=self.cfg.get("reconnect",True))
         self.respawn = tk.StringVar(value=self.cfg.get("respawn","Desativado"))
@@ -127,6 +134,10 @@ class AutoBoxSemMouse:
         self._draw_world_page()
         self._draw_combat_page()
         self._draw_services()
+        self.cockpit = Cockpit(root, self)
+        self.compact = False
+        self.full_geometry = "940x"+str(min(820,root.winfo_screenheight()-90))
+        self.set_compact(self.cfg.get("compact_view", True))
         self._bind_keys()
         root.after(100, self._drain)
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -135,22 +146,22 @@ class AutoBoxSemMouse:
         style = ttk.Style(self.root)
         style.theme_use("clam")
         style.configure(".", background="#111827", foreground="#e5e7eb",
-                        font=("Segoe UI", 10), fieldbackground="#1f2937")
+                        font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 10), fieldbackground="#1f2937")
         style.configure("TFrame", background="#111827")
         style.configure("TLabel", background="#111827", foreground="#e5e7eb")
         style.configure("Muted.TLabel", foreground="#94a3b8")
-        style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"), foreground="#f8fafc")
-        style.configure("Heading.TLabel", font=("Segoe UI", 13, "bold"))
+        style.configure("Title.TLabel", font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 18, "bold"), foreground="#f8fafc")
+        style.configure("Heading.TLabel", font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 13, "bold"))
         style.configure("Card.TFrame", background="#1e293b")
         style.configure("Card.TLabel", background="#1e293b", foreground="#94a3b8")
         style.configure("Count.TLabel", background="#1e293b", foreground="#67e8f9",
-                        font=("Segoe UI", 20, "bold"))
-        style.configure("Balance.TLabel", background="#1e293b", foreground="#f8fafc", font=("Segoe UI", 23, "bold"))
-        style.configure("Income.TLabel", background="#1e293b", foreground="#4ade80", font=("Segoe UI", 16, "bold"))
+                        font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 20, "bold"))
+        style.configure("Balance.TLabel", background="#1e293b", foreground="#f8fafc", font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 23, "bold"))
+        style.configure("Income.TLabel", background="#1e293b", foreground="#4ade80", font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 16, "bold"))
         style.configure("HP.Horizontal.TProgressbar",background="#22c55e",troughcolor="#263449")
         style.configure("Shield.Horizontal.TProgressbar",background="#3b82f6",troughcolor="#263449")
         style.configure("Compact.TButton",padding=(8,4))
-        style.configure("BalanceName.TLabel", background="#1e293b", foreground="#94a3b8", font=("Segoe UI", 11))
+        style.configure("BalanceName.TLabel", background="#1e293b", foreground="#94a3b8", font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 11))
         style.configure("TButton", background="#263449", padding=(12,8))
         style.map("TButton", background=[("active","#334b68"),("disabled","#1e293b")],
                   foreground=[("disabled","#64748b")])
@@ -195,12 +206,13 @@ class AutoBoxSemMouse:
     def _draw(self):
         self._theme()
         shell = ttk.Frame(self.root, padding=16)
+        self.main_shell = shell
         shell.pack(fill="both", expand=True)
         header = ttk.Frame(shell)
         header.pack(fill="x", pady=(0,14))
         title = ttk.Frame(header); title.pack(side="left")
         ttk.Label(title, text="AutoBoxV", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(title, text="Shadow Galaxy  •  versão "+updater.CURRENT_VERSION,
+        ttk.Label(title, text="Interstellar  •  versão "+updater.CURRENT_VERSION,
                   style="Muted.TLabel").pack(anchor="w")
         connection = ttk.Frame(header); connection.pack(side="right")
         ttk.Label(connection, textvariable=self.session_label, style="Heading.TLabel").pack(anchor="e")
@@ -224,6 +236,7 @@ class AutoBoxSemMouse:
         dashboard.configure(padding=8)
         toolbar=ttk.Frame(dashboard);toolbar.pack(fill="x",pady=(0,8))
         ttk.Button(toolbar,text="Iniciar jogo",command=self.open_browser,style="Compact.TButton").pack(side="left")
+        ttk.Button(toolbar,text="Modo compacto",command=lambda:self.set_compact(True),style="Compact.TButton").pack(side="left",padx=6)
         ttk.Button(toolbar,text="Verificar atualizações",command=self.check_updates,style="Compact.TButton").pack(side="right")
         balances=ttk.Frame(dashboard);balances.pack(fill="x")
         for col,(key,label) in enumerate((("uridium","Uridium total"),("credits","Créditos"))):
@@ -274,7 +287,7 @@ class AutoBoxSemMouse:
         ttk.Label(recent,text="Atividades recentes").pack(side="left")
         ttk.Button(recent,text="Parar tudo",command=self.stop_all,style="Compact.TButton").pack(side="right")
         self.log=tk.Text(dashboard,height=3,state="disabled",wrap="word",background="#0b1220",
-                         foreground="#cbd5e1",relief="flat",padx=8,pady=4,font=("Segoe UI",9))
+                         foreground="#cbd5e1",relief="flat",padx=8,pady=4,font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"),9))
         self.log.pack(fill="x",pady=4)
 
         browser=self._scroll_page(self.pages["browser"])
@@ -382,13 +395,8 @@ class AutoBoxSemMouse:
             wraplength=680,style="Muted.TLabel").grid(row=9,column=0,columnspan=2,sticky="w")
         pursuit=ttk.LabelFrame(body,text="Perseguição para finalização",padding=10)
         pursuit.pack(fill="x",pady=6)
-        ttk.Checkbutton(pursuit,text="Perseguir NPC ferido em fuga",variable=self.pursuit_enabled).pack(anchor="w")
-        for key,label in (("hp","HP do NPC para ativar (5–50%)"),("radius","Distância desejada (150–600)"),
-                          ("max_distance","Distância máxima absoluta (1000–8000)"),("seconds","Tempo máximo (10–180 segundos)")):
-            row=ttk.Frame(pursuit);row.pack(fill="x",pady=2)
-            ttk.Label(row,text=label).pack(side="left")
-            ttk.Entry(row,textvariable=self.pursuit_fields[key],width=10).pack(side="right")
-        ttk.Label(pursuit,text="Mantém o mesmo alvo. Segurança de vida, mapa e falta de progresso continuam valendo. Lutar junto ao portal tem prioridade.",wraplength=650).pack(anchor="w")
+        ttk.Checkbutton(pursuit,text="Perseguir de perto para finalizar",variable=self.pursuit_enabled).pack(anchor="w")
+        ttk.Label(pursuit,text="Segue bem perto do NPC em fuga com até 20% de vida, ignorando a distância normal de combate. Mantém as proteções de vida, mapa e falta de progresso. Lutar junto ao portal tem prioridade.",wraplength=650).pack(anchor="w")
         shop=ttk.LabelFrame(body,text="Reposição automática de munições",padding=10)
         shop.pack(fill="x",pady=8)
         ttk.Checkbutton(shop,text="Comprar o laser selecionado acima",variable=self.buy_laser).pack(anchor="w")
@@ -406,6 +414,39 @@ class AutoBoxSemMouse:
             self.npc_table.heading(name,text=title)
             self.npc_table.column(name,width=width,stretch=True)
         self.npc_table.pack(fill="x",pady=6)
+        profiles=ttk.LabelFrame(body,text="Perfil por NPC • prioridade menor vem primeiro",padding=10)
+        profiles.pack(fill="x",pady=6)
+        self.profile_kind=tk.StringVar(value="mordon")
+        self.profile_ammo=tk.StringVar(value=self.npc_ammo.get())
+        self.profile_priority=tk.StringVar(value="0")
+        self.profile_radius=tk.StringVar(value=self.npc_radius.get())
+        self.profile_orbit=tk.BooleanVar(value=self.npc_orbit.get())
+        self.profile_choices=ttk.Combobox(profiles,textvariable=self.profile_kind,values=sorted(self.npc_kind_vars),width=16,state="readonly")
+        self.profile_choices.grid(row=0,column=0,sticky="w",padx=3)
+        self.profile_choices.bind("<<ComboboxSelected>>",lambda e:self.load_npc_profile())
+        ttk.Label(profiles,text="Laser").grid(row=0,column=1)
+        ttk.Combobox(profiles,textvariable=self.profile_ammo,state="readonly",width=10,
+                     values=("lcb10","mcb25","mcb50","ucb100","sab50","rsb75")).grid(row=0,column=2,padx=3)
+        ttk.Label(profiles,text="Prioridade").grid(row=1,column=0,sticky="w")
+        ttk.Spinbox(profiles,textvariable=self.profile_priority,from_=-100,to=100,width=8).grid(row=1,column=1)
+        ttk.Label(profiles,text="Distância").grid(row=1,column=2)
+        ttk.Spinbox(profiles,textvariable=self.profile_radius,from_=150,to=800,width=8).grid(row=1,column=3)
+        ttk.Checkbutton(profiles,text="Circular",variable=self.profile_orbit).grid(row=2,column=0,sticky="w")
+        ttk.Button(profiles,text="Salvar perfil",command=self.save_npc_profile).grid(row=2,column=1,pady=5)
+        ttk.Button(profiles,text="Usar padrão",command=self.remove_npc_profile).grid(row=2,column=2)
+        self.profile_table=ttk.Treeview(profiles,columns=("npc","priority","ammo","radius","orbit"),show="headings",height=4)
+        for key,label in (("npc","NPC"),("priority","Prioridade"),("ammo","Laser"),("radius","Distância"),("orbit","Circular")):
+            self.profile_table.heading(key,text=label);self.profile_table.column(key,width=100)
+        self.profile_table.grid(row=3,column=0,columnspan=4,sticky="ew")
+        ttk.Label(profiles,text="Perfis valem no próximo início. NPC sem perfil usa as opções gerais acima.",style="Muted.TLabel").grid(row=4,column=0,columnspan=4,sticky="w",pady=4)
+        self.refresh_profile_table()
+        performance=ttk.LabelFrame(body,text="Desempenho por NPC nesta sessão",padding=10)
+        performance.pack(fill="x",pady=6)
+        self.performance_table=ttk.Treeview(performance,columns=("npc","kills","average","last","ammo"),show="headings",height=4)
+        for key,label in (("npc","NPC"),("kills","Derrotados"),("average","Média/ciclo"),("last","Último ciclo"),("ammo","Laser")):
+            self.performance_table.heading(key,text=label);self.performance_table.column(key,width=100)
+        self.performance_table.pack(fill="x")
+        ttk.Label(performance,text="Tempo por ciclo inclui aproximação e confirmação. Estatísticas não trocam sua munição automaticamente.",style="Muted.TLabel",wraplength=650).pack(anchor="w",pady=4)
         ttk.Label(body,text="Teste manual (até 90 segundos):\n1. Clique em Registrar luta.\n"
             "2. No jogo, selecione um NPC fraco e ataque com a munição básica.\n"
             "3. Pare o ataque uma vez e depois ataque novamente até derrotá-lo, se for seguro.\n"
@@ -436,17 +477,71 @@ class AutoBoxSemMouse:
         ttk.Button(body,text="Parar giros",command=self.gg_stop.set).pack(fill="x")
         ttk.Label(body,textvariable=self.gg_status,wraplength=650).pack(anchor="w",pady=10)
         body=self._scroll_page(self.pages["skylab"])
-        ttk.Label(body,text="Skylab — planejamento até nível 20",style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(body,text="Automação pendente de validação dos módulos, custos, pré-requisitos e fim de cada upgrade. Não usa conclusão instantânea nem compra recursos.",wraplength=650).pack(anchor="w",pady=10)
-        ttk.Button(body,text="Exportar integração atual para validar Skylab e camuflagem",command=self.export_client_integration).pack(fill="x")
-        ttk.Label(body,text="No jogo, abra Skylab e a CPU de camuflagem antes de exportar. Envie o arquivo no chat.",wraplength=650).pack(anchor="w",pady=8)
-        ttk.Label(self.pages["data"],text="CPU de camuflagem automática: aguardando validação dos dados do cliente.",wraplength=650).pack(side="bottom",fill="x")
+        ttk.Label(body,text="Skylab — melhorias até nível 20",style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(body,text="Abra o Skylab no jogo e mantenha o painel aberto. Constrói um módulo por vez com créditos e minérios; aguarda a conclusão antes do próximo. Transporte termina no nível 1.",wraplength=650).pack(anchor="w",pady=8)
+        ttk.Label(body,text="Reserva mínima de créditos").pack(anchor="w")
+        ttk.Entry(body,textvariable=self.skylab_reserve,width=18).pack(anchor="w")
+        buttons=ttk.Frame(body);buttons.pack(fill="x",pady=8)
+        ttk.Button(buttons,text="Iniciar melhorias",command=self.start_skylab).pack(side="left",padx=(0,6))
+        ttk.Button(buttons,text="Parar Skylab",command=self.stop_skylab).pack(side="left")
+        ttk.Label(body,textvariable=self.skylab_status,wraplength=650).pack(anchor="w",pady=6)
+        self.skylab_table=ttk.Treeview(body,columns=("module","level","status","remaining"),show="headings",height=12)
+        for key,title,width in (("module","Módulo",180),("level","Nível",65),("status","Situação",180),("remaining","Tempo restante",120)):
+            self.skylab_table.heading(key,text=title);self.skylab_table.column(key,width=width,minwidth=60)
+        self.skylab_table.pack(fill="x",pady=8)
+        ttk.Label(body,text="Não gasta Uridium, não compra robôs, não transfere recursos e não liga ou desliga módulos. Parar impede novas melhorias; não cancela uma construção já aceita pelo jogo. Não retoma sozinho ao reabrir o bot.",wraplength=650).pack(anchor="w",pady=6)
+        ttk.Button(body,text="Exportar integração para diagnóstico",command=self.export_client_integration).pack(fill="x")
+        cloak=ttk.LabelFrame(self.pages["data"],text="Camuflagem na coleta",padding=8)
+        cloak.pack(fill="x",pady=6)
+        ttk.Checkbutton(cloak,text="Manter nave camuflada (usa cargas da CPU equipada)",variable=self.cloak_enabled,command=self.save).pack(anchor="w")
+        ttk.Label(cloak,textvariable=self.cloak_status,wraplength=650).pack(anchor="w")
+        ttk.Label(cloak,text="Não compra CPUs. Aguarda o fim dos tiros e a recarga. Alterações valem no próximo início da coleta.",wraplength=650).pack(anchor="w")
+
+
+    def skylab_active(self):
+        return self.skylab_worker is not None and self.skylab_worker.is_alive()
+
+    def stop_skylab(self):
+        self.skylab_stop.set()
+        self.skylab_status.set("Skylab encerrando. Uma construção já enviada pode continuar no jogo.")
+
+    def start_skylab(self):
+        if self.closing or self.skylab_active():return
+        if self.gg_active():
+            self.skylab_status.set("Pare os giros do Galaxy Gate antes de iniciar o Skylab.");return
+        if not self.session.ready.is_set():
+            self.skylab_status.set("Abra o jogo pelo bot e depois o Skylab no jogo.");return
+        try:
+            reserve=int(self.skylab_reserve.get())
+            if not 0<=reserve<=1000000000:raise ValueError()
+        except ValueError:
+            self.skylab_status.set("Informe uma reserva de créditos entre 0 e 1.000.000.000.");return
+        self.cfg["skylab_reserve"]=reserve
+        if not self.save():return
+        self.skylab_stop.clear()
+        engine=SkylabWorker(self.session,self.skylab_stop,lambda e,d:self.events.put((e,d)),reserve=reserve)
+        self.skylab_worker=threading.Thread(target=engine.run,daemon=True)
+        self.skylab_worker.start()
+        self.skylab_status.set("Skylab iniciado. Lendo módulos e recursos.")
+
+    def update_skylab_rows(self,rows):
+        reasons={"concluido":"Concluído","construindo":"Construindo","pronto":"Pronto",
+                 "modulo_basico":"Aguarda módulo básico","creditos":"Aguarda créditos",
+                 "minerios":"Aguarda minérios","energia":"Aguarda energia"}
+        for row in rows:
+            seconds=int(row.get("remaining",0))
+            remaining=(str(seconds//3600)+"h "+str(seconds%3600//60)+"m "+str(seconds%60)+"s") if row.get("job") else "—"
+            values=(row["name"],str(row["level"])+"/"+str(row["max"]),reasons.get(row["reason"],row["reason"]),remaining)
+            if self.skylab_table.exists(row["id"]):self.skylab_table.item(row["id"],values=values)
+            else:self.skylab_table.insert("","end",iid=row["id"],values=values)
 
     def gg_active(self):
         return self.gg_worker is not None and self.gg_worker.is_alive()
 
     def start_galaxy(self):
         if self.closing or self.gg_active(): return
+        if self.skylab_active():
+            self.gg_status.set("Pare o Skylab antes de girar energias.");return
         if not self.gg_enabled.get():
             self.gg_status.set("Marque Habilitar giros automáticos antes de iniciar.");return
         if self.npc_active() or (self.worker is not None and self.worker.is_alive()):
@@ -475,8 +570,37 @@ class AutoBoxSemMouse:
             index=len(self.npc_kind_vars)
             self.npc_kind_vars[kind]=var
             ttk.Checkbutton(self.npc_choices,text=kind,variable=var).grid(row=index//3,column=index%3,sticky="w",padx=5,pady=2)
+        if hasattr(self,"profile_choices"):
+            self.profile_choices.configure(values=sorted(set(self.npc_kind_vars)|set(self.cfg.get("npc_profiles",{}))))
 
-    def start_npc_test(self):
+    def refresh_profile_table(self):
+        self.profile_table.delete(*self.profile_table.get_children())
+        for kind,p in sorted(self.cfg.get("npc_profiles",{}).items()):
+            self.profile_table.insert("","end",values=(kind,p["priority"],p["ammo"],p["radius"],"Sim" if p["orbit"] else "Não"))
+
+    def load_npc_profile(self):
+        p=self.cfg.get("npc_profiles",{}).get(self.profile_kind.get(),{})
+        self.profile_priority.set(str(p.get("priority",0)))
+        self.profile_ammo.set(p.get("ammo",self.npc_ammo.get()))
+        self.profile_radius.set(str(p.get("radius",self.npc_radius.get())))
+        self.profile_orbit.set(p.get("orbit",self.npc_orbit.get()))
+
+    def save_npc_profile(self):
+        try:
+            kind=self.profile_kind.get();priority=int(self.profile_priority.get());radius=int(self.profile_radius.get())
+            if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",kind) or not -100<=priority<=100 or not 150<=radius<=800:
+                raise ValueError("Confira NPC, prioridade (-100 a 100) e distância (150 a 800).")
+            if self.profile_ammo.get() not in ("lcb10","mcb25","mcb50","ucb100","sab50","rsb75"):
+                raise ValueError("Laser inválido.")
+            self.cfg["npc_profiles"][kind]=dict(priority=priority,radius=radius,ammo=self.profile_ammo.get(),orbit=self.profile_orbit.get())
+            if self.save():self.refresh_profile_table();self.say("Perfil salvo. Vale no próximo início do farm.")
+        except ValueError as exc:self.say(str(exc))
+
+    def remove_npc_profile(self):
+        self.cfg["npc_profiles"].pop(self.profile_kind.get(),None)
+        if self.save():self.refresh_profile_table();self.load_npc_profile()
+
+    def start_npc_test(self, hybrid=False):
         if self.gg_active():
             self.say("Pare os giros do Galaxy Gate antes de iniciar o farm.");return
         if self.closing: return
@@ -501,8 +625,10 @@ class AutoBoxSemMouse:
         generation=self.npc_generation
         self.npc_stop_event=threading.Event()
         engine=NpcFarmWorker(self.session,self.npc_stop_event,lambda event,data:self.events.put(("npc_event",(generation,event,data))),
-            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}),pursuit_enabled=self.pursuit_enabled.get(),**{"pursuit_"+k:int(v.get()) for k,v in self.pursuit_fields.items()})
+            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}),pursuit_enabled=self.pursuit_enabled.get(),npc_profiles=self.cfg.get("npc_profiles",{}),hybrid=hybrid,collect_settings={"green":self.green.get(),"cloak":self.cloak_enabled.get()})
         engine.kills=previous_kills
+        if self.npc_state=="paused" and self.npc_engine and isinstance(getattr(self.npc_engine,"stats",None),dict):
+            engine.stats=dict(self.npc_engine.stats)
         self.npc_engine=engine
         self.npc_state="running"
         self.npc_worker=threading.Thread(target=engine.run,daemon=True)
@@ -523,16 +649,19 @@ class AutoBoxSemMouse:
         self.combat_status.set("NPC parado. Aguarde encerrar os tiros; o próximo início abre uma nova sessão.")
 
     def pause_all(self):
+        self.skylab_stop.set()
         self.gg_stop.set()
         self.pause()
         self.pause_npc()
 
     def stop_all(self):
+        self.skylab_stop.set()
         self.gg_stop.set()
         self.stop()
         self.stop_npc()
 
     def record_combat(self):
+        self.skylab_stop.set()
         self.gg_stop.set()
         if self.gg_active():
             self.root.after(100,self.record_combat)
@@ -609,6 +738,7 @@ class AutoBoxSemMouse:
             self.say(str(exc))
 
     def export_client_integration(self):
+        self.skylab_stop.set()
         self.gg_stop.set()
         if self.gg_active():
             self.root.after(100,self.export_client_integration)
@@ -656,6 +786,11 @@ class AutoBoxSemMouse:
             ("npc_selected","NPC"),("attack_started","Ataque"),("attack_stopped","Parada"),("damage_observed","Dano")))
         self.combat_report_status.set(report["status"]+"\n"+progress)
         self.npc_table.delete(*self.npc_table.get_children())
+        performance=getattr(self.npc_engine,"stats",{}) if self.npc_engine else {}
+        if isinstance(performance,dict):
+            self.performance_table.delete(*self.performance_table.get_children())
+            for kind,row in sorted(performance.items()):
+                self.performance_table.insert("","end",values=(kind,row["kills"],"%.1f s" % (row["seconds"]/max(1,row["kills"])),"%.1f s" % row["last"],row["ammo"]))
         if data.get("fresh"):
             import math
             origin=data["position"]
@@ -708,6 +843,8 @@ class AutoBoxSemMouse:
         self.farm_plan.set(text)
         self.manual_probe_status.set(self.session.get_manual_probe_report()["status"])
         self._update_vitals(data)
+        if hasattr(self,"cockpit"):
+            self.cockpit.update(data)
         if not data.get("fresh"): return
         self.world_vars["map"].set(data["map"])
         self.world_vars["position"].set("X %.1f  /  Y %.1f" % data["position"])
@@ -740,6 +877,35 @@ class AutoBoxSemMouse:
         elif not value and self.running:
             self.active_elapsed += max(0, now-self.active_started)
         self.running = bool(value)
+
+    def set_compact(self, compact):
+        compact=bool(compact)
+        if compact:
+            if not self.compact and self.root.winfo_width()>1:self.full_geometry=self.root.geometry()
+            self.main_shell.pack_forget()
+            self.cockpit.pack(fill="both",expand=True)
+            self.root.minsize(650,560)
+            self.root.geometry("760x560")
+        else:
+            self.cockpit.pack_forget()
+            self.main_shell.pack(fill="both",expand=True)
+            self.root.minsize(760,min(620,self.root.winfo_screenheight()-80))
+            self.root.geometry(self.full_geometry)
+        self.compact=compact
+        self.cfg["compact_view"]=compact
+        try:self._write_config()
+        except OSError as exc:self.say("Não foi possível salvar o modo de janela: "+str(exc))
+
+    def game_window(self, state):
+        if not self.session.ready.is_set():
+            self.say("Abra o jogo pela sessão dedicada antes de alterar a janela.");return
+        def change():
+            try:
+                self.session.request("window_state",{"state":state},allowed=lambda:not self.closing)
+                self.events.put(("status","Jogo minimizado. Uso em segundo plano experimental; acompanhe a leitura ao vivo." if state=="minimized" else "Janela do jogo restaurada."))
+            except Exception as exc:
+                self.events.put(("status","Não foi possível alterar a janela: "+str(exc)))
+        threading.Thread(target=change,daemon=True).start()
 
     def _update_panel(self):
         self._update_world_panel()
@@ -790,10 +956,8 @@ class AutoBoxSemMouse:
 
     def save(self):
         try:
-            for key,(low,high) in {"hp":(5,50),"radius":(150,600),"max_distance":(1000,8000),"seconds":(10,180)}.items():
-                value=int(self.pursuit_fields[key].get())
-                if not low<=value<=high: raise ValueError("Limite inválido na perseguição: "+key)
-                self.cfg["pursuit_"+key]=value
+            for key in ("hp","radius","max_distance","seconds"):
+                self.cfg.pop("pursuit_"+key,None)
             self.cfg["pursuit_enabled"]=self.pursuit_enabled.get()
             for key,var in self.buy_fields.items():
                 value=int(var.get())
@@ -821,17 +985,21 @@ class AutoBoxSemMouse:
             if not 1<=deaths<=100 or not 0<=cost<=100000:
                 raise ValueError("Mortes: 1 a 100; custo: 0 a 100000.")
             self.cfg.update(respawn=self.respawn.get(),max_deaths=deaths,max_cost=cost)
+            self.cfg["cloak"] = self.cloak_enabled.get()
             self.cfg["green"] = self.green.get()
             self.cfg["reconnect"] = self.reconnect.get()
             for key in ("collection_mode","threshold","full_map","map","ship","notice","minimap"):
                 self.cfg.pop(key,None)
-            temporary = CONFIG_PATH.with_suffix(".tmp")
-            temporary.write_text(json.dumps(self.cfg, indent=2), encoding="utf-8")
-            os.replace(temporary, CONFIG_PATH)
+            self._write_config()
             return True
         except (ValueError, OSError) as exc:
             self.say("Nao foi possivel salvar: " + str(exc))
             return False
+
+    def _write_config(self):
+        temporary=CONFIG_PATH.with_suffix(".tmp")
+        temporary.write_text(json.dumps(self.cfg,indent=2),encoding="utf-8")
+        os.replace(temporary,CONFIG_PATH)
 
     def choose_opera(self):
         if self.session.ready.is_set():
@@ -895,22 +1063,25 @@ class AutoBoxSemMouse:
         self.stop_event=threading.Event()
         self.earnings.observe(snapshot,False)
         engine=DataCollector(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
-                             settings={"green":self.green.get(),"reconnect":self.reconnect.get(),"farm_map":self.cfg.get("collect_map",""),
+                             settings={"green":self.green.get(),"cloak":self.cloak_enabled.get(),"reconnect":self.reconnect.get(),"farm_map":self.cfg.get("collect_map",""),
                                  "respawn":{"Base":"base","Portal":"portal","Local":"spot"}.get(self.respawn.get()),
                                  "max_deaths":self.cfg["max_deaths"],"max_cost":self.cfg["max_cost"],
                                  "death_state":self.death_state})
         self.worker=threading.Thread(target=engine.run,daemon=True)
         self.worker.start()
         self.collect_state="running"
+        self.cloak_status.set("Verificando camuflagem durante a coleta." if self.cloak_enabled.get() else "Camuflagem automática desativada.")
         self.say("Coleta por dados iniciada. Mantém o alvo até a coleta; F9 pausa.")
         return
 
     def pause(self):
+        self.cloak_status.set("Camuflagem automática parada junto com a coleta.")
         self.collect_state="paused"
         self.stop_event.set()
         self.say("Pausado. F8 inicia uma nova busca.")
 
     def stop(self):
+        self.cloak_status.set("Camuflagem automática parada junto com a coleta.")
         self.collect_state="stopped"
         self.stop_event.set()
         self.say("Parado.")
@@ -935,6 +1106,7 @@ class AutoBoxSemMouse:
         threading.Thread(target=check,daemon=True).start()
 
     def _download(self, manifest):
+        self.skylab_stop.set()
         self.gg_stop.set()
         self.stop_event.set()
         self.npc_stop_event.set()
@@ -956,13 +1128,25 @@ class AutoBoxSemMouse:
                 break
             if event=="command":
                 {"start":self.start,"pause":self.pause,"stop":self.stop}[data]()
+            elif event=="cloak_status":
+                self.cloak_status.set(data)
+                self.say(data)
+            elif event=="skylab_status":
+                self.skylab_status.set(data)
+                self.say(data)
+            elif event=="skylab_rows":
+                self.update_skylab_rows(data)
             elif event=="gg_status":
                 self.gg_status.set(data)
                 self.say(data)
             elif event=="npc_event":
                 generation,kind,value=data
                 if generation!=self.npc_generation: continue
-                if kind=="npc_report":
+                if kind=="confirmed":self.confirmed+=1
+                elif kind=="failed":self.failed+=1
+                elif kind=="attempt":self.attempts+=1
+                elif kind=="cloak_status":self.cloak_status.set(value)
+                elif kind=="npc_report":
                     self.last_npc_report=value
                     if self.npc_state=="running": self.combat_status.set(value["status"])
                 elif kind=="status":
@@ -996,6 +1180,7 @@ class AutoBoxSemMouse:
         self.root.after(100,self._drain)
 
     def close(self, after=None):
+        self.skylab_stop.set()
         if self.closing:
             return
         self.closing=True

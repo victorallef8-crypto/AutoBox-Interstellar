@@ -23,6 +23,17 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.app.vitals_text["shield"].get(),"Indisponível")
         self.app._update_vitals(dict(fresh=False))
         self.assertEqual(self.app.vitals_text["hp"].get(),"Indisponível")
+    def test_finishing_pursuit_has_only_a_checkbox(self):
+        def children(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from children(child)
+        section=next(w for w in children(self.root) if w.winfo_class()=="TLabelframe" and w.cget("text")=="Perseguição para finalização")
+        widgets=list(children(section))
+        self.assertEqual(sum(w.winfo_class()=="TCheckbutton" for w in widgets),1)
+        self.assertFalse(any(w.winfo_class() in ("TEntry","TSpinbox") for w in widgets))
+        self.assertFalse(hasattr(self.app,"pursuit_fields"))
+
     def test_all_quick_buttons_are_bound(self):
         self.assertEqual(len(self.app.quick_buttons),6)
         for button in self.app.quick_buttons.values():self.assertTrue(button["command"])
