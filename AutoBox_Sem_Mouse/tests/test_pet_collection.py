@@ -120,3 +120,32 @@ class PetCollectionTests(unittest.TestCase):
         self.assertLess(nearest,61)
         self.assertEqual(stops,[])
         self.assertIn(('box',1),e.passed)
+
+    def test_nearby_box_behind_map_heading_is_not_marked_as_passed(self):
+        e,session,snap=self.make();snap['position']=(1000,1000)
+        snap['candidates']=[dict(id='near',revision=1,x=800,y=1000,kind='bonus')]
+        e.route=[(1000,1000),(1700,1000),(1700,1700)];e.route_size=(2000,2000)
+        e.step(snap,0)
+        self.assertEqual(e.target['id'],'near')
+        self.assertNotIn(('near',1),e.passed)
+    def test_gone_or_blocked_live_box_falls_back_to_route_immediately(self):
+        for result in ('gone','blocked','passed'):
+            e,session,snap=self.make()
+            def reply(operation,payload,**kwargs):
+                if payload['action']=='move':return dict(action=result)
+                return dict(action='ready',owner='p',life=1,map='1-1',configuration=1)
+            session.request.side_effect=reply
+            e.step(snap,0)
+            self.assertIsNone(e.target)
+            self.assertEqual(session.request.call_args.args[1]['action'],'cruise')
+    def test_diagnostic_retains_failure_after_worker_ends(self):
+        from browser_session import BrowserSession
+        session=BrowserSession('.',dict(width=800,height=600))
+        session.record_pet_diagnostic('start')
+        session.record_pet_diagnostic('move',result=dict(action='move'))
+        session.record_pet_diagnostic('move',error='falha reproduzida')
+        session.record_pet_diagnostic('end',result=dict(action='error'))
+        report=session.get_manual_probe_report()['pet_collection']
+        self.assertEqual(report['failure'],'falha reproduzida')
+        self.assertEqual(report['movements'],1)
+        self.assertEqual(report['last_result'],'error')

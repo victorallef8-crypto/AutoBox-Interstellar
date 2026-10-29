@@ -38,23 +38,32 @@ PET_COLLECT_SCRIPT = r"""t => {
  }
  if(!['move','cruise'].includes(t.action)||!p.active||p.mode!=='petal1')throw Error('PET não está pronto para coletar.');
  if(![t.x,t.y].every(finite))throw Error('Destino inválido.');
+ const width=W.state.map?.width??W.state.world?.width,height=W.state.map?.height??W.state.world?.height;
+ if(!finite(width)||!finite(height)||width<=0||height<=0)throw Error('Limites do mapa indisponíveis.');
+ let x=t.x,y=t.y;
  if(t.action==='move'){
    const box=W.state.boxes?.find(b=>b.id===t.id&&b.revision===t.revision);
    if(!box)return {...result,action:'gone'};
    if(![undefined,null,'box','bonus'].includes(box.kind))throw Error('Somente boxes bônus na Coleta 2.');
-   const dx=box.x-me.x,dy=box.y-me.y,length=Math.hypot(dx,dy),ex=t.x-box.x,ey=t.y-box.y;
-   if(![box.x,box.y].every(finite)||length<1||Math.hypot(ex,ey)<300||Math.hypot(ex,ey)>1600||
-      ex*dx+ey*dy<=0||Math.abs(ex*dy-ey*dx)/length>5)
-     throw Error('Destino deve atravessar a box e continuar adiante.');
+   if(![box.x,box.y].every(finite))throw Error('Coordenadas da box indisponíveis.');
+   const dx=box.x-me.x,dy=box.y-me.y,length=Math.hypot(dx,dy);
+   if(length<1)return {...result,action:'passed'};
+   // Compute from the live ship position, not a delayed Python snapshot after a turn.
+   const ux=dx/length,uy=dy/length;let runout=1200;
+   for(const [value,unit,low,high] of [[box.x,ux,40,width-40],[box.y,uy,40,height-40]]){
+     if(unit>0)runout=Math.min(runout,(high-value)/unit);
+     else if(unit<0)runout=Math.min(runout,(low-value)/unit);
+   }
+   if(runout<300)return {...result,action:'blocked'};
+   x=box.x+ux*runout;y=box.y+uy*runout;
  }
- const width=W.state.map?.width??W.state.world?.width,height=W.state.map?.height??W.state.world?.height;
- if(!finite(width)||!finite(height)||t.x<0||t.y<0||t.x>width||t.y>height)throw Error('Destino fora do mapa.');
+ if(x<0||y<0||x>width||y>height)throw Error('Destino fora do mapa.');
  if(typeof G?.onFollow!=='function'||typeof G?.onFollowCancel!=='function'||G.isPingArmed?.())
    throw Error('Controle de movimento indisponível. Desative a marcação de grupo.');
  // Only a movement destination: never pointerdown, collectObject or collection endpoints.
  G.cancelFollow?.(false);
- G.onFollow({x:t.x,y:t.y,mapId:me.mapId});
- return {...result,action:'move'};
+ G.onFollow({x,y,mapId:me.mapId});
+ return {...result,action:'move',destination:{x,y}};
 }"""
 
 
@@ -91,7 +100,7 @@ class PetCollector:
     def __init__(self,session,stop_event,emit,clock=None,settings=None):
         self.session=session;self.stop=stop_event;self.emit=emit
         self.clock=clock or time.monotonic;self.settings=settings or {};self.identity={}
-        self.error=None;self.target=None;self.passed=set();self.pending=None;self.last_move=-float('inf')
+        self.error=None;self.target=None;self.passed=set();self.deferred={};self.pending=None;self.last_move=-float('inf')
         self.waypoint=None;self.route=None;self.route_size=None;self.route_index=0;self.route_direction=1;self.wait_since=None;self.best=float('inf');self.progress=0
         self.pass_heading=None
         self.last_status=None;self.last_pet=None;self.pet_checked=-float('inf');self.command_latency=0
@@ -100,8 +109,14 @@ class PetCollector:
         if text!=self.last_status:self.emit('status',text);self.last_status=text
     def request(self,action,**extra):
         started=self.clock()
-        result=self.session.request('pet_collect',dict(self.identity,action=action,**extra),
-                                    allowed=lambda:not self.stop.is_set())
+        record=getattr(self.session,'record_pet_diagnostic',None)
+        try:
+            result=self.session.request('pet_collect',dict(self.identity,action=action,**extra),
+                                        allowed=lambda:not self.stop.is_set())
+        except Exception as exc:
+            if record:record(action,error=str(exc))
+            raise
+        if record:record(action,result=result)
         self.command_latency=max(self.clock()-started,self.command_latency*.9)
         return result
     def step(self,snapshot,now):
@@ -163,20 +178,13 @@ class PetCollector:
             px,py=position[0]-self.target['x'],position[1]-self.target['y']
             if px*self.pass_heading[0]+py*self.pass_heading[1]>=0:
                 self.passed.add(old_key)
-        rx,ry=route_point[0]-position[0],route_point[1]-position[1]
-        self.passed.update(key(b) for b in boxes if key(b)!=old_key
-            and math.dist(position,(b['x'],b['y']))<=450
-            and (b['x']-position[0])*rx+(b['y']-position[1])*ry<=0)
+        self.deferred={k:until for k,until in self.deferred.items() if until>now}
+        self.passed.update(key(b) for b in boxes if math.dist(position,(b['x'],b['y']))<1)
         if self.target:
             self.target=next((b for b in boxes if key(b)==old_key and key(b) not in self.passed),None)
         if self.target is None:
-            dx,dy=route_point[0]-position[0],route_point[1]-position[1]
-            length=math.hypot(dx,dy)
-            def ahead(box):
-                bx,by=box['x']-position[0],box['y']-position[1]
-                return (key(box) not in self.passed and math.hypot(bx,by)<=1400 and length>0
-                        and bx*dx+by*dy>=0 and abs(bx*dy-by*dx)/length<=700)
-            available=[b for b in boxes if ahead(b)]
+            available=[b for b in boxes if key(b) not in self.passed and key(b) not in self.deferred
+                       and math.dist(position,(b['x'],b['y']))<=1400]
             if available:self.target=min(available,key=lambda b:math.dist(position,(b['x'],b['y'])))
         new_key=key(self.target) if self.target else None
         force_move=new_key!=old_key
@@ -191,15 +199,22 @@ class PetCollector:
             d=math.dist(position,(self.target['x'],self.target['y']))
             if d<self.best-10:self.best=d;self.progress=now
             if now-self.progress>15:
-                self.passed.add(key(self.target));self.target=None;force_move=True
+                self.deferred[key(self.target)]=now+30;self.target=None;force_move=True
             else:
                 try:point=approach_point(position,self.target,bounds)
                 except ValueError:
-                    self.passed.add(key(self.target));self.target=None;force_move=True
+                    self.deferred[key(self.target)]=now+10;self.target=None;force_move=True
                     point=None
                 if point is not None and (force_move or now-self.last_move>=.5 or (self.waypoint and math.dist(position,self.waypoint)<=lead)):
-                    self.request('move',id=self.target['id'],revision=self.target.get('revision'),x=point[0],y=point[1])
-                    self.waypoint=point;self.last_move=now
+                    result=self.request('move',id=self.target['id'],revision=self.target.get('revision'),x=point[0],y=point[1])
+                    if result and result.get('action') in ('gone','blocked','passed'):
+                        if result['action']=='passed':self.passed.add(key(self.target))
+                        else:self.deferred[key(self.target)]=now+(10 if result['action']=='blocked' else 2)
+                        self.target=None;force_move=True;point=None
+                    else:
+                        dest=(result or {}).get('destination')
+                        self.waypoint=(dest['x'],dest['y']) if dest else point
+                        self.last_move=now
                 if point is not None:
                     self.status('Coleta 2: atravessando a box em voo contínuo, sem coletar com a nave.')
                     return
@@ -209,16 +224,21 @@ class PetCollector:
             self.waypoint=route_point;self.last_move=now
         self.status('Coleta 2: seguindo o percurso; o PET coleta sem esperar pela box.')
     def run(self):
+        record=getattr(self.session,'record_pet_diagnostic',None)
+        if record:record('start')
         self.emit('running',True)
         try:
             while not self.stop.is_set():
                 self.step(self.session.get_world_snapshot(),self.clock())
                 if self.stop.wait(.1):break
         except Exception as exc:
-            self.error=str(exc);self.status('Coleta 2 parada: '+str(exc))
+            self.error=str(exc)
+            if record:record('worker',error=str(exc))
+            self.status('Coleta 2 parada: '+str(exc))
         finally:
             # One explicit stop is allowed after cancellation; no further flight/PET actions.
             try:
                 if self.identity:self.session.request('pet_collect',dict(self.identity,action='stop'),timeout=3)
             except Exception:pass
+            if record:record('end',result={'action':'error' if self.error else 'cancelled'})
             self.stop.set();self.emit('running',False)

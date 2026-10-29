@@ -524,6 +524,7 @@ class BrowserSession:
         self.combat_probe = CombatProbe(self.world_feed)
         self.data_action = None
         self.data_actions_dispatched = 0
+        self.pet_diagnostic={"requests":0,"movements":0,"last_action":None,"last_result":None,"failure":None}
 
     def start(self, executable):
         if self.thread is not None and self.thread.is_alive():
@@ -790,9 +791,20 @@ class BrowserSession:
     def arm_manual_probe(self):
         return self.probe.arm()
 
+    def record_pet_diagnostic(self,action,result=None,error=None):
+        if action=='start':
+            self.pet_diagnostic={"requests":0,"movements":0,"last_action":"start","last_result":None,"failure":None}
+            return
+        previous=self.pet_diagnostic
+        self.pet_diagnostic=dict(previous,requests=previous['requests']+1,last_action=action,
+            last_result=result.get('action') if isinstance(result,dict) else None,
+            movements=previous['movements']+int(action in ('move','cruise') and isinstance(result,dict) and result.get('action')=='move'),
+            failure=str(error)[:500] if error else previous['failure'])
+
     def get_manual_probe_report(self):
         report=self.probe.report()
         report["automatic_actions_dispatched"]=self.data_actions_dispatched
+        report["pet_collection"]=dict(self.pet_diagnostic)
         if self.data_actions_dispatched: report["automatic_commands_sent"]=None
         return report
 
