@@ -18,17 +18,35 @@ class PetCollectionTests(unittest.TestCase):
         moves=[c.args[1] for c in s.request.call_args_list if c.args[1]['action']=='move']
         self.assertEqual((moves[0]['x'],moves[0]['y']),(650,100))
         snap['position']=(600,100);e.step(snap,1)
-        self.assertEqual(s.request.call_args.args[1]['action'],'move')
+        self.assertEqual(s.request.call_args.args[1]['action'],'cruise')
         self.assertFalse(any(c.args[1]['action']=='stop' for c in s.request.call_args_list))
         self.assertTrue(all(c.args[0]=='pet_collect' for c in s.request.call_args_list))
         waypoint=e.waypoint;snap['position']=waypoint;e.step(snap,1.5)
         self.assertNotEqual(e.waypoint,waypoint)
     def test_chooses_next_box_without_waiting(self):
         e,s,snap=self.make();snap['position']=(600,100)
-        snap['candidates'].append(dict(id='c',revision=1,x=1700,y=100,kind='bonus'))
+        snap['candidates'].append(dict(id='c',revision=1,x=1400,y=100,kind='bonus'))
         e.step(snap,0);e.step(snap,.25)
         self.assertEqual(e.target['id'],'c')
         self.assertFalse(any(c.args[1]['action']=='stop' for c in s.request.call_args_list))
+    def test_visible_uncollected_box_never_becomes_orbit_or_wait(self):
+        e,s,snap=self.make();snap['position']=(600,100)
+        for now in (0,1,8,30,120):
+            e.step(snap,now)
+            self.assertIsNone(e.target)
+        commands=[c.args[1] for c in s.request.call_args_list if c.args[1]['action']!='ensure']
+        self.assertTrue(commands)
+        self.assertTrue(all(c['action']=='cruise' for c in commands))
+        self.assertIn(('b',1),e.passed)
+    def test_passed_waypoint_is_skipped_after_detour(self):
+        e,s,snap=self.make();snap['candidates']=[];snap['position']=(1000,100)
+        e.route=[(250,100),(750,100),(1250,100),(1750,100)];e.route_size=(2000,2000);e.route_index=1
+        e.step(snap,0)
+        self.assertEqual(e.waypoint,(1250,100))
+    def test_same_box_new_revision_can_be_considered_on_next_pass(self):
+        e,s,snap=self.make();snap['position']=(600,100);e.step(snap,0)
+        snap['position']=(100,100);snap['candidates'][0]['revision']=2;e.step(snap,1)
+        self.assertEqual(e.target['revision'],2)
     def test_empty_area_keeps_flying_inside_map(self):
         e,s,snap=self.make();snap['candidates']=[];e.step(snap,0)
         self.assertEqual(s.request.call_args.args[1]['action'],'cruise')
