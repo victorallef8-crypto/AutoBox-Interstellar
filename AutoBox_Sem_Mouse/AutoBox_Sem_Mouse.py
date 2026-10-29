@@ -324,7 +324,7 @@ class AutoBoxSemMouse:
                         command=self.pause).pack(anchor="w",pady=4)
         ttk.Radiobutton(plan,text="Coleta 2 — somente PET (nível 2+, Auto-looter nível 1)",
                         variable=self.pet_only,value=True,command=self.pause).pack(anchor="w",pady=4)
-        ttk.Label(plan,text="Coleta 2: aproxima a nave e aguarda o PET. Não coleta caixas verdes. "
+        ttk.Label(plan,text="Coleta 2: mantém a nave voando perto das boxes; somente o PET coleta. Sem caixas verdes. "
                   "Configure e abasteça o PET no jogo. Inicie no mapa desejado; pausa em desconexão ou morte.",
                   wraplength=650).pack(anchor="w",pady=4)
         ttk.Checkbutton(plan,text="Coletar caixas verdes usando minhas chaves (não compra chaves)",

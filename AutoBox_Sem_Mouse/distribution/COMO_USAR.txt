@@ -25,5 +25,5 @@ AutoBox.exe pelo desta versão uma vez; mantenha seu perfil. Depois use o atuali
 Se o antivírus bloquear o aplicativo, confira a origem e envie o aviso ao Victor.
 
 
-COLETA 2 — PET (0.16.0 em teste)
-Na aba Coleta escolha Coleta 2. PET nivel 2+, Auto-looter nivel 1 equipado e combustivel sao necessarios. Inicie no mapa desejado. A nave apenas aproxima e para; somente o PET coleta. Sem caixas verdes, reconexao ou renascimento automaticos neste modo. F9/F10 param a nave; recolha o PET manualmente para parar seu consumo. Ainda requer teste real no jogo.
+COLETA 2 — PET (0.16.1)
+Na aba Coleta escolha Coleta 2. PET nivel 2+, Auto-looter nivel 1 equipado e combustivel sao necessarios. Inicie no mapa desejado. A nave continua voando entre boxes e ao redor da area; somente o PET coleta. Sem caixas verdes, reconexao ou renascimento automaticos neste modo. F9/F10 param a nave; recolha o PET manualmente para parar seu consumo. Ainda requer teste real no jogo.

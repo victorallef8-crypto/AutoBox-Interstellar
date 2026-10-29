@@ -36,12 +36,15 @@ PET_COLLECT_SCRIPT = r"""t => {
    void W.petRequest({action:'mode',mode:'petal1'});
    return {...result,action:'sent',expected_active:true,expected_mode:'petal1'};
  }
- if(t.action!=='move'||!p.active||p.mode!=='petal1')throw Error('PET não está pronto para coletar.');
- const box=W.state.boxes?.find(b=>b.id===t.id&&b.revision===t.revision);
- if(!box)return {...result,action:'gone'};
- if(![undefined,null,'box','bonus'].includes(box.kind))throw Error('Somente boxes bônus na Coleta 2.');
- if(![box.x,box.y,t.x,t.y].every(finite)||Math.hypot(t.x-box.x,t.y-box.y)<300||Math.hypot(t.x-box.x,t.y-box.y)>400)
-   throw Error('Destino deve ficar entre 300 e 400 unidades da box.');
+ if(!['move','cruise'].includes(t.action)||!p.active||p.mode!=='petal1')throw Error('PET não está pronto para coletar.');
+ if(![t.x,t.y].every(finite))throw Error('Destino inválido.');
+ if(t.action==='move'){
+   const box=W.state.boxes?.find(b=>b.id===t.id&&b.revision===t.revision);
+   if(!box)return {...result,action:'gone'};
+   if(![undefined,null,'box','bonus'].includes(box.kind))throw Error('Somente boxes bônus na Coleta 2.');
+   if(![box.x,box.y].every(finite)||Math.hypot(t.x-box.x,t.y-box.y)<300||Math.hypot(t.x-box.x,t.y-box.y)>400)
+     throw Error('Destino deve ficar entre 300 e 400 unidades da box.');
+ }
  const width=W.state.map?.width??W.state.world?.width,height=W.state.map?.height??W.state.world?.height;
  if(!finite(width)||!finite(height)||t.x<0||t.y<0||t.x>width||t.y>height)throw Error('Destino fora do mapa.');
  if(typeof G?.onFollow!=='function'||typeof G?.onFollowCancel!=='function'||G.isPingArmed?.())
@@ -70,12 +73,25 @@ def approach_point(position, box, bounds=None):
     return min(valid,key=lambda p:math.dist(position,p))
 
 
+def orbit_point(position, center, bounds):
+    # Advance around the collection area, selecting a point inside the real map.
+    if not bounds or len(bounds)!=4 or not all(type(v) in (int,float) and math.isfinite(v) for v in bounds):
+        raise ValueError('Limites do mapa indisponíveis.')
+    angle=math.atan2(position[1]-center[1],position[0]-center[0])
+    for i in range(16):
+        theta=angle+math.pi/3+i*math.pi/8
+        point=(center[0]+350*math.cos(theta),center[1]+350*math.sin(theta))
+        if bounds[0]<=point[0]<=bounds[2] and bounds[1]<=point[1]<=bounds[3] and math.dist(position,point)>120:
+            return point
+    raise ValueError('Sem espaço para continuar o voo nesta área.')
+
+
 class PetCollector:
     def __init__(self,session,stop_event,emit,clock=None,settings=None):
         self.session=session;self.stop=stop_event;self.emit=emit
         self.clock=clock or time.monotonic;self.settings=settings or {};self.identity={}
         self.error=None;self.target=None;self.deferred={};self.pending=None;self.last_move=0
-        self.sent=False;self.wait_since=None;self.best=float('inf');self.progress=0
+        self.waypoint=None;self.cruise_center=None;self.wait_since=None;self.best=float('inf');self.progress=0
         self.last_status=None
         self.cloak=CloakKeeper(session,stop_event,emit,self.clock) if self.settings.get('cloak') else None
     def status(self,text):
@@ -107,37 +123,57 @@ class PetCollector:
         boxes=[b for b in snapshot.get('candidates',[]) if b.get('kind') in (None,'box','bonus')]
         self.deferred={k:v for k,v in self.deferred.items() if v>now}
         key=lambda b:(b['id'],b.get('revision'))
+        position=snapshot['position']
+        size=snapshot.get('map_size')
+        bounds=(0,0,*size) if size and len(size)==2 else None
+        if not bounds or not all(type(v) in (int,float) and math.isfinite(v) and v>=0 for v in bounds):
+            raise ValueError('Limites do mapa indisponíveis.')
+        old_key=key(self.target) if self.target else None
         if self.target:
-            current=next((b for b in boxes if key(b)==key(self.target)),None)
-            if current is None:
-                self.status('Box saiu da leitura. Procurando outra para o PET.');self.target=None
-                return
-            self.target=current
+            self.target=next((b for b in boxes if key(b)==old_key),None)
+        if self.target and math.dist(position,(self.target['x'],self.target['y']))<=450:
+            # Visit other boxes while the PET works; revisit later if still present.
+            self.deferred.setdefault(key(self.target),now+8)
+            alternatives=[b for b in boxes if key(b) not in self.deferred]
+            if alternatives:self.target=min(alternatives,key=lambda b:math.dist(position,(b['x'],b['y'])))
         if self.target is None:
-            boxes=[b for b in boxes if key(b) not in self.deferred]
-            if not boxes:self.status('Sem boxes próximas disponíveis para o PET.');return
-            self.target=min(boxes,key=lambda b:math.dist(snapshot['position'],(b['x'],b['y'])))
-            self.best=float('inf');self.progress=now;self.arrived=None;self.sent=False;self.last_move=-float('inf')
-        d=math.dist(snapshot['position'],(self.target['x'],self.target['y']))
-        if d<self.best-10:self.best=d;self.progress=now
-        if d<=450:
-            if self.arrived is None:self.arrived=now
-            if not self.sent:self.request('stop');self.sent=True
-            self.status('Perto da box: aguardando somente o PET coletar.')
-            if now-self.arrived>=20:
-                self.deferred[key(self.target)]=now+30;self.target=None
-                self.status('PET não coletou em 20 s. Box adiada por 30 s.')
+            available=[b for b in boxes if key(b) not in self.deferred]
+            if available:self.target=min(available,key=lambda b:math.dist(position,(b['x'],b['y'])))
+        new_key=key(self.target) if self.target else None
+        if new_key!=old_key:
+            self.best=float('inf');self.progress=now;self.last_move=-float('inf');self.waypoint=None
+        if self.target:
+            center=(self.target['x'],self.target['y'])
+            self.cruise_center=center
+            d=math.dist(position,center)
+            if d<self.best-10:self.best=d;self.progress=now
+            if d>450 and now-self.progress>15:
+                self.deferred[key(self.target)]=now+30;self.target=None;self.waypoint=None
+                self.status('Aproximação sem progresso; continuando o voo para outra área.')
+            elif d>450:
+                if now-self.last_move>=2:
+                    point=approach_point(position,self.target,bounds)
+                    self.request('move',id=self.target['id'],revision=self.target.get('revision'),x=point[0],y=point[1])
+                    self.waypoint=point;self.last_move=now
+                self.status('Coleta 2: passando próximo às boxes para o PET coletar.')
+                return
+        speed=snapshot.get('speed')
+        lead=max(120,min(250,speed*.75)) if type(speed) in (int,float) and math.isfinite(speed) and speed>0 else 200
+        # Replace a nearby destination before the ship reaches it; never stop to wait for a box.
+        if self.waypoint is not None and math.dist(position,self.waypoint)>lead and now-self.last_move<2:
             return
-        if now-self.progress>15:
-            self.deferred[key(self.target)]=now+30;self.target=None
-            self.request('stop');self.status('Sem progresso na aproximação. Box adiada.');return
-        if now-self.last_move>=2:
-            size=snapshot.get('map_size')
-            bounds=(0,0,*size) if size and len(size)==2 else None
-            point=approach_point(snapshot['position'],self.target,bounds)
+        if self.target:
+            center=(self.target['x'],self.target['y'])
+            point=orbit_point(position,center,bounds)
             self.request('move',id=self.target['id'],revision=self.target.get('revision'),x=point[0],y=point[1])
-            self.last_move=now
-            self.status('Coleta 2: aproximando a nave para o PET coletar.')
+        else:
+            center=self.cruise_center or position
+            # Keep the empty-area circuit inside the map, including corners.
+            center=(max(350,min(size[0]-350,center[0])),max(350,min(size[1]-350,center[1])))
+            point=orbit_point(position,center,bounds)
+            self.request('cruise',x=point[0],y=point[1])
+        self.waypoint=point;self.last_move=now
+        self.status('Coleta 2: voo contínuo enquanto o PET coleta e procura boxes.')
     def run(self):
         self.emit('running',True)
         try:

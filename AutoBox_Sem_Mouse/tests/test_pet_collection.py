@@ -13,14 +13,28 @@ class PetCollectionTests(unittest.TestCase):
         snap=dict(fresh=True,dead=False,hp_percent=100,map='1-1',respawn_revision=1,position=(100,100),map_size=(2000,2000),
                   candidates=[dict(id='b',revision=1,x=1000,y=100,kind='bonus')])
         return engine,session,snap
-    def test_approaches_without_ship_collection_and_stops_for_pet(self):
+    def test_passes_box_without_stop_or_ship_collection(self):
         e,s,snap=self.make();e.step(snap,0)
         moves=[c.args[1] for c in s.request.call_args_list if c.args[1]['action']=='move']
-        self.assertEqual(len(moves),1);self.assertEqual((moves[0]['x'],moves[0]['y']),(650,100))
-        self.assertTrue(all(c.args[0]=='pet_collect' for c in s.request.call_args_list))
+        self.assertEqual((moves[0]['x'],moves[0]['y']),(650,100))
         snap['position']=(600,100);e.step(snap,1)
-        self.assertEqual(s.request.call_args.args[1]['action'],'stop')
-        e.step(snap,22);self.assertIsNone(e.target);self.assertIn(('b',1),e.deferred)
+        self.assertEqual(s.request.call_args.args[1]['action'],'move')
+        self.assertFalse(any(c.args[1]['action']=='stop' for c in s.request.call_args_list))
+        self.assertTrue(all(c.args[0]=='pet_collect' for c in s.request.call_args_list))
+        waypoint=e.waypoint;snap['position']=waypoint;e.step(snap,1.5)
+        self.assertNotEqual(e.waypoint,waypoint)
+    def test_chooses_next_box_without_waiting(self):
+        e,s,snap=self.make();snap['position']=(600,100)
+        snap['candidates'].append(dict(id='c',revision=1,x=1700,y=100,kind='bonus'))
+        e.step(snap,0);e.step(snap,.25)
+        self.assertEqual(e.target['id'],'c')
+        self.assertFalse(any(c.args[1]['action']=='stop' for c in s.request.call_args_list))
+    def test_empty_area_keeps_flying_inside_map(self):
+        e,s,snap=self.make();snap['candidates']=[];e.step(snap,0)
+        self.assertEqual(s.request.call_args.args[1]['action'],'cruise')
+        self.assertTrue(all(0<=v<=2000 for v in e.waypoint))
+        previous=e.waypoint;snap['position']=previous;e.step(snap,.25)
+        self.assertNotEqual(previous,e.waypoint)
     def test_disappearance_is_not_claimed_as_pet_reward(self):
         e,s,snap=self.make();e.step(snap,0);snap['candidates']=[];e.step(snap,1)
         self.assertIsNone(e.target)
