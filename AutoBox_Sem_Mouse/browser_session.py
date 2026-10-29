@@ -1,3 +1,4 @@
+from pet_collection import PET_COLLECT_SCRIPT
 from pathlib import Path
 import os
 import queue
@@ -853,13 +854,13 @@ class BrowserSession:
                         if allowed is not None and not allowed():
                             reply.put((True, False))
                             continue
-                        if operation in ("galaxy","restock","skylab","cloak"):
+                        if operation in ("galaxy","restock","skylab","cloak","pet_collect"):
                             if not self.world_feed.navigation_snapshot().get("fresh"):
                                 raise ValueError("Aguarde os dados ao vivo.")
                             if allowed is not None and not allowed():
                                 result={"action":"cancelled"}
                             else:
-                                result=page.evaluate({"galaxy":GG_SCRIPT,"restock":RESTOCK_SCRIPT,"skylab":SKYLAB_SCRIPT,"cloak":CLOAK_SCRIPT}[operation],payload)
+                                result=page.evaluate({"galaxy":GG_SCRIPT,"restock":RESTOCK_SCRIPT,"skylab":SKYLAB_SCRIPT,"cloak":CLOAK_SCRIPT,"pet_collect":PET_COLLECT_SCRIPT}[operation],payload)
                         elif operation == "npc_action":
                             result = self._npc_action(page,payload,allowed)
                         elif operation == "travel":

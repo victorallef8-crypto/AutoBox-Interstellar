@@ -14,6 +14,7 @@ from pynput import keyboard
 from browser_session import BrowserSession, find_opera_gx
 from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWorker, NpcTestWorker, NpcFarmWorker, GalaxyWorker, SkylabWorker
 import updater
+from pet_collection import PetCollector
 from cockpit import Cockpit
 from controller import normalize_npc_profiles
 
@@ -74,6 +75,7 @@ class AutoBoxSemMouse:
         self.opening = False
         self.closing = False
         self.attempts = self.confirmed = self.failed = 0
+        self.pet_only=tk.BooleanVar(value=False)
         self.collect_state="stopped"
         self.collect_summary=tk.StringVar(value="Parado")
         self.vitals_text={k:tk.StringVar(value="—") for k in ("hp","shield")}
@@ -318,6 +320,13 @@ class AutoBoxSemMouse:
         group.columnconfigure(1,weight=1)
         plan=ttk.LabelFrame(body,text="Preferências de coleta",padding=12)
         plan.pack(fill="x",pady=10)
+        ttk.Radiobutton(plan,text="Coleta 1 — a nave coleta",variable=self.pet_only,value=False,
+                        command=self.pause).pack(anchor="w",pady=4)
+        ttk.Radiobutton(plan,text="Coleta 2 — somente PET (nível 2+, Auto-looter nível 1)",
+                        variable=self.pet_only,value=True,command=self.pause).pack(anchor="w",pady=4)
+        ttk.Label(plan,text="Coleta 2: aproxima a nave e aguarda o PET. Não coleta caixas verdes. "
+                  "Configure e abasteça o PET no jogo. Inicie no mapa desejado; pausa em desconexão ou morte.",
+                  wraplength=650).pack(anchor="w",pady=4)
         ttk.Checkbutton(plan,text="Coletar caixas verdes usando minhas chaves (não compra chaves)",
                         variable=self.green,command=self.save).pack(anchor="w",pady=4)
         ttk.Checkbutton(plan,text="Reconectar e retomar após perda de conexão",
@@ -1062,7 +1071,8 @@ class AutoBoxSemMouse:
         self.session.combat_probe.stop("Registro encerrado para iniciar coleta.")
         self.stop_event=threading.Event()
         self.earnings.observe(snapshot,False)
-        engine=DataCollector(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
+        engine_type=PetCollector if self.pet_only.get() else DataCollector
+        engine=engine_type(self.session,self.stop_event,lambda event,data:self.events.put((event,data)),
                              settings={"green":self.green.get(),"cloak":self.cloak_enabled.get(),"reconnect":self.reconnect.get(),"farm_map":self.cfg.get("collect_map",""),
                                  "respawn":{"Base":"base","Portal":"portal","Local":"spot"}.get(self.respawn.get()),
                                  "max_deaths":self.cfg["max_deaths"],"max_cost":self.cfg["max_cost"],
@@ -1071,7 +1081,8 @@ class AutoBoxSemMouse:
         self.worker.start()
         self.collect_state="running"
         self.cloak_status.set("Verificando camuflagem durante a coleta." if self.cloak_enabled.get() else "Camuflagem automática desativada.")
-        self.say("Coleta por dados iniciada. Mantém o alvo até a coleta; F9 pausa.")
+        self.say("Coleta 2 iniciada: somente o PET coleta; F9 pausa." if self.pet_only.get() else
+                 "Coleta por dados iniciada. Mantém o alvo até a coleta; F9 pausa.")
         return
 
     def pause(self):

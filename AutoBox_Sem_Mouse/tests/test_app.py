@@ -58,6 +58,18 @@ class AppTests(unittest.TestCase):
             self.app.worker=previous
             self.app.stop_event.set(); self.app.session.ready.clear()
 
+    def test_pet_only_start_selects_separate_worker(self):
+        previous=self.app.worker
+        self.app.pet_only.set(True);self.app.session.ready.set()
+        try:
+            with patch.object(self.app.session,"get_world_snapshot",return_value={"fresh":True,"hp_percent":80}), patch.object(self.module,"PetCollector") as pet, patch.object(self.module,"DataCollector") as normal, patch.object(self.module.threading,"Thread"):
+                self.app.start()
+                pet.assert_called_once();normal.assert_not_called()
+                self.assertIn("somente o PET",self.app.status.get())
+        finally:
+            self.app.pet_only.set(False);self.app.worker=previous
+            self.app.stop_event.set();self.app.session.ready.clear()
+
     def test_data_start_requires_live_reading(self):
         self.app.session.ready.set()
         try:

@@ -20,7 +20,7 @@ import zipfile
 from pathlib import Path
 
 
-CURRENT_VERSION = "0.15.0"
+CURRENT_VERSION = "0.16.0"
 OWNER_REPO = "victorallef8-crypto/AutoBox-Interstellar"
 REPO_RAW_PREFIX = (
     "https://raw.githubusercontent.com/"
@@ -32,6 +32,8 @@ PACKAGE_FILES = (
     "updater.py",
     "browser_session.py",
     "controller.py",
+    "cockpit.py",
+    "pet_collection.py",
     "collector.py",
     "vision.py",
     "INSTALAR_E_ABRIR.bat",
