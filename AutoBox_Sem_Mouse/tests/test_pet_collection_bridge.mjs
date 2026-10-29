@@ -10,13 +10,13 @@ globalThis.window={PeriodWindows:{state:{me:{id:'p',mapId:'1-1',respawnRevision:
  DarkOrbitGroups:{onFollow:t=>calls.push(t),onFollowCancel:()=>calls.push('stop')}};
 const t={owner:'p',life:1,map:'1-1',configuration:1};
 assert.equal(fn({...t,action:'ensure'}).action,'ready');
-assert.equal(fn({...t,action:'move',id:'b',revision:1,x:650,y:100}).action,'move');
-assert.deepEqual(calls,[{x:650,y:100,mapId:'1-1'}]);
+assert.equal(fn({...t,action:'move',id:'b',revision:1,x:1600,y:100}).action,'move');
+assert.deepEqual(calls,[{x:1600,y:100,mapId:'1-1'}]);
 assert.equal(fn({...t,action:'cruise',x:350,y:350}).action,'move');
 assert.throws(()=>fn({...t,action:'cruise',x:-1,y:0}),/fora do mapa/);
-assert.throws(()=>fn({...t,action:'move',id:'b',revision:1,x:1000,y:100}),/300 e 400/);
+assert.throws(()=>fn({...t,action:'move',id:'b',revision:1,x:1000,y:100}),/atravessar/);
 window.PeriodWindows.state.me.pet.fuel=0;
-assert.throws(()=>fn({...t,action:'move',id:'b',revision:1,x:650,y:100}),/combustível/);
+assert.throws(()=>fn({...t,action:'move',id:'b',revision:1,x:1600,y:100}),/combustível/);
 assert.equal(fn({...t,action:'stop'}).action,'stopped');
 window.PeriodWindows.state.me.pet.fuel=100;
 window.PeriodWindows.state.me.pet.configurations[0].gears=[];

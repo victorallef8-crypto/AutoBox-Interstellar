@@ -42,8 +42,10 @@ PET_COLLECT_SCRIPT = r"""t => {
    const box=W.state.boxes?.find(b=>b.id===t.id&&b.revision===t.revision);
    if(!box)return {...result,action:'gone'};
    if(![undefined,null,'box','bonus'].includes(box.kind))throw Error('Somente boxes bônus na Coleta 2.');
-   if(![box.x,box.y].every(finite)||Math.hypot(t.x-box.x,t.y-box.y)<300||Math.hypot(t.x-box.x,t.y-box.y)>400)
-     throw Error('Destino deve ficar entre 300 e 400 unidades da box.');
+   const dx=box.x-me.x,dy=box.y-me.y,length=Math.hypot(dx,dy),ex=t.x-box.x,ey=t.y-box.y;
+   if(![box.x,box.y].every(finite)||length<1||Math.hypot(ex,ey)<300||Math.hypot(ex,ey)>1600||
+      ex*dx+ey*dy<=0||Math.abs(ex*dy-ey*dx)/length>5)
+     throw Error('Destino deve atravessar a box e continuar adiante.');
  }
  const width=W.state.map?.width??W.state.world?.width,height=W.state.map?.height??W.state.world?.height;
  if(!finite(width)||!finite(height)||t.x<0||t.y<0||t.x>width||t.y>height)throw Error('Destino fora do mapa.');
@@ -57,20 +59,18 @@ PET_COLLECT_SCRIPT = r"""t => {
 
 
 def approach_point(position, box, bounds=None):
-    """Stay 350 units from the target, preferring the near side of the box."""
-    x,y=box['x'],box['y']; dx=position[0]-x;dy=position[1]-y
-    length=math.hypot(dx,dy)
-    if not all(math.isfinite(v) for v in (*position,x,y)):
-        raise ValueError('Coordenadas inválidas.')
-    if length==0:dx,dy,length=1,0,1
-    near=(x+350*dx/length,y+350*dy/length)
-    candidates=[near,(x+350,y),(x-350,y),(x,y+350),(x,y-350)]
-    # A known map rectangle is mandatory: never guess its limits.
-    if not bounds or len(bounds)!=4 or not all(type(v) in (int,float) and math.isfinite(v) for v in bounds):raise ValueError('Limites do mapa indisponíveis.')
-    lo_x,lo_y,hi_x,hi_y=bounds
-    valid=[p for p in candidates if lo_x<=p[0]<=hi_x and lo_y<=p[1]<=hi_y]
-    if not valid:raise ValueError('Não há aproximação válida para esta box.')
-    return min(valid,key=lambda p:math.dist(position,p))
+    """Destination beyond the box, on the same line, with room to keep flying."""
+    if not bounds or len(bounds)!=4 or not all(type(v) in (int,float) and math.isfinite(v) for v in bounds):
+        raise ValueError('Limites do mapa indisponíveis.')
+    x,y=box['x'],box['y'];dx=x-position[0];dy=y-position[1];length=math.hypot(dx,dy)
+    if not all(math.isfinite(v) for v in (*position,x,y)) or length<1:
+        raise ValueError('Box já alcançada ou coordenadas inválidas.')
+    ux,uy=dx/length,dy/length;runout=1200
+    for value,unit,low,high in ((x,ux,bounds[0]+40,bounds[2]-40),(y,uy,bounds[1]+40,bounds[3]-40)):
+        if unit>0:runout=min(runout,(high-value)/unit)
+        elif unit<0:runout=min(runout,(low-value)/unit)
+    if runout<300:raise ValueError('Sem espaço depois da box para atravessar em voo contínuo.')
+    return (x+ux*runout,y+uy*runout)
 
 
 def patrol_route(size):
@@ -93,20 +93,27 @@ class PetCollector:
         self.clock=clock or time.monotonic;self.settings=settings or {};self.identity={}
         self.error=None;self.target=None;self.passed=set();self.pending=None;self.last_move=-float('inf')
         self.waypoint=None;self.route=None;self.route_size=None;self.route_index=0;self.route_direction=1;self.wait_since=None;self.best=float('inf');self.progress=0
-        self.last_status=None
+        self.pass_heading=None
+        self.last_status=None;self.last_pet=None;self.pet_checked=-float('inf');self.command_latency=0
         self.cloak=CloakKeeper(session,stop_event,emit,self.clock) if self.settings.get('cloak') else None
     def status(self,text):
         if text!=self.last_status:self.emit('status',text);self.last_status=text
     def request(self,action,**extra):
-        return self.session.request('pet_collect',dict(self.identity,action=action,**extra),
+        started=self.clock()
+        result=self.session.request('pet_collect',dict(self.identity,action=action,**extra),
                                     allowed=lambda:not self.stop.is_set())
+        self.command_latency=max(self.clock()-started,self.command_latency*.9)
+        return result
     def step(self,snapshot,now):
         if not snapshot.get('fresh') or snapshot.get('dead') or (snapshot.get('hp_percent') or 0)<=25:
             raise ValueError('Dados atuais e nave com mais de 25% de vida são necessários.')
         if self.identity and (snapshot['map']!=self.identity['map'] or snapshot.get('respawn_revision')!=self.identity['life']):
             raise ValueError('Mapa ou vida mudou. Reinicie a Coleta 2.')
         if self.cloak:self.cloak.step()
-        pet=self.request('inspect' if self.pending else 'ensure')
+        if self.pending or self.last_pet is None or now-self.pet_checked>=1:
+            pet=self.request('inspect' if self.pending else 'ensure')
+            self.last_pet=pet;self.pet_checked=now
+        else:pet=self.last_pet
         if not pet or pet.get('action')=='cancelled':return
         if not self.identity:self.identity={k:pet[k] for k in ('owner','life','map','configuration')}
         if pet['action']=='sent':self.pending=(now,pet)
@@ -128,7 +135,10 @@ class PetCollector:
         if not size or len(size)!=2:raise ValueError('Limites do mapa indisponíveis.')
         bounds=(0,0,*size)
         speed=snapshot.get('speed')
-        lead=max(120,min(250,speed*.75)) if type(speed) in (int,float) and math.isfinite(speed) and speed>0 else 200
+        age=snapshot.get('age',0)
+        age=age if type(age) in (int,float) and math.isfinite(age) and age>=0 else 0
+        velocity=speed if type(speed) in (int,float) and math.isfinite(speed) and speed>0 else 400
+        lead=min(max(80,min(size)/4),max(350,min(1200,velocity*(age+2*self.command_latency+.85))))
         if self.route is None or tuple(size)!=self.route_size:
             self.route=patrol_route(size);self.route_size=tuple(size)
             self.route_index=min(range(len(self.route)),key=lambda i:math.dist(position,self.route[i]))
@@ -147,9 +157,16 @@ class PetCollector:
             if not 0<=self.route_index+self.route_direction<len(self.route):self.route_direction*=-1
             self.route_index+=self.route_direction
             route_point=self.route[self.route_index]
-        # A passed box is never held or revisited just because it remains uncollected.
-        self.passed.update(key(b) for b in boxes if math.dist(position,(b['x'],b['y']))<=450)
+        # Cross the box before releasing it; do not switch destinations on approach.
         old_key=key(self.target) if self.target else None
+        if self.target and self.pass_heading:
+            px,py=position[0]-self.target['x'],position[1]-self.target['y']
+            if px*self.pass_heading[0]+py*self.pass_heading[1]>=0:
+                self.passed.add(old_key)
+        rx,ry=route_point[0]-position[0],route_point[1]-position[1]
+        self.passed.update(key(b) for b in boxes if key(b)!=old_key
+            and math.dist(position,(b['x'],b['y']))<=450
+            and (b['x']-position[0])*rx+(b['y']-position[1])*ry<=0)
         if self.target:
             self.target=next((b for b in boxes if key(b)==old_key and key(b) not in self.passed),None)
         if self.target is None:
@@ -165,20 +182,29 @@ class PetCollector:
         force_move=new_key!=old_key
         if force_move:
             self.best=float('inf');self.progress=now;self.waypoint=None
+            self.pass_heading=None
+            if self.target:
+                dx,dy=self.target['x']-position[0],self.target['y']-position[1]
+                length=math.hypot(dx,dy)
+                if length>0:self.pass_heading=(dx/length,dy/length)
         if self.target:
             d=math.dist(position,(self.target['x'],self.target['y']))
             if d<self.best-10:self.best=d;self.progress=now
             if now-self.progress>15:
                 self.passed.add(key(self.target));self.target=None;force_move=True
             else:
-                point=approach_point(position,self.target,bounds)
-                if force_move or now-self.last_move>=2:
+                try:point=approach_point(position,self.target,bounds)
+                except ValueError:
+                    self.passed.add(key(self.target));self.target=None;force_move=True
+                    point=None
+                if point is not None and (force_move or now-self.last_move>=.5 or (self.waypoint and math.dist(position,self.waypoint)<=lead)):
                     self.request('move',id=self.target['id'],revision=self.target.get('revision'),x=point[0],y=point[1])
                     self.waypoint=point;self.last_move=now
-                self.status('Coleta 2: passando perto da box e seguindo o percurso.')
-                return
+                if point is not None:
+                    self.status('Coleta 2: atravessando a box em voo contínuo, sem coletar com a nave.')
+                    return
         # Continue the map route immediately; no waiting, circling or reward dependency.
-        if force_move or self.waypoint!=route_point or now-self.last_move>=2:
+        if force_move or self.waypoint!=route_point or now-self.last_move>=.5 or snapshot.get('moving') is False:
             self.request('cruise',x=route_point[0],y=route_point[1])
             self.waypoint=route_point;self.last_move=now
         self.status('Coleta 2: seguindo o percurso; o PET coleta sem esperar pela box.')
@@ -187,7 +213,7 @@ class PetCollector:
         try:
             while not self.stop.is_set():
                 self.step(self.session.get_world_snapshot(),self.clock())
-                if self.stop.wait(.25):break
+                if self.stop.wait(.1):break
         except Exception as exc:
             self.error=str(exc);self.status('Coleta 2 parada: '+str(exc))
         finally:

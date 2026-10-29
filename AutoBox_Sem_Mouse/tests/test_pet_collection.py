@@ -16,8 +16,11 @@ class PetCollectionTests(unittest.TestCase):
     def test_passes_box_without_stop_or_ship_collection(self):
         e,s,snap=self.make();e.step(snap,0)
         moves=[c.args[1] for c in s.request.call_args_list if c.args[1]['action']=='move']
-        self.assertEqual((moves[0]['x'],moves[0]['y']),(650,100))
+        self.assertGreater(moves[0]['x'],1000)
+        self.assertEqual(moves[0]['y'],100)
         snap['position']=(600,100);e.step(snap,1)
+        self.assertEqual(e.target['id'],'b')
+        snap['position']=(1050,100);e.step(snap,2)
         self.assertEqual(s.request.call_args.args[1]['action'],'cruise')
         self.assertFalse(any(c.args[1]['action']=='stop' for c in s.request.call_args_list))
         self.assertTrue(all(c.args[0]=='pet_collect' for c in s.request.call_args_list))
@@ -26,11 +29,12 @@ class PetCollectionTests(unittest.TestCase):
     def test_chooses_next_box_without_waiting(self):
         e,s,snap=self.make();snap['position']=(600,100)
         snap['candidates'].append(dict(id='c',revision=1,x=1400,y=100,kind='bonus'))
-        e.step(snap,0);e.step(snap,.25)
+        e.step(snap,0);snap['position']=(1050,100);e.step(snap,1)
         self.assertEqual(e.target['id'],'c')
         self.assertFalse(any(c.args[1]['action']=='stop' for c in s.request.call_args_list))
     def test_visible_uncollected_box_never_becomes_orbit_or_wait(self):
-        e,s,snap=self.make();snap['position']=(600,100)
+        e,s,snap=self.make();snap['position']=(600,100);e.step(snap,0)
+        snap['position']=(1050,100);s.reset_mock()
         for now in (0,1,8,30,120):
             e.step(snap,now)
             self.assertIsNone(e.target)
@@ -42,9 +46,10 @@ class PetCollectionTests(unittest.TestCase):
         e,s,snap=self.make();snap['candidates']=[];snap['position']=(1000,100)
         e.route=[(250,100),(750,100),(1250,100),(1750,100)];e.route_size=(2000,2000);e.route_index=1
         e.step(snap,0)
-        self.assertEqual(e.waypoint,(1250,100))
+        self.assertGreater(e.waypoint[0],1000)
     def test_same_box_new_revision_can_be_considered_on_next_pass(self):
         e,s,snap=self.make();snap['position']=(600,100);e.step(snap,0)
+        snap['position']=(1050,100);e.step(snap,.5)
         snap['position']=(100,100);snap['candidates'][0]['revision']=2;e.step(snap,1)
         self.assertEqual(e.target['revision'],2)
     def test_empty_area_keeps_flying_inside_map(self):
@@ -72,8 +77,46 @@ class PetCollectionTests(unittest.TestCase):
         e,s,snap=self.make();e.step(snap,0);s.reset_mock()
         with self.assertRaises(ValueError):e.step(dict(snap,respawn_revision=2),1)
         s.request.assert_not_called()
-    def test_edge_waypoint_and_unknown_bounds(self):
-        p=approach_point((0,100),dict(x=10,y=100),(0,0,1000,1000))
-        self.assertAlmostEqual(__import__('math').dist(p,(10,100)),350)
-        self.assertTrue(0<=p[0]<=1000 and 0<=p[1]<=1000)
+    def test_border_box_is_skipped_without_turning_or_stopping(self):
+        with self.assertRaises(ValueError):approach_point((1000,100),dict(x=1990,y=100),(0,0,2000,2000))
+        e,session,snap=self.make();snap['position']=(1000,100);snap['candidates'][0]['x']=1990
+        e.step(snap,0)
+        self.assertIsNone(e.target)
+        self.assertEqual(session.request.call_args.args[1]['action'],'cruise')
         with self.assertRaises(ValueError):approach_point((0,0),dict(x=10,y=10),None)
+    def test_lookahead_accounts_for_reading_delay_and_speed(self):
+        e,session,snap=self.make();snap['candidates']=[];snap['speed']=800;snap['age']=.4
+        e.route=[(100,100),(800,100),(1500,100),(2200,100)];e.route_size=(4000,4000);e.route_index=1
+        snap['map_size']=(4000,4000);snap['position']=(400,100)
+        e.step(snap,0)
+        self.assertGreater(e.waypoint[0],800)
+
+    def test_flight_simulation_crosses_box_without_stopping_with_latency(self):
+        import math
+        e,session,snap=self.make();now=[0.0];e.clock=lambda:now[0]
+        position=[200.0,1000.0];destination=[None];pending=[];history=[(0,tuple(position))]
+        snap.update(map_size=(6000,4000),speed=600,age=.3)
+        snap['candidates']=[dict(id='box',revision=1,x=1500,y=1000,kind='bonus')]
+        def request(operation,payload,**kwargs):
+            if payload['action'] in ('move','cruise'):
+                pending.append((now[0]+.3,(payload['x'],payload['y'])))
+            self.assertNotEqual(payload['action'],'stop')
+            return dict(action='ready',owner='p',life=1,map='1-1',configuration=1,active=True,mode='petal1')
+        session.request.side_effect=request
+        stops=[];nearest=float('inf')
+        for tick in range(251):
+            now[0]=tick*.1
+            for due,point in list(pending):
+                if due<=now[0]+1e-8:destination[0]=point;pending.remove((due,point))
+            if destination[0]:
+                d=math.dist(position,destination[0]);step=min(d,60)
+                if d>0:
+                    position[:]=[position[i]+(destination[0][i]-position[i])*step/d for i in range(2)]
+                if tick>10 and d<=60:stops.append(tick)
+            history.append((now[0],tuple(position)))
+            snap['position']=next(point for time,point in reversed(history) if time<=max(0,now[0]-.3)+1e-8)
+            nearest=min(nearest,math.dist(position,(1500,1000)))
+            e.step(snap,now[0])
+        self.assertLess(nearest,61)
+        self.assertEqual(stops,[])
+        self.assertIn(('box',1),e.passed)
