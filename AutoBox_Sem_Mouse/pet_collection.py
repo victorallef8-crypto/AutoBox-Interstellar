@@ -1,5 +1,6 @@
 """Coleta 2: somente o PET coleta; a nave recebe destinos sem cliques em objetos."""
 import math
+import random
 import time
 from controller import CloakKeeper
 
@@ -82,18 +83,15 @@ def approach_point(position, box, bounds=None):
     return (x+ux*runout,y+uy*runout)
 
 
-def patrol_route(size):
+def random_patrol_point(position, size, rng):
+    """Choose an interior destination, favoring distance over short reversals."""
     if len(size)!=2 or not all(type(v) in (int,float) and math.isfinite(v) and v>0 for v in size):
         raise ValueError('Limites do mapa indisponíveis.')
     width,height=size; margin=min(250,width/4,height/4)
-    nx=max(1,math.ceil((width-2*margin)/700))
-    ny=max(1,math.ceil((height-2*margin)/700))
-    if (nx+1)*(ny+1)>10000:raise ValueError('Dimensões do mapa não suportadas.')
-    points=[]
-    for row in range(ny+1):
-        xs=range(nx+1) if row%2==0 else range(nx,-1,-1)
-        points.extend((margin+(width-2*margin)*col/nx,margin+(height-2*margin)*row/ny) for col in xs)
-    return points
+    points=[(rng.uniform(margin,width-margin),rng.uniform(margin,height-margin)) for _ in range(12)]
+    minimum=min(1800,min(size)*.4)
+    distant=[point for point in points if math.dist(position,point)>=minimum]
+    return rng.choice(distant) if distant else max(points,key=lambda point:math.dist(position,point))
 
 
 def segment_distance(point, start, end):
@@ -105,11 +103,15 @@ def segment_distance(point, start, end):
 
 
 class PetCollector:
-    def __init__(self,session,stop_event,emit,clock=None,settings=None):
+    def __init__(self,session,stop_event,emit,clock=None,settings=None,rng=None):
         self.session=session;self.stop=stop_event;self.emit=emit
         self.clock=clock or time.monotonic;self.settings=settings or {};self.identity={}
         self.error=None;self.target=None;self.passed=set();self.deferred={};self.pending=None;self.last_move=-float('inf')
-        self.waypoint=None;self.route=None;self.route_size=None;self.route_index=0;self.route_direction=1;self.wait_since=None;self.best=float('inf');self.progress=0
+        self.waypoint=None;self.wait_since=None;self.best=float('inf');self.progress=0
+        self.rng=rng if rng is not None else random.Random()
+        self.patrol_goal=None;self.patrol_size=None
+        self.flight_goal=None;self.flight_origin=None;self.flight_progress=0
+        self.flight_amplitude=0;self.flight_waves=1
         self.pass_heading=None
         self.previous_position=None
         self.last_status=None;self.last_pet=None;self.pet_checked=-float('inf');self.command_latency=0
@@ -128,6 +130,31 @@ class PetCollector:
         if record:record(action,result=result)
         self.command_latency=max(self.clock()-started,self.command_latency*.9)
         return result
+    def flight_point(self,position,goal,size,lead,straight_distance=1500):
+        """Follow one stable wave per leg; no fresh random steering each tick.
+
+        Blend back onto the direct approach for the final 1500 world units.
+        """
+        if self.flight_goal!=goal:
+            self.flight_goal=goal;self.flight_origin=position;self.flight_progress=0
+            length=math.dist(position,goal)
+            self.flight_amplitude=self.rng.uniform(100,220)*self.rng.choice((-1,1))
+            self.flight_amplitude*=min(1,length/2000)
+            self.flight_waves=self.rng.uniform(1,2)
+        origin=self.flight_origin
+        dx,dy=goal[0]-origin[0],goal[1]-origin[1];length=math.hypot(dx,dy)
+        if length<1:return goal
+        projected=((position[0]-origin[0])*dx+(position[1]-origin[1])*dy)/length
+        self.flight_progress=max(self.flight_progress,projected)
+        along=min(length,self.flight_progress+max(600,lead*1.5))
+        t=max(0,along/length)
+        taper=min(1,max(0,(length-along-straight_distance)/700))
+        offset=self.flight_amplitude*math.sin(2*math.pi*self.flight_waves*t)*math.sin(math.pi*t)*taper
+        x=origin[0]+dx*t-dy/length*offset
+        y=origin[1]+dy*t+dx/length*offset
+        margin=min(40,min(size)/4)
+        return (max(margin,min(size[0]-margin,x)),max(margin,min(size[1]-margin,y)))
+
     def step(self,snapshot,now):
         if not snapshot.get('fresh') or snapshot.get('dead') or (snapshot.get('hp_percent') or 0)<=25:
             raise ValueError('Dados atuais e nave com mais de 25% de vida são necessários.')
@@ -165,24 +192,6 @@ class PetCollector:
         age=age if type(age) in (int,float) and math.isfinite(age) and age>=0 else 0
         velocity=speed if type(speed) in (int,float) and math.isfinite(speed) and speed>0 else 400
         lead=min(max(80,min(size)/4),max(350,min(1200,velocity*(age+2*self.command_latency+.85))))
-        if self.route is None or tuple(size)!=self.route_size:
-            self.route=patrol_route(size);self.route_size=tuple(size)
-            self.route_index=min(range(len(self.route)),key=lambda i:math.dist(position,self.route[i]))
-            self.route_direction=1
-        route_point=self.route[self.route_index]
-        for _ in range(len(self.route)):
-            previous_index=self.route_index-self.route_direction
-            beyond=False
-            if 0<=previous_index<len(self.route):
-                start=self.route[previous_index]
-                dx,dy=route_point[0]-start[0],route_point[1]-start[1]
-                px,py=position[0]-start[0],position[1]-start[1]
-                length=math.hypot(dx,dy)
-                beyond=length>0 and px*dx+py*dy>=length*length and abs(px*dy-py*dx)/length<=700
-            if math.dist(position,route_point)>lead and not beyond:break
-            if not 0<=self.route_index+self.route_direction<len(self.route):self.route_direction*=-1
-            self.route_index+=self.route_direction
-            route_point=self.route[self.route_index]
         # Cross the box before releasing it; do not switch destinations on approach.
         old_key=key(self.target) if self.target else None
         if self.target and self.pass_heading:
@@ -210,6 +219,7 @@ class PetCollector:
         if force_move:
             self.best=float('inf');self.progress=now;self.waypoint=None
             self.pass_heading=None
+            self.flight_goal=None
             if self.target:
                 dx,dy=self.target['x']-position[0],self.target['y']-position[1]
                 length=math.hypot(dx,dy)
@@ -224,8 +234,14 @@ class PetCollector:
                 except ValueError:
                     self.deferred[key(self.target)]=now+10;self.target=None;force_move=True
                     point=None
+                curved=d>max(1500,lead*2)
+                if point is not None and curved:
+                    point=self.flight_point(position,(self.target['x'],self.target['y']),size,lead)
                 if point is not None and (force_move or now-self.last_move>=.5 or (self.waypoint and math.dist(position,self.waypoint)<=lead)):
-                    result=self.request('move',id=self.target['id'],revision=self.target.get('revision'),x=point[0],y=point[1])
+                    if curved:
+                        result=self.request('cruise',x=point[0],y=point[1])
+                    else:
+                        result=self.request('move',id=self.target['id'],revision=self.target.get('revision'),x=point[0],y=point[1])
                     if result and result.get('action') in ('gone','blocked','passed'):
                         if result['action']=='passed':self.passed.add(key(self.target))
                         else:self.deferred[key(self.target)]=now+(10 if result['action']=='blocked' else 2)
@@ -235,13 +251,20 @@ class PetCollector:
                         self.waypoint=(dest['x'],dest['y']) if dest else point
                         self.last_move=now
                 if point is not None:
-                    self.status('Coleta 2: atravessando a box em voo contínuo, sem coletar com a nave.')
+                    self.status('Coleta 2: aproximando em curva suave.' if curved else 'Coleta 2: atravessando a box em voo contínuo, sem coletar com a nave.')
                     return
-        # Continue the map route immediately; no waiting, circling or reward dependency.
-        if force_move or self.waypoint!=route_point or now-self.last_move>=.5 or snapshot.get('moving') is False:
+        # Empty area: a new interior destination, never a fixed sweep or grid.
+        if (self.patrol_goal is None or self.patrol_size!=tuple(size) or
+                math.dist(position,self.patrol_goal)<=max(lead*1.5,600)):
+            self.patrol_goal=random_patrol_point(position,size,self.rng)
+            self.patrol_size=tuple(size)
+            self.flight_goal=None
+        route_point=self.flight_point(position,self.patrol_goal,size,lead,straight_distance=0)
+        if (force_move or self.waypoint is None or now-self.last_move>=.5 or snapshot.get('moving') is False or
+                math.dist(position,self.waypoint)<=lead):
             self.request('cruise',x=route_point[0],y=route_point[1])
             self.waypoint=route_point;self.last_move=now
-        self.status('Coleta 2: seguindo o percurso; o PET coleta sem esperar pela box.')
+        self.status('Coleta 2: explorando por destinos variados e curvas suaves.')
     def run(self):
         record=getattr(self.session,'record_pet_diagnostic',None)
         if record:record('start')
