@@ -54,7 +54,7 @@ A existência de código não significa teste real de todos esses recursos nesta
 
 | Recurso | Limitação concreta |
 |---|---|
-| Interface | A estrutura visual foi aproximada: barra superior, mapa central, estatísticas sobrepostas e configurações em janela separada. Não é uma reprodução pixel a pixel da interface Swing. |
+| Interface | A estrutura visual foi aproximada: barra superior, mapa central, estatísticas sobrepostas e configurações dentro da mesma janela. Não é uma reprodução pixel a pixel da interface Swing. |
 | Plugins | Não há compatibilidade com a API Java nem com o catálogo de plugins DarkBot. |
 | Obstáculos, minas e áreas | A correção de bordas não é um planejador completo para obstáculos/minas nem um editor de zonas preferidas/proibidas. Precisa de dados confirmados do Interstellar. |
 | Fuga de jogadores | Não há identificação validada de jogadores hostis, listas de confiança ou fuga automática equivalente ao SafetyFinder. |
@@ -67,7 +67,7 @@ A existência de código não significa teste real de todos esses recursos nesta
 
 ## Verificação
 
-- 258 testes Python aprovados, incluindo interface gráfica, após as mudanças visuais.
+- 260 testes Python aprovados, incluindo interface gráfica, após as mudanças visuais.
 - Cinco scripts Node aprovados: movimento/portal, perseguição, PET, camuflagem e Skylab.
 - Compilação Python e verificação de whitespace aprovadas.
 - Interface executada em display virtual: abrir/fechar configurações, persistir filtros, atualizar alvo/HP e verificar botões no tamanho mínimo de janela.
@@ -88,9 +88,9 @@ As alterações estão preparadas localmente. Publicação da versão 0.17.0 aut
 
 ## Interface adaptada
 
-A janela principal mantém o mapa visível ao abrir configurações. A barra superior reúne configurar, estatísticas, iniciar, pausar, parar e mostrar/ocultar o jogo. Uma segunda linha seleciona o módulo e os filtros de NPCs, boxes, portais, rastro e dados. As estatísticas aparecem sobre o mapa; as barras de HP/escudo, a informação do alvo e as coordenadas ficam no rodapé.
+O aplicativo utiliza uma única janela, com as abas Mapa ao vivo e Configurações e estatísticas. A barra superior reúne configurar, estatísticas, iniciar, pausar, parar e mostrar/ocultar o jogo. Uma segunda linha seleciona o módulo e os filtros de NPCs, boxes, portais, rastro e dados. As estatísticas aparecem sobre o mapa; as barras de HP/escudo, a informação do alvo e as coordenadas ficam no rodapé.
 
-Preferências de módulo, filtros, estatísticas e janela sempre visível são gravadas na configuração. Fechar a janela de configurações não encerra os trabalhadores nem altera o farm.
+Preferências de módulo, filtros, estatísticas e janela sempre visível são gravadas na configuração. Alternar entre as abas não encerra os trabalhadores nem altera o farm. Ao iniciar, o aplicativo sempre abre o mapa ao vivo, inclusive ao atualizar uma configuração antiga.
 
 Capturas com dados simulados para revisão visual:
 

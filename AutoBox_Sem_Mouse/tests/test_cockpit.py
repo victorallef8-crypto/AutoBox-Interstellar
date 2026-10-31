@@ -185,14 +185,15 @@ class CockpitUiTests(unittest.TestCase):
             self.app.cockpit.mode.set("Matar + coletar");self.app.cockpit.start()
             npc.assert_called_once_with(hybrid=True);collect.assert_not_called()
 
-    def test_configuration_is_a_separate_window_and_does_not_hide_the_map(self):
+    def test_configuration_switches_inside_the_same_window(self):
         worker=self.app.worker
         self.app.open_settings('combat');self.root.update_idletasks()
-        self.assertEqual(self.app.settings_window.state(),'normal')
+        self.assertEqual(self.app.workspace.select(),str(self.app.settings_page))
+        self.assertFalse(any(w.winfo_class()=='Toplevel' for w in self.root.winfo_children()))
         self.assertEqual(self.app.cockpit.winfo_manager(),'pack')
         self.assertEqual(self.app.notebook.select(),str(self.app.pages['combat']))
         self.app.set_compact(True);self.root.update_idletasks()
-        self.assertEqual(self.app.settings_window.state(),'withdrawn')
+        self.assertEqual(self.app.workspace.select(),str(self.app.map_page))
         self.assertIs(self.app.worker,worker)
 
     def test_map_preferences_persist_without_changing_workers(self):
@@ -254,3 +255,16 @@ class CockpitUiTests(unittest.TestCase):
         c.update({'fresh':False});self.assertFalse(c.canvas.find_withtag('ally-name'))
         self.assertIn('indisponível',c.ally_status.get())
         c.layers['ally_names'].set(False);c.save_view()
+
+    def test_startup_ignores_old_configuration_window_preference(self):
+        self.assertFalse(hasattr(self.app,'settings_window'))
+        self.app.set_compact(True)
+        self.assertEqual(self.app.workspace.select(),str(self.app.map_page))
+
+    def test_switching_workspace_tabs_preserves_workers(self):
+        worker=self.app.worker
+        self.app.workspace.select(self.app.settings_page);self.root.update()
+        self.assertFalse(self.app.compact)
+        self.app.workspace.select(self.app.map_page);self.root.update()
+        self.assertTrue(self.app.compact)
+        self.assertIs(self.app.worker,worker)

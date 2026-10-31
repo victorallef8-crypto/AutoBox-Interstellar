@@ -111,12 +111,14 @@ class Cockpit(ttk.Frame):
         ttk.Label(vitals,textvariable=self.ammo,style="Muted.TLabel").pack(side="right")
         footer=ttk.Frame(self,padding=(8,3));footer.pack(fill="x")
         ttk.Label(footer,textvariable=app.status,wraplength=650,style="Muted.TLabel").pack(anchor="w")
+        # Reserve the status and ship information before allocating the resizable map.
+        for row in (footer,vitals,info):
+            row.pack_forget()
+            row.pack(side="bottom",fill="x",before=self.canvas)
         self.pin(save=False)
 
     def pin(self, save=True):
         self.app.root.attributes("-topmost",self.pinned.get())
-        if hasattr(self.app,"settings_window"):
-            self.app.settings_window.attributes("-topmost",self.pinned.get())
         if save:self.save_view()
 
     def save_view(self):

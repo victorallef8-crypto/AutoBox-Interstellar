@@ -138,10 +138,11 @@ class AutoBoxSemMouse:
         self._draw_world_page()
         self._draw_combat_page()
         self._draw_services()
-        self.cockpit = Cockpit(root, self)
+        self.cockpit = Cockpit(self.map_page, self)
         self.compact = False
         self.full_geometry = "940x"+str(min(820,root.winfo_screenheight()-90))
-        self.set_compact(self.cfg.get("compact_view", True))
+        self.set_compact(True)
+        self.workspace.bind("<<NotebookTabChanged>>",self._workspace_changed)
         self._bind_keys()
         root.after(100, self._drain)
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -214,14 +215,13 @@ class AutoBoxSemMouse:
 
     def _draw(self):
         self._theme()
-        self.settings_window=tk.Toplevel(self.root)
-        self.settings_window.title("AutoBoxV — Configurações")
-        self.settings_window.geometry("960x760")
-        self.settings_window.minsize(760,600)
-        self.settings_window.configure(background="#242629")
-        self.settings_window.protocol("WM_DELETE_WINDOW",lambda:self.set_compact(True))
-        self.settings_window.withdraw()
-        shell = ttk.Frame(self.settings_window, padding=12)
+        self.workspace=ttk.Notebook(self.root)
+        self.workspace.pack(fill="both",expand=True)
+        self.map_page=ttk.Frame(self.workspace)
+        self.settings_page=ttk.Frame(self.workspace)
+        self.workspace.add(self.map_page,text="Mapa ao vivo")
+        self.workspace.add(self.settings_page,text="Configurações e estatísticas")
+        shell = ttk.Frame(self.settings_page, padding=12)
         self.main_shell = shell
         shell.pack(fill="both", expand=True)
         header = ttk.Frame(shell)
@@ -907,22 +907,29 @@ class AutoBoxSemMouse:
         self.running = bool(value)
 
     def set_compact(self, compact):
-        """Keep the live map visible; configuration opens independently, as in DarkBot."""
+        """Switch views inside the single application window."""
         compact=bool(compact)
         self.cockpit.pack(fill="both",expand=True)
-        self.root.minsize(760,440)
-        if self.root.winfo_width()<=1 or not getattr(self,"cockpit_sized",False):
-            self.root.geometry("840x560")
+        self.root.minsize(760,480)
+        if not getattr(self,"cockpit_sized",False):
+            self.map_geometry="840x600"
+            self.root.geometry(self.map_geometry)
             self.cockpit_sized=True
-        if compact:
-            self.settings_window.withdraw()
-        else:
-            self.settings_window.deiconify()
-            self.settings_window.lift()
+        elif compact!=self.compact:
+            if compact:
+                self.root.geometry(self.map_geometry)
+            else:
+                self.map_geometry=self.root.geometry()
+                self.root.geometry("960x760")
+        self.workspace.select(self.map_page if compact else self.settings_page)
         self.compact=compact
         self.cfg["compact_view"]=compact
         try:self._write_config()
         except OSError as exc:self.say("Não foi possível salvar o modo de janela: "+str(exc))
+
+    def _workspace_changed(self, event=None):
+        compact=self.workspace.select()==str(self.map_page)
+        if compact!=self.compact:self.set_compact(compact)
 
     def open_settings(self, page=None):
         self.set_compact(False)

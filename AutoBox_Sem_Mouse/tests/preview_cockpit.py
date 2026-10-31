@@ -32,8 +32,8 @@ def capture():
             window.update();x=window.winfo_rootx();y=window.winfo_rooty()
             ImageGrab.grab(xdisplay=root.winfo_screen()).crop((x,y,x+window.winfo_width(),y+window.winfo_height())).save(output/name)
         snap(root,'autobox-interface-preview.png')
-        app.open_settings('combat');app.settings_window.geometry('960x760+20+20');root.update()
-        snap(app.settings_window,'autobox-settings-preview.png')
+        app.open_settings('combat');root.geometry('960x760+20+20');root.update()
+        snap(root,'autobox-settings-preview.png')
         print('Rendered actual app:',output)
     finally:AppTests.tearDownClass()
 
