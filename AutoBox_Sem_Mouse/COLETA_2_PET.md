@@ -1,4 +1,4 @@
-# Coleta 2 — somente PET (0.16.4)
+# Coleta 2 — somente PET (0.16.5)
 
 Na aba Coleta, escolha Coleta 2 e inicie no mapa desejado. Requer PET nível 2 ou superior, Auto-looter nível 1 equipado na configuração ativa, vida e combustível. Ativa o PET e seleciona o módulo com confirmação antes de mover a nave. Não compra combustível, equipamentos ou reparos.
 
@@ -10,3 +10,6 @@ Validação real com o PET nível 2 e módulo nível 1 ainda necessária. Public
 
 
 Correção 0.16.4: o cliente calcula o destino pela posição atual da nave, evitando rejeitar um comando após curva por diferença com a leitura anterior. Seleciona boxes próximas independentemente da direção do percurso e só marca como passadas as efetivamente cruzadas. Boxes desaparecidas ou bloqueadas provocam continuação imediata da rota, com adiamento limitado. Copiar diagnóstico inclui pet_collection com contadores, última ação, resultado e falha preservada após encerrar.
+
+Correção 0.16.5: prioriza a box bônus viável mais próxima entre todas as posições recebidas do jogo, sem o corte anterior de 1400 unidades. A varredura fica como alternativa quando não há boxes elegíveis. Uma box só é marcada como atravessada quando a nave ultrapassa sua posição e o segmento real entre leituras passa a até 120 unidades dela; cruzar apenas a linha de direção longe da box não basta. Boxes sem espaço seguro para continuar são adiadas, procurando outra viável no mesmo ciclo. Mantém o alvo durante a aproximação, o voo contínuo e a coleta exclusiva pelo PET. Testes de regressão e simulação; validação em partida real ainda necessária.
+

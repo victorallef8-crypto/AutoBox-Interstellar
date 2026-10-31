@@ -149,3 +149,43 @@ class PetCollectionTests(unittest.TestCase):
         self.assertEqual(report['failure'],'falha reproduzida')
         self.assertEqual(report['movements'],1)
         self.assertEqual(report['last_result'],'error')
+
+    def test_reported_boxes_beyond_old_range_override_patrol_nearest_first(self):
+        e,session,snap=self.make()
+        snap['map_size']=(6000,4000)
+        snap['candidates']=[dict(id='far',revision=1,x=4500,y=1000,kind='bonus'),
+                            dict(id='nearest',revision=1,x=3000,y=1000,kind='bonus')]
+        e.step(snap,0)
+        self.assertEqual(e.target['id'],'nearest')
+        self.assertEqual(session.request.call_args.args[1]['action'],'move')
+        self.assertEqual(session.request.call_args.args[1]['id'],'nearest')
+
+    def test_crossing_heading_plane_far_to_side_does_not_discard_box(self):
+        e,session,snap=self.make();snap['position']=(100,1000)
+        snap['candidates'][0]['y']=1000;e.step(snap,0)
+        snap['position']=(1100,1500);e.step(snap,1)
+        self.assertNotIn(('b',1),e.passed)
+        self.assertEqual(e.target['id'],'b')
+        self.assertEqual(session.request.call_args.args[1]['action'],'move')
+
+    def test_crossing_between_readings_counts_without_needing_sample_at_box(self):
+        e,session,snap=self.make();snap['position']=(600,100);e.step(snap,0)
+        snap['position']=(1400,100);e.step(snap,1)
+        self.assertIn(('b',1),e.passed)
+        self.assertIsNone(e.target)
+
+    def test_blocked_nearest_box_does_not_hide_other_viable_boxes(self):
+        e,session,snap=self.make();snap['position']=(1800,1000)
+        snap['candidates']=[dict(id='edge',revision=1,x=1990,y=1000,kind='bonus'),
+                            dict(id='safe',revision=1,x=1000,y=1000,kind='bonus')]
+        e.step(snap,0)
+        self.assertEqual(e.target['id'],'safe')
+        self.assertEqual(session.request.call_args.args[1]['action'],'move')
+        self.assertNotIn(('edge',1),e.passed)
+
+    def test_known_target_stays_locked_when_closer_box_appears(self):
+        e,session,snap=self.make();e.step(snap,0)
+        snap['candidates'].append(dict(id='new',revision=1,x=200,y=100,kind='bonus'))
+        snap['position']=(150,100);e.step(snap,1)
+        self.assertEqual(e.target['id'],'b')
+

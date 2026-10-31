@@ -96,6 +96,14 @@ def patrol_route(size):
     return points
 
 
+def segment_distance(point, start, end):
+    """Closest approach during the actual movement between two readings."""
+    dx,dy=end[0]-start[0],end[1]-start[1]
+    length2=dx*dx+dy*dy
+    fraction=0 if length2==0 else max(0,min(1,((point[0]-start[0])*dx+(point[1]-start[1])*dy)/length2))
+    return math.dist(point,(start[0]+fraction*dx,start[1]+fraction*dy))
+
+
 class PetCollector:
     def __init__(self,session,stop_event,emit,clock=None,settings=None):
         self.session=session;self.stop=stop_event;self.emit=emit
@@ -103,6 +111,7 @@ class PetCollector:
         self.error=None;self.target=None;self.passed=set();self.deferred={};self.pending=None;self.last_move=-float('inf')
         self.waypoint=None;self.route=None;self.route_size=None;self.route_index=0;self.route_direction=1;self.wait_since=None;self.best=float('inf');self.progress=0
         self.pass_heading=None
+        self.previous_position=None
         self.last_status=None;self.last_pet=None;self.pet_checked=-float('inf');self.command_latency=0
         self.cloak=CloakKeeper(session,stop_event,emit,self.clock) if self.settings.get('cloak') else None
     def status(self,text):
@@ -146,6 +155,8 @@ class PetCollector:
         boxes=[b for b in snapshot.get('candidates',[]) if b.get('kind') in (None,'box','bonus')]
         key=lambda b:(b['id'],b.get('revision'))
         position=snapshot['position']
+        previous_position=self.previous_position or position
+        self.previous_position=position
         size=snapshot.get('map_size')
         if not size or len(size)!=2:raise ValueError('Limites do mapa indisponíveis.')
         bounds=(0,0,*size)
@@ -176,16 +187,24 @@ class PetCollector:
         old_key=key(self.target) if self.target else None
         if self.target and self.pass_heading:
             px,py=position[0]-self.target['x'],position[1]-self.target['y']
-            if px*self.pass_heading[0]+py*self.pass_heading[1]>=0:
+            if (px*self.pass_heading[0]+py*self.pass_heading[1]>=0 and
+                    segment_distance((self.target['x'],self.target['y']),previous_position,position)<=120):
                 self.passed.add(old_key)
         self.deferred={k:until for k,until in self.deferred.items() if until>now}
         self.passed.update(key(b) for b in boxes if math.dist(position,(b['x'],b['y']))<1)
         if self.target:
             self.target=next((b for b in boxes if key(b)==old_key and key(b) not in self.passed),None)
         if self.target is None:
-            available=[b for b in boxes if key(b) not in self.passed and key(b) not in self.deferred
-                       and math.dist(position,(b['x'],b['y']))<=1400]
-            if available:self.target=min(available,key=lambda b:math.dist(position,(b['x'],b['y'])))
+            # Use every reported bonus box, nearest first; the patrol is a fallback.
+            available=sorted((b for b in boxes if key(b) not in self.passed and key(b) not in self.deferred),
+                             key=lambda b:math.dist(position,(b['x'],b['y'])))
+            for box in available:
+                try:approach_point(position,box,bounds)
+                except ValueError:
+                    self.deferred[key(box)]=now+10
+                    continue
+                self.target=box
+                break
         new_key=key(self.target) if self.target else None
         force_move=new_key!=old_key
         if force_move:
@@ -242,3 +261,4 @@ class PetCollector:
             except Exception:pass
             if record:record('end',result={'action':'error' if self.error else 'cancelled'})
             self.stop.set();self.emit('running',False)
+

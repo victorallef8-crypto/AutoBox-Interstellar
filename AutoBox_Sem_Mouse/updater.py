@@ -20,7 +20,7 @@ import zipfile
 from pathlib import Path
 
 
-CURRENT_VERSION = "0.16.4"
+CURRENT_VERSION = "0.16.5"
 OWNER_REPO = "victorallef8-crypto/AutoBox-Interstellar"
 REPO_RAW_PREFIX = (
     "https://raw.githubusercontent.com/"
@@ -189,3 +189,4 @@ if __name__ == "__main__" and len(sys.argv) == 5 and sys.argv[1] == "--apply":
     except Exception as exc:
         print("Falha na atualizacao do AutoBox:", exc)
         input("Pressione Enter para fechar...")
+
