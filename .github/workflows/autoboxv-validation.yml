@@ -8,7 +8,6 @@ permissions:
   contents: read
 jobs:
   windows:
-    if: github.event_name == 'push' || github.head_ref == 'design/autoboxv-dashboard'
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -22,6 +21,8 @@ jobs:
         run: python -m unittest discover -s AutoBox_Sem_Mouse/tests -q
       - name: Ponte de navegação simulada
         run: node AutoBox_Sem_Mouse/tests/test_pursuit_bridge.mjs
+      - name: Movimento NPC, portal e limites do mapa
+        run: node AutoBox_Sem_Mouse/tests/test_portal_circle_bridge.mjs
       - name: Ponte Skylab simulada
         run: node AutoBox_Sem_Mouse/tests/test_skylab_bridge.mjs
       - name: Ponte de camuflagem simulada

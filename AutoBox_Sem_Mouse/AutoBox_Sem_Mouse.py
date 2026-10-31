@@ -104,6 +104,8 @@ class AutoBoxSemMouse:
         self.npc_ammo=tk.StringVar(value=self.cfg.get("npc_ammo","lcb10"))
         self.npc_rocket=tk.StringVar(value=self.cfg.get("npc_rocket","none"))
         self.npc_radius=tk.StringVar(value=str(self.cfg.get("npc_radius",450)))
+        self.npc_repair_to=tk.StringVar(value=str(self.cfg.get("npc_repair_to",95)))
+        self.npc_roam=tk.BooleanVar(value=self.cfg.get("npc_roam",True))
         self.npc_repair=tk.BooleanVar(value=self.cfg.get("npc_repair",False))
         self.pursuit_enabled=tk.BooleanVar(value=self.cfg.get("pursuit_enabled",False))
         self.npc_portal_fight=tk.BooleanVar(value=self.cfg.get("npc_portal_fight",False))
@@ -147,54 +149,59 @@ class AutoBoxSemMouse:
     def _theme(self):
         style = ttk.Style(self.root)
         style.theme_use("clam")
-        style.configure(".", background="#111827", foreground="#e5e7eb",
-                        font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 10), fieldbackground="#1f2937")
-        style.configure("TFrame", background="#111827")
-        style.configure("TLabel", background="#111827", foreground="#e5e7eb")
+        style.configure(".", background="#242629", foreground="#e5e7eb",
+                        font=(("Segoe UI" if os.name=="nt" else "Helvetica"), 10), fieldbackground="#303236")
+        style.configure("TFrame", background="#242629")
+        style.configure("TLabel", background="#242629", foreground="#e5e7eb")
         style.configure("Muted.TLabel", foreground="#94a3b8")
-        style.configure("Title.TLabel", font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 18, "bold"), foreground="#f8fafc")
-        style.configure("Heading.TLabel", font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 13, "bold"))
-        style.configure("Card.TFrame", background="#1e293b")
-        style.configure("Card.TLabel", background="#1e293b", foreground="#94a3b8")
-        style.configure("Count.TLabel", background="#1e293b", foreground="#67e8f9",
-                        font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 20, "bold"))
-        style.configure("Balance.TLabel", background="#1e293b", foreground="#f8fafc", font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 23, "bold"))
-        style.configure("Income.TLabel", background="#1e293b", foreground="#4ade80", font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 16, "bold"))
-        style.configure("HP.Horizontal.TProgressbar",background="#22c55e",troughcolor="#263449")
-        style.configure("Shield.Horizontal.TProgressbar",background="#3b82f6",troughcolor="#263449")
+        style.configure("Title.TLabel", font=(("Segoe UI" if os.name=="nt" else "Helvetica"), 18, "bold"), foreground="#f8fafc")
+        style.configure("Heading.TLabel", font=(("Segoe UI" if os.name=="nt" else "Helvetica"), 13, "bold"))
+        style.configure("Card.TFrame", background="#303236")
+        style.configure("Card.TLabel", background="#303236", foreground="#94a3b8")
+        style.configure("Count.TLabel", background="#303236", foreground="#a4d0bd",
+                        font=(("Segoe UI" if os.name=="nt" else "Helvetica"), 20, "bold"))
+        style.configure("Balance.TLabel", background="#303236", foreground="#f8fafc", font=(("Segoe UI" if os.name=="nt" else "Helvetica"), 23, "bold"))
+        style.configure("Income.TLabel", background="#303236", foreground="#4ade80", font=(("Segoe UI" if os.name=="nt" else "Helvetica"), 16, "bold"))
+        style.configure("HP.Horizontal.TProgressbar",background="#22c55e",troughcolor="#3a3d42")
+        style.configure("Shield.Horizontal.TProgressbar",background="#3b82f6",troughcolor="#3a3d42")
         style.configure("Compact.TButton",padding=(8,4))
-        style.configure("BalanceName.TLabel", background="#1e293b", foreground="#94a3b8", font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"), 11))
-        style.configure("TButton", background="#263449", padding=(12,8))
-        style.map("TButton", background=[("active","#334b68"),("disabled","#1e293b")],
+        style.configure("BalanceName.TLabel", background="#303236", foreground="#94a3b8", font=(("Segoe UI" if os.name=="nt" else "Helvetica"), 11))
+        style.configure("TButton", background="#3a3d42", padding=(10,6),borderwidth=1)
+        style.map("TButton", background=[("active","#4b4f55"),("disabled","#303236")],
                   foreground=[("disabled","#64748b")])
-        style.configure("Start.TButton", background="#0e7490", foreground="white")
-        style.map("Start.TButton", background=[("active","#0891b2")])
-        style.configure("TNotebook", background="#111827", borderwidth=0)
-        style.configure("TNotebook.Tab", background="#1e293b", padding=(14,10))
-        style.map("TNotebook.Tab", background=[("selected","#155e75")],
+        style.configure("Start.TButton", background="#32735c", foreground="white")
+        style.map("Start.TButton", background=[("active","#408b70")])
+        style.configure("TNotebook", background="#242629", borderwidth=0)
+        style.configure("TNotebook.Tab", background="#303236", padding=(14,10))
+        style.map("TNotebook.Tab", background=[("selected","#3f5555")],
                   foreground=[("disabled","#64748b"),("selected","#f8fafc")])
-        style.configure("TLabelframe", background="#111827", bordercolor="#334155")
-        style.configure("TLabelframe.Label", background="#111827", foreground="#67e8f9")
-        style.configure("TEntry", fieldbackground="#1e293b", foreground="#f8fafc", insertcolor="white")
-        style.configure("TCheckbutton", background="#111827", foreground="#e5e7eb")
-        style.map("TCheckbutton", background=[("active","#111827")])
+        style.configure("TLabelframe", background="#242629", bordercolor="#45494f")
+        style.configure("TLabelframe.Label", background="#242629", foreground="#a4d0bd")
+        style.configure("TEntry", fieldbackground="#303236", foreground="#f8fafc", insertcolor="white")
+        style.configure("TCheckbutton", background="#242629", foreground="#e5e7eb")
+        style.map("TCheckbutton", background=[("active","#242629")])
         for name in ("TEntry","TCombobox","TSpinbox"):
-            style.configure(name,fieldbackground="#1e293b",background="#334155",foreground="#f8fafc",arrowcolor="#f8fafc",insertcolor="#f8fafc")
-            style.map(name,fieldbackground=[("disabled","#263449"),("readonly","#1e293b"),("!disabled","#1e293b")],
+            style.configure(name,fieldbackground="#303236",background="#45494f",foreground="#f8fafc",arrowcolor="#f8fafc",insertcolor="#f8fafc")
+            style.map(name,fieldbackground=[("disabled","#3a3d42"),("readonly","#303236"),("!disabled","#303236")],
                       foreground=[("disabled","#94a3b8"),("!disabled","#f8fafc")],
-                      selectbackground=[("!disabled","#155e75")],selectforeground=[("!disabled","#ffffff")])
-        style.configure("Treeview",background="#111827",fieldbackground="#111827",foreground="#e5e7eb",rowheight=26)
-        style.map("Treeview",background=[("selected","#155e75")],foreground=[("selected","#ffffff")])
-        style.configure("Treeview.Heading",background="#263449",foreground="#f8fafc")
-        style.map("Treeview.Heading",background=[("active","#334155")],foreground=[("active","#ffffff")])
+                      selectbackground=[("!disabled","#3f5555")],selectforeground=[("!disabled","#ffffff")])
+        style.configure("Treeview",background="#242629",fieldbackground="#242629",foreground="#e5e7eb",rowheight=26)
+        style.map("Treeview",background=[("selected","#3f5555")],foreground=[("selected","#ffffff")])
+        style.configure("Treeview.Heading",background="#3a3d42",foreground="#f8fafc")
+        style.map("Treeview.Heading",background=[("active","#45494f")],foreground=[("active","#ffffff")])
         style.map("TCheckbutton",foreground=[("disabled","#94a3b8"),("active","#f8fafc")],
-                  indicatorbackground=[("selected","#0e7490"),("!selected","#334155")],indicatorforeground=[("selected","#ffffff")])
-        for option,value in (("background","#1e293b"),("foreground","#f8fafc"),("selectBackground","#155e75"),("selectForeground","#ffffff")):
+                  indicatorbackground=[("selected","#32735c"),("!selected","#45494f")],indicatorforeground=[("selected","#ffffff")])
+        for option,value in (("background","#303236"),("foreground","#f8fafc"),("selectBackground","#3f5555"),("selectForeground","#ffffff")):
             self.root.option_add("*TCombobox*Listbox."+option,value)
-        self.root.configure(background="#111827")
+        style.configure("Toolbar.TFrame",background="#292b2f")
+        style.configure("Toolbar.TLabel",background="#292b2f",foreground="#e5e7eb")
+        style.configure("Toolbar.TButton",padding=(7,4),background="#35383d",font=("Segoe UI" if os.name=="nt" else "Helvetica",9))
+        style.configure("Map.TCheckbutton",background="#292b2f",font=("Segoe UI" if os.name=="nt" else "Helvetica",9))
+        style.map("Map.TCheckbutton",background=[("active","#35383d")])
+        self.root.configure(background="#242629")
 
     def _scroll_page(self, parent):
-        canvas = tk.Canvas(parent, background="#111827", highlightthickness=0)
+        canvas = tk.Canvas(parent, background="#242629", highlightthickness=0)
         scroll = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
@@ -207,14 +214,21 @@ class AutoBoxSemMouse:
 
     def _draw(self):
         self._theme()
-        shell = ttk.Frame(self.root, padding=16)
+        self.settings_window=tk.Toplevel(self.root)
+        self.settings_window.title("AutoBoxV — Configurações")
+        self.settings_window.geometry("960x760")
+        self.settings_window.minsize(760,600)
+        self.settings_window.configure(background="#242629")
+        self.settings_window.protocol("WM_DELETE_WINDOW",lambda:self.set_compact(True))
+        self.settings_window.withdraw()
+        shell = ttk.Frame(self.settings_window, padding=12)
         self.main_shell = shell
         shell.pack(fill="both", expand=True)
         header = ttk.Frame(shell)
         header.pack(fill="x", pady=(0,14))
         title = ttk.Frame(header); title.pack(side="left")
         ttk.Label(title, text="AutoBoxV", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(title, text="Interstellar  •  versão "+updater.CURRENT_VERSION,
+        ttk.Label(title, text="Interstellar  |  versão "+updater.CURRENT_VERSION,
                   style="Muted.TLabel").pack(anchor="w")
         connection = ttk.Frame(header); connection.pack(side="right")
         ttk.Label(connection, textvariable=self.session_label, style="Heading.TLabel").pack(anchor="e")
@@ -288,8 +302,8 @@ class AutoBoxSemMouse:
         recent=ttk.Frame(dashboard);recent.pack(fill="x")
         ttk.Label(recent,text="Atividades recentes").pack(side="left")
         ttk.Button(recent,text="Parar tudo",command=self.stop_all,style="Compact.TButton").pack(side="right")
-        self.log=tk.Text(dashboard,height=3,state="disabled",wrap="word",background="#0b1220",
-                         foreground="#cbd5e1",relief="flat",padx=8,pady=4,font=(("Segoe UI" if os.name=="nt" else "DejaVu Sans"),9))
+        self.log=tk.Text(dashboard,height=3,state="disabled",wrap="word",background="#1c1e20",
+                         foreground="#cbd5e1",relief="flat",padx=8,pady=4,font=(("Segoe UI" if os.name=="nt" else "Helvetica"),9))
         self.log.pack(fill="x",pady=4)
 
         browser=self._scroll_page(self.pages["browser"])
@@ -400,8 +414,13 @@ class AutoBoxSemMouse:
         ttk.Label(test,text="Míssil (none = desativado)").grid(row=7,column=0,sticky="w")
         ttk.Combobox(test,textvariable=self.npc_rocket,state="readonly",values=("none","r310","plt2026","plt2021","plt3030")).grid(row=7,column=1,sticky="w")
         ttk.Label(test,text="Com pouca vida ao iniciar, o bot repara no portal antes de lutar. Tenha estoque das munições escolhidas. Laser sem confirmação de seleção encerra o farm; míssil vazio não é comprado. "
-            "Os botões Pausar NPC e Parar NPC interrompem o combate. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal; após recuperar 90% de vida, o farm retoma.",
+            "Os botões Pausar NPC e Parar NPC interrompem o combate. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal; após atingir a vida configurada abaixo, o farm retoma.",
             wraplength=680,style="Muted.TLabel").grid(row=9,column=0,columnspan=2,sticky="w")
+        ttk.Checkbutton(test,text="Explorar o mapa quando não houver NPC marcado por perto",variable=self.npc_roam).grid(row=10,column=0,columnspan=2,sticky="w",pady=4)
+        ttk.Label(test,text="Reconexão, local de renascimento, limite de mortes e custo usam as opções da aba de coleta.",wraplength=650,style="Muted.TLabel").grid(row=11,column=0,columnspan=2,sticky="w")
+        repair_row=ttk.Frame(test);repair_row.grid(row=12,column=0,columnspan=2,sticky="w",pady=4)
+        ttk.Label(repair_row,text="Retomar após reparar até (%): ").pack(side="left")
+        ttk.Spinbox(repair_row,from_=80,to=100,textvariable=self.npc_repair_to,width=6).pack(side="left")
         pursuit=ttk.LabelFrame(body,text="Perseguição para finalização",padding=10)
         pursuit.pack(fill="x",pady=6)
         ttk.Checkbutton(pursuit,text="Perseguir de perto para finalizar",variable=self.pursuit_enabled).pack(anchor="w")
@@ -634,7 +653,7 @@ class AutoBoxSemMouse:
         generation=self.npc_generation
         self.npc_stop_event=threading.Event()
         engine=NpcFarmWorker(self.session,self.npc_stop_event,lambda event,data:self.events.put(("npc_event",(generation,event,data))),
-            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}),pursuit_enabled=self.pursuit_enabled.get(),npc_profiles=self.cfg.get("npc_profiles",{}),hybrid=hybrid,collect_settings={"green":self.green.get(),"cloak":self.cloak_enabled.get()})
+            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),repair_to=int(self.npc_repair_to.get()),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}),pursuit_enabled=self.pursuit_enabled.get(),npc_profiles=self.cfg.get("npc_profiles",{}),hybrid=hybrid,roam=self.npc_roam.get(),recovery_settings={"reconnect":self.reconnect.get(),"respawn":self.respawn.get(),"max_deaths":int(self.max_deaths.get()),"max_cost":int(self.max_cost.get()),"death_state":self.death_state},collect_settings={"green":self.green.get(),"cloak":self.cloak_enabled.get()})
         engine.kills=previous_kills
         if self.npc_state=="paused" and self.npc_engine and isinstance(getattr(self.npc_engine,"stats",None),dict):
             engine.stats=dict(self.npc_engine.stats)
@@ -888,22 +907,27 @@ class AutoBoxSemMouse:
         self.running = bool(value)
 
     def set_compact(self, compact):
+        """Keep the live map visible; configuration opens independently, as in DarkBot."""
         compact=bool(compact)
+        self.cockpit.pack(fill="both",expand=True)
+        self.root.minsize(760,440)
+        if self.root.winfo_width()<=1 or not getattr(self,"cockpit_sized",False):
+            self.root.geometry("840x560")
+            self.cockpit_sized=True
         if compact:
-            if not self.compact and self.root.winfo_width()>1:self.full_geometry=self.root.geometry()
-            self.main_shell.pack_forget()
-            self.cockpit.pack(fill="both",expand=True)
-            self.root.minsize(650,560)
-            self.root.geometry("760x560")
+            self.settings_window.withdraw()
         else:
-            self.cockpit.pack_forget()
-            self.main_shell.pack(fill="both",expand=True)
-            self.root.minsize(760,min(620,self.root.winfo_screenheight()-80))
-            self.root.geometry(self.full_geometry)
+            self.settings_window.deiconify()
+            self.settings_window.lift()
         self.compact=compact
         self.cfg["compact_view"]=compact
         try:self._write_config()
         except OSError as exc:self.say("Não foi possível salvar o modo de janela: "+str(exc))
+
+    def open_settings(self, page=None):
+        self.set_compact(False)
+        if page in self.pages:
+            self.notebook.select(self.pages[page])
 
     def game_window(self, state):
         if not self.session.ready.is_set():
@@ -967,6 +991,10 @@ class AutoBoxSemMouse:
         try:
             for key in ("hp","radius","max_distance","seconds"):
                 self.cfg.pop("pursuit_"+key,None)
+            repair_to=int(self.npc_repair_to.get())
+            if not 80<=repair_to<=100:raise ValueError("Vida após reparo: 80 a 100%.")
+            self.cfg["npc_repair_to"]=repair_to
+            self.cfg["npc_roam"]=self.npc_roam.get()
             self.cfg["pursuit_enabled"]=self.pursuit_enabled.get()
             for key,var in self.buy_fields.items():
                 value=int(var.get())

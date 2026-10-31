@@ -184,3 +184,73 @@ class CockpitUiTests(unittest.TestCase):
         with patch.object(self.app,"start_npc_test") as npc,patch.object(self.app,"start") as collect:
             self.app.cockpit.mode.set("Matar + coletar");self.app.cockpit.start()
             npc.assert_called_once_with(hybrid=True);collect.assert_not_called()
+
+    def test_configuration_is_a_separate_window_and_does_not_hide_the_map(self):
+        worker=self.app.worker
+        self.app.open_settings('combat');self.root.update_idletasks()
+        self.assertEqual(self.app.settings_window.state(),'normal')
+        self.assertEqual(self.app.cockpit.winfo_manager(),'pack')
+        self.assertEqual(self.app.notebook.select(),str(self.app.pages['combat']))
+        self.app.set_compact(True);self.root.update_idletasks()
+        self.assertEqual(self.app.settings_window.state(),'withdrawn')
+        self.assertIs(self.app.worker,worker)
+
+    def test_map_preferences_persist_without_changing_workers(self):
+        worker=self.app.worker;c=self.app.cockpit
+        c.layers['boxes'].set(False);c.stats_visible.set(False);c.save_view()
+        saved=json.loads(self.module.CONFIG_PATH.read_text())
+        self.assertFalse(saved['map_layers']['boxes']);self.assertFalse(saved['map_stats'])
+        self.assertIs(self.app.worker,worker)
+        c.layers['boxes'].set(True);c.stats_visible.set(True);c.save_view()
+
+    def test_target_health_and_missing_data_reset_in_cockpit(self):
+        c=self.app.cockpit;s=live()
+        s.update(hp_percent=72,shield_percent=34,combat={'target_id':'a','selectedAmmo':'lcb10','selected_stock':120})
+        s['npc_candidates'][0].update(kind='mordon',hp=250,maxHp=1000)
+        c.update(s)
+        self.assertIn('25%',c.target_text.get())
+        self.assertEqual(c.bars['hp']['value'],72)
+        c.update({'fresh':False})
+        self.assertEqual(c.bars['hp']['value'],0)
+        self.assertIn('Nenhum',c.target_text.get())
+        self.assertEqual(c.coordinates.get(),'X: —   Y: —')
+
+    def test_toolbar_buttons_fit_the_smallest_supported_window(self):
+        root=self.root;c=self.app.cockpit
+        root.deiconify();self.app.set_compact(True);root.geometry('760x440');root.update()
+        try:
+            for button in c.buttons.values():
+                parent=button.nametowidget(button.winfo_parent())
+                self.assertGreater(button.winfo_width(),10)
+                self.assertLessEqual(button.winfo_x()+button.winfo_width(),parent.winfo_width())
+                self.assertGreaterEqual(button.winfo_width(),button.winfo_reqwidth())
+        finally:root.withdraw()
+
+    def test_optional_npc_names_render_and_hide_without_affecting_the_farm(self):
+        c=self.app.cockpit;worker=self.app.worker
+        c.update(live());c.layers['npc_names'].set(True);c.save_view()
+        self.assertEqual(len(c.canvas.find_withtag('npc-name')),1)
+        c.layers['npc_names'].set(False);c.save_view()
+        self.assertFalse(c.canvas.find_withtag('npc-name'))
+        self.assertIs(self.app.worker,worker)
+
+    def test_allied_names_and_markers_have_independent_switches(self):
+        c=self.app.cockpit;s=live()
+        s.update(allies=[dict(id='friend',nickname='Piloto amigo',x=4500,y=4000)],allies_available=True)
+        c.layers['allies'].set(True);c.layers['ally_names'].set(True);c.update(s)
+        self.assertEqual(len(c.canvas.find_withtag('ally-marker')),1)
+        self.assertEqual(len(c.canvas.find_withtag('ally-name')),1)
+        c.layers['ally_names'].set(False);c.save_view()
+        self.assertTrue(c.canvas.find_withtag('ally-marker'));self.assertFalse(c.canvas.find_withtag('ally-name'))
+        c.layers['allies'].set(False);c.save_view()
+        self.assertFalse(c.canvas.find_withtag('ally-marker'))
+        c.layers['allies'].set(True);c.save_view()
+
+    def test_ally_names_persist_and_clear_on_stale_feed(self):
+        c=self.app.cockpit;c.layers['ally_names'].set(True);c.save_view()
+        self.assertTrue(json.loads(self.module.CONFIG_PATH.read_text())['map_layers']['ally_names'])
+        c.update(dict(live(),allies=[dict(id='a',name='Nome\ncomprido',x=5000,y=4000)]))
+        self.assertTrue(c.canvas.find_withtag('ally-name'))
+        c.update({'fresh':False});self.assertFalse(c.canvas.find_withtag('ally-name'))
+        self.assertIn('indisponível',c.ally_status.get())
+        c.layers['ally_names'].set(False);c.save_view()

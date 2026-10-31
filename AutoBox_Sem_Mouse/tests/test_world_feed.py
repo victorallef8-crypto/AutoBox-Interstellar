@@ -166,3 +166,31 @@ class FeedTests(unittest.TestCase):
         self.assertIsNone(self.feed.state)
 
 if __name__=="__main__": unittest.main()
+
+class AllyFeedTests(unittest.TestCase):
+    def test_only_explicit_allies_on_current_map_and_never_private_fields(self):
+        feed=WorldFeed();feed.begin('s');s=snapshot();s['me']['id']='self'
+        s['players']=[dict(id='self',x=10,y=10,isAlly=True),
+                      dict(id='a',nickname='Piloto amigo',x=200,y=300,isAlly=True,username='private-login',token='secret'),
+                      dict(id='b',name='Grupo',x=300,y=400,relation='ally'),
+                      dict(id='enemy',x=200,y=300,isAlly=True,isEnemy=True),
+                      dict(id='hostile',x=200,y=300,isAlly=True,relation='enemy'),
+                      dict(id='unknown',x=200,y=300),dict(id='other-map',x=200,y=300,isAlly=True,mapId='1-1')]
+        self.assertTrue(feed.ingest('s',json.dumps(dict(transport='delta1',epoch='e',sequence=1,full=s))))
+        result=feed.navigation_snapshot()
+        self.assertEqual([p['id'] for p in result['allies']],['a','b'])
+        self.assertTrue(result['allies_available'])
+        self.assertNotIn('private-login',repr(feed.state));self.assertNotIn('secret',repr(feed.state))
+    def test_player_deltas_remove_relation_and_update_names(self):
+        feed=WorldFeed();feed.begin('s');s=snapshot()
+        s['players']=[dict(id='a',nickname='Antes',x=200,y=300,relation='ally')]
+        feed.ingest('s',json.dumps(dict(transport='delta1',epoch='e',sequence=1,full=s)))
+        patch=['o',[['players',['a',1,[[0,['o',[['nickname',['v','Depois']],['isEnemy',['v',True]]],[]]]]]]],[]]
+        self.assertTrue(feed.ingest('s',json.dumps(dict(transport='delta1',epoch='e',sequence=2,base=1,patch=patch))))
+        self.assertEqual(feed.state['players'][0]['nickname'],'Depois')
+        self.assertFalse(feed.navigation_snapshot()['allies'])
+    def test_no_player_schema_does_not_invent_allies(self):
+        feed=WorldFeed();feed.begin('s')
+        feed.ingest('s',json.dumps(dict(transport='delta1',epoch='e',sequence=1,full=snapshot())))
+        self.assertEqual(feed.navigation_snapshot()['allies'],[])
+        self.assertFalse(feed.navigation_snapshot()['allies_available'])

@@ -437,11 +437,14 @@ class CombatLowHealth(Exception):
 
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
-    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None,pursuit_enabled=False,pursuit_hp=20,pursuit_radius=150,pursuit_max_distance=3000,pursuit_seconds=60,npc_profiles=None):
+    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None,pursuit_enabled=False,pursuit_hp=20,pursuit_radius=150,pursuit_max_distance=3000,pursuit_seconds=60,npc_profiles=None,repair_to=90):
         self.session=session; self.stop=stop; self.emit=emit
         self.kinds=set(kind if isinstance(kind,(list,tuple,set)) else [kind])
         self.kind=", ".join(sorted(self.kinds))
         self.destination=destination; self.min_hp=min_hp; self.clock=clock or time.monotonic
+        if type(repair_to) not in (int,float) or not isfinite(repair_to) or not 80<=repair_to<=100:
+            raise ValueError("Vida após reparo: 80 a 100%.")
+        self.repair_to=repair_to
         self.orbit=orbit; self.radius=max(150,min(800,radius)); self.repair_portal=repair_portal; self.direction=1
         self.ammo=ammo; self.rocket=rocket; self.next_rocket=0
         self.restock=restock or {}; self.next_restock=0
@@ -562,9 +565,9 @@ class NpcTestWorker:
                 self.report["portal_distance"]=result.get("distance")
                 if result.get("repair")=="unavailable": raise ValueError("Equipe uma CPU/robô de reparo no jogo.")
                 if result.get("repair") in ("sent","enabled") and repair_sent is None: repair_sent=now
-                if not firing and result.get("distance",99999)<=80 and (snap.get("hp_percent") or 0)>=90:
+                if not firing and result.get("distance",99999)<=80 and (snap.get("hp_percent") or 0)>=self.repair_to:
                     self.report["recovered"]=True
-                    self.publish("Recuperada no portal com pelo menos 90% de vida.")
+                    self.publish("Recuperada no portal com pelo menos %s%% de vida." % self.repair_to)
                     return
             if firing and stop_attempts>=3 and now-started>=15:
                 raise ValueError("Ataque não parou após 3 tentativas. Farm interrompido; pressione Ctrl no jogo e confira o reparo.")
@@ -609,6 +612,7 @@ class NpcTestWorker:
                     if not candidates: raise ValueError("Nenhum NPC desse tipo disponível no mapa.")
                     self.target=dict(min(candidates,key=lambda n:(
                         self.npc_profiles.get(n.get("kind") or n.get("type"),{}).get("priority",0),
+                        n["hp"]/n["maxHp"] if type(n.get("maxHp")) in (int,float) and isfinite(n["maxHp"]) and n["maxHp"]>0 else 1,
                         distance(snap["position"],(n["x"],n["y"])))))
                     self.kind=self.target.get("kind") or self.target.get("type")
                     profile=self.npc_profiles.get(self.kind,{})
@@ -780,6 +784,71 @@ class BudgetStop:
         return self.is_set()
 
 
+class FarmRecovery:
+    """Bounded reconnect and one acknowledged respawn request per death."""
+    def __init__(self, session, stop, emit, settings, clock=None):
+        self.session=session; self.stop=stop; self.emit=emit; self.settings=settings
+        self.clock=clock or time.monotonic
+        self.deaths=settings.get("death_state",{"ids":set(),"count":0})
+        self.disconnected=None; self.next_retry=0; self.attempts=0
+        self.pending=None; self.was_down=False; self.death_wait=None
+
+    def step(self, snap):
+        if self.stop.is_set(): return "waiting"
+        now=self.clock()
+        if not snap.get("fresh"):
+            if not self.settings.get("reconnect"):
+                raise ValueError("Farm interrompido: leitura indisponível; reconexão desativada.")
+            self.was_down=True
+            if self.disconnected is None:
+                self.disconnected=now
+                self.emit("status","NPC Killer: aguardando reconexão; Pausar cancela.")
+            if now-self.disconnected>=600:
+                raise ValueError("Reconexão excedeu 10 minutos; confira o jogo.")
+            if now>=self.next_retry:
+                result=self.session.request("reconnect",{"reload":now-self.disconnected>=30},
+                    allowed=lambda:not self.stop.is_set())
+                if not isinstance(result,dict) or result.get("action") in ("login","closed"):
+                    raise ValueError("Abra o jogo e faça login para retomar o NPC Killer.")
+                self.attempts+=1
+                self.next_retry=now+min(60,5*2**min(self.attempts-1,4))
+            return "waiting"
+        self.disconnected=None; self.attempts=0; self.next_retry=0
+        if snap.get("dead"):
+            self.was_down=True
+            death_id=(snap.get("repair") or {}).get("id")
+            if death_id is None: raise ValueError("Identificação do renascimento indisponível.")
+            if self.death_wait is None: self.death_wait=(death_id,now)
+            elif self.death_wait[0]==death_id and now-self.death_wait[1]>=30:
+                raise ValueError("Renascimento sem confirmação; confira o jogo antes de repetir.")
+            if death_id not in self.deaths["ids"]:
+                self.deaths["ids"].add(death_id); self.deaths["count"]+=1
+                self.emit("status","Nave destruída. Mortes na sessão: "+str(self.deaths["count"]))
+            if self.deaths["count"]>=self.settings.get("max_deaths",3):
+                raise ValueError("Limite de mortes atingido. NPC Killer encerrado.")
+            option=self.settings.get("respawn","Desativado")
+            option={"Base":"base","Portal":"portal","Local":"spot"}.get(option,option)
+            if option not in ("base","portal","spot"):
+                raise ValueError("Nave destruída; renascimento automático desativado.")
+            if self.pending is not None:
+                if self.pending[0]!=death_id or now-self.pending[1]>=30:
+                    raise ValueError("Renascimento sem confirmação; confira o jogo antes de repetir.")
+                return "waiting"
+            result=self.session.request("respawn",dict(death_id=death_id,option=option,
+                max_cost=self.settings.get("max_cost",0)),allowed=lambda:not self.stop.is_set())
+            if not isinstance(result,dict) or result.get("action") not in ("respawn","wait","cancelled"):
+                raise ValueError("Renascimento indisponível ou acima do custo configurado.")
+            if result.get("action")=="respawn":
+                self.pending=(death_id,now)
+            self.emit("status","NPC Killer: aguardando confirmação do renascimento.")
+            return "waiting"
+        self.pending=None; self.death_wait=None
+        if self.was_down:
+            self.was_down=False
+            return "restored"
+        return "ready"
+
+
 class NpcFarmWorker:
     """Encadeia lutas confirmadas; falhas e F9 encerram o ciclo."""
     def __init__(self,session,stop,emit,**settings):
@@ -788,6 +857,10 @@ class NpcFarmWorker:
         self.stats={};self.skip_until={};self.failed_targets=0
         self.hybrid=self.settings.pop("hybrid",False)
         self.collect_settings=self.settings.pop("collect_settings",{})
+        self.recovery_settings=self.settings.pop("recovery_settings",{})
+        self.roam=self.settings.pop("roam",True)
+        self.recovery=FarmRecovery(session,stop,emit,self.recovery_settings,self.settings.get("clock"))
+        self.roam_index=0; self.roam_goal=None; self.roam_context=None; self.next_roam=0
         self.settings["npc_profiles"]=normalize_npc_profiles(self.settings.get("npc_profiles"))
         self.collection_cloak=(CloakKeeper(session,stop,emit,self.settings.get("clock"))
                                if self.hybrid and self.collect_settings.get("cloak") else None)
@@ -810,6 +883,31 @@ class NpcFarmWorker:
             data=dict(data,mode="continuous_npc_farm",kills=self.kills)
         self.emit(event,data)
 
+    def roam_step(self, snap, now):
+        """Explore interior waypoints only while no chosen NPC is available."""
+        size=snap.get("map_size"); position=snap.get("position")
+        if not self.roam or not size or not position or snap.get("combat",{}).get("attacking"):
+            return
+        if len(size)!=2 or len(position)!=2 or not all(type(v) in (int,float) and isfinite(v) for v in (*size,*position)) or min(size)<=320:
+            return
+        context=(snap.get("map"),snap.get("respawn_revision"),tuple(size))
+        if context!=self.roam_context:
+            self.roam_context=context; self.roam_goal=None; self.next_roam=0
+        if self.roam_goal is None or distance(position,self.roam_goal)<=150:
+            points=[(size[0]*x,size[1]*y) for x,y in ((.25,.25),(.75,.25),(.75,.75),(.25,.75))]
+            if self.roam_goal is None:
+                self.roam_index=min(range(4),key=lambda i:distance(position,points[i]))
+            else: self.roam_index=(self.roam_index+1)%4
+            self.roam_goal=points[self.roam_index]
+            self.next_roam=0
+        if now>=self.next_roam:
+            result=self.session.request("npc_action",dict(action="roam",map=snap["map"],life=snap.get("respawn_revision"),
+                x=self.roam_goal[0],y=self.roam_goal[1],min_hp=self.settings.get("min_hp",40)),
+                allowed=lambda:not self.stop.is_set())
+            if not isinstance(result,dict) or result.get("action") not in ("move_sent","in_range","cancelled"):
+                raise ValueError("Exploração interrompida: movimento não confirmado pelo cliente.")
+            self.next_roam=now+2
+
     def run(self):
         kinds=self.settings.get("kind","mordon")
         kinds=set(kinds if isinstance(kinds,(list,tuple,set)) else [kinds])
@@ -817,8 +915,19 @@ class NpcFarmWorker:
         try:
             while not self.stop.is_set():
                 snap=self.session.get_world_snapshot()
-                if not snap.get("fresh") or snap.get("dead"):
-                    raise ValueError("Farm interrompido: dados indisponíveis ou nave destruída.")
+                recovery=self.recovery.step(snap)
+                if recovery=="waiting":
+                    if self.stop.wait(.5): break
+                    continue
+                if recovery=="restored":
+                    if snap.get("combat",{}).get("attacking"):
+                        if self.last is None or self.last.context!={"map":snap["map"],"life":snap.get("respawn_revision")}:
+                            raise ValueError("Combate ativo após reconexão; pare os tiros no jogo antes de retomar.")
+                        self.last.cease_fire()
+                        if not self.last.report.get("stop_confirmed"):
+                            raise ValueError("Parada dos tiros não confirmada após reconexão.")
+                    self.last=None; self.skip_until.clear(); self.roam_goal=None
+                    self.emit("status","Leitura recuperada; reavaliando nave e alvos antes de retomar.")
                 hp=snap.get("hp_percent")
                 if hp is None: raise ValueError("Vida indisponível; farm interrompido.")
                 initial_repair=self.last is None and hp<80
@@ -853,8 +962,9 @@ class NpcFarmWorker:
                             and (str(n.get("id")),n.get("respawnRevision")) not in self.skip_until
                             for n in snap.get("npc_candidates",[]))
                 if not present and (not destination or snap.get("map")==destination):
-                    self.emit("status","Aguardando NPC dos tipos marcados. Derrotados: "+str(self.kills))
+                    self.emit("status","Procurando NPC dos tipos marcados. Derrotados: "+str(self.kills))
                     if self.hybrid:self.collect_interval()
+                    else:self.roam_step(snap,now)
                     if self.stop.wait(1): break
                     continue
                 engine=NpcTestWorker(self.session,self.stop,self.relay,**self.settings)
@@ -865,6 +975,10 @@ class NpcFarmWorker:
                 self.last=engine
                 engine.run()
                 if self.stop.is_set(): break
+                after=self.session.get_world_snapshot()
+                if not after.get("fresh") or after.get("dead"):
+                    # Re-evaluate recovery before deciding whether another fight may start.
+                    continue
                 if not engine.report.get("stop_confirmed"): break
                 if engine.report.get("kill_confirmed"):
                     self.kills+=1;self.failed_targets=0
