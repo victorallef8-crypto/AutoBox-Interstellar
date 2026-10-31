@@ -1,6 +1,7 @@
 """Coleta por dados do jogo."""
 from math import hypot, isfinite
 import time
+import threading
 
 def distance(a,b):
     return hypot(a[0]-b[0],a[1]-b[1])
@@ -11,12 +12,32 @@ def normalize_npc_profiles(profiles):
     valid={}
     for name,p in profiles.items():
         if not isinstance(name,str) or not isinstance(p,dict):continue
+        if any(key in p and type(p[key]) is not bool for key in ("kill","portal","pursuit")):continue
+        if "rocket" in p and p["rocket"] not in ("none","r310","plt2026","plt2021","plt3030"):continue
         if (type(p.get("priority")) is int and -100<=p["priority"]<=100
                 and type(p.get("radius")) is int and 150<=p["radius"]<=800
                 and p.get("ammo") in ("lcb10","mcb25","mcb50","ucb100","sab50","rsb75")
                 and type(p.get("orbit")) is bool):
             valid[name]={k:p[k] for k in ("priority","radius","ammo","orbit")}
+            for key in ("kill","portal","pursuit"):
+                if type(p.get(key)) is bool:valid[name][key]=p[key]
+            if p.get("rocket") in ("none","r310","plt2026","plt2021","plt3030"):
+                valid[name]["rocket"]=p["rocket"]
     return valid
+
+class LiveNpcSettings:
+    """Atomic snapshots for changes explicitly applied from the NPC table."""
+    def __init__(self, profiles, kinds):
+        self.lock=threading.RLock();self.version=0
+        self.update(profiles,kinds)
+    def update(self,profiles,kinds):
+        with self.lock:
+            self.profiles=normalize_npc_profiles(profiles)
+            self.kinds=set(kinds if isinstance(kinds,(list,tuple,set)) else [kinds])
+            self.version+=1
+    def read(self):
+        with self.lock:return self.version,{k:dict(p) for k,p in self.profiles.items()},set(self.kinds)
+
 
 class DataFarmPlanner:
     """Motor por identidade e coordenadas; emite decisoes, nunca envia comandos."""
@@ -437,7 +458,7 @@ class CombatLowHealth(Exception):
 
 class NpcTestWorker:
     """Uma luta por execução; Ctrl só é repetido após confirmação de estado."""
-    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None,pursuit_enabled=False,pursuit_hp=20,pursuit_radius=150,pursuit_max_distance=3000,pursuit_seconds=60,npc_profiles=None,repair_to=90):
+    def __init__(self,session,stop,emit,kind="mordon",destination="",min_hp=40,clock=None,orbit=False,radius=450,repair_portal=False,portal_fight=False,ammo="lcb10",rocket="none",restock=None,pursuit_enabled=False,pursuit_hp=20,pursuit_radius=150,pursuit_max_distance=3000,pursuit_seconds=60,npc_profiles=None,repair_to=90,runtime=None):
         self.session=session; self.stop=stop; self.emit=emit
         self.kinds=set(kind if isinstance(kind,(list,tuple,set)) else [kind])
         self.kind=", ".join(sorted(self.kinds))
@@ -459,8 +480,29 @@ class NpcTestWorker:
         self.npc_profiles=normalize_npc_profiles(npc_profiles)
         self.lock_retries=0
         self.ignore_targets={}
+        self.runtime=runtime;self.runtime_version=-1;self.ammo_change_requested=False
+        self.profile_defaults=dict(radius=self.radius,orbit=self.orbit,ammo=self.ammo,rocket=self.rocket,
+                                   portal=self.portal_fight,pursuit=self.pursuit.enabled)
         self.report={"mode":"single_npc_test","kind":self.kind,"allowed_kinds":sorted(self.kinds),"laser":ammo,"missile":rocket,"status":"Preparando","actions":[],
                      "damage_observed":False,"kill_confirmed":False,"stop_confirmed":False}
+
+    def read_live_settings(self):
+        if self.runtime is None:return False
+        version,profiles,kinds=self.runtime.read()
+        if version==self.runtime_version:return False
+        self.runtime_version=version;self.npc_profiles=profiles;self.kinds=kinds
+        if self.target is not None:self.apply_profile()
+        return True
+
+    def apply_profile(self):
+        profile=dict(self.profile_defaults,**self.npc_profiles.get(self.kind,{}))
+        previous=self.ammo
+        self.radius=profile["radius"];self.orbit=profile["orbit"];self.ammo=profile["ammo"]
+        self.rocket=profile["rocket"];self.portal_fight=profile["portal"];self.pursuit.enabled=profile["pursuit"]
+        if not self.pursuit.enabled:self.pursuit.active=False
+        self.ammo_change_requested=self.ammo_change_requested or previous!=self.ammo
+        self.report.update(kind=self.kind,laser=self.ammo,missile=self.rocket,radius=self.radius,
+                           orbit=self.orbit,portal=self.portal_fight)
 
     def publish(self,status):
         self.report["status"]=status
@@ -599,6 +641,11 @@ class NpcTestWorker:
                     if not travel.step(snap):
                         if self.stop.wait(.5): break
                         continue
+                self.read_live_settings()
+                if self.target is not None and (self.kind not in self.kinds or self.npc_profiles.get(self.kind,{}).get("kill") is False):
+                    self.report["target_disabled"]=True
+                    self.publish("NPC desmarcado; encerrando esta luta antes de procurar outro.")
+                    break
                 if self.target is None:
                     if hp<self.minimum_start_hp: raise ValueError("Recupere a vida antes de iniciar outra luta.")
                     combat=snap.get("combat",{})
@@ -608,18 +655,15 @@ class NpcTestWorker:
                                 (n.get("kind") or n.get("type")) in self.kinds and
                                 type(n.get("hp")) in (int,float) and n["hp"]>0 and
                                 type(n.get("respawnRevision")) is int
-                                and self.ignore_targets.get((str(n["id"]),n["respawnRevision"]),0)<=now]
+                                and self.ignore_targets.get((str(n["id"]),n["respawnRevision"]),0)<=now
+                                and self.npc_profiles.get(n.get("kind") or n.get("type"),{}).get("kill") is not False]
                     if not candidates: raise ValueError("Nenhum NPC desse tipo disponível no mapa.")
                     self.target=dict(min(candidates,key=lambda n:(
                         self.npc_profiles.get(n.get("kind") or n.get("type"),{}).get("priority",0),
                         n["hp"]/n["maxHp"] if type(n.get("maxHp")) in (int,float) and isfinite(n["maxHp"]) and n["maxHp"]>0 else 1,
                         distance(snap["position"],(n["x"],n["y"])))))
                     self.kind=self.target.get("kind") or self.target.get("type")
-                    profile=self.npc_profiles.get(self.kind,{})
-                    self.ammo=profile.get("ammo",self.ammo)
-                    self.radius=max(150,min(800,profile.get("radius",self.radius)))
-                    self.orbit=profile.get("orbit",self.orbit)
-                    self.report.update(kind=self.kind,laser=self.ammo,radius=self.radius)
+                    self.apply_profile()
                     self.context={"map":snap["map"],"life":snap.get("respawn_revision")}
                     self.baseline_xp=snap.get("account",{}).get("xp")
                     self.progress=now
@@ -684,7 +728,14 @@ class NpcTestWorker:
                         if self.stop.wait(.1): break
                         continue
                 if selected and combat.get("attacking") is True and combat.get("selectedAmmo")!=self.ammo:
+                    if self.ammo_change_requested:
+                        result=self.action("attack")
+                        if result.get("action")!="ammo_sent":raise ValueError("Troca de munição não confirmada pelo cliente.")
+                        self.pending=("ammo",now)
+                        if self.stop.wait(.1):break
+                        continue
                     raise ValueError("O jogo trocou a munição escolhida. Teste encerrado.")
+                if combat.get("selectedAmmo")==self.ammo:self.ammo_change_requested=False
                 if selected and combat.get("attacking") is True and self.rocket!="none" and now>=self.next_rocket:
                     missile=self.action("rocket")
                     self.report["rocket_status"]=missile.get("action")
@@ -741,7 +792,7 @@ class NpcTestWorker:
                         if result.get("action")!="orbiting":
                             raise ValueError("Movimento circular não aceito: "+result.get("action","?"))
                         self.direction=result.get("direction",self.direction)
-                    self.publish(("Circulando e atacando " if self.orbit else "Atacando ")+self.kind+" com "+self.ammo.upper()+". Use Pausar NPC para interromper.")
+                    self.publish(("Circulando e atacando " if self.orbit else "Atacando ")+self.kind+" com "+self.ammo.upper()+" | distância %s (atual %.0f)." % (self.radius,d))
                 if self.stop.wait(.1): break
         except CombatTargetGone:
             self.confirm_target_end()
@@ -859,6 +910,8 @@ class NpcFarmWorker:
         self.collect_settings=self.settings.pop("collect_settings",{})
         self.recovery_settings=self.settings.pop("recovery_settings",{})
         self.roam=self.settings.pop("roam",True)
+        self.live_settings=LiveNpcSettings(self.settings.get("npc_profiles",{}),self.settings.get("kind","mordon"))
+        self.settings["runtime"]=self.live_settings
         self.recovery=FarmRecovery(session,stop,emit,self.recovery_settings,self.settings.get("clock"))
         self.roam_index=0; self.roam_goal=None; self.roam_context=None; self.next_roam=0
         self.settings["npc_profiles"]=normalize_npc_profiles(self.settings.get("npc_profiles"))
@@ -915,6 +968,8 @@ class NpcFarmWorker:
         try:
             while not self.stop.is_set():
                 snap=self.session.get_world_snapshot()
+                _,live_profiles,kinds=self.live_settings.read()
+                if not kinds:raise ValueError("Marque ao menos um NPC na tabela para continuar.")
                 recovery=self.recovery.step(snap)
                 if recovery=="waiting":
                     if self.stop.wait(.5): break
@@ -960,6 +1015,7 @@ class NpcFarmWorker:
                 self.skip_until={key:until for key,until in self.skip_until.items() if until>now}
                 present=any((n.get("kind") or n.get("type")) in kinds and (n.get("hp") or 0)>0
                             and (str(n.get("id")),n.get("respawnRevision")) not in self.skip_until
+                            and live_profiles.get(n.get("kind") or n.get("type"),{}).get("kill") is not False
                             for n in snap.get("npc_candidates",[]))
                 if not present and (not destination or snap.get("map")==destination):
                     self.emit("status","Procurando NPC dos tipos marcados. Derrotados: "+str(self.kills))
@@ -980,6 +1036,7 @@ class NpcFarmWorker:
                     # Re-evaluate recovery before deciding whether another fight may start.
                     continue
                 if not engine.report.get("stop_confirmed"): break
+                if engine.report.get("target_disabled"):continue
                 if engine.report.get("kill_confirmed"):
                     self.kills+=1;self.failed_targets=0
                     duration=max(0,engine.clock()-engine.started)

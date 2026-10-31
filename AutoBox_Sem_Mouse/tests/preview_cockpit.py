@@ -32,6 +32,13 @@ def capture():
             window.update();x=window.winfo_rootx();y=window.winfo_rooty()
             ImageGrab.grab(xdisplay=root.winfo_screen()).crop((x,y,x+window.winfo_width(),y+window.winfo_height())).save(output/name)
         snap(root,'autobox-interface-preview.png')
+        app.remember_map_npcs('3-2',['mordon','saimon','lordakia','streuner','devolarium'])
+        app.active_npc_profiles().update({
+            'mordon':dict(priority=0,radius=550,ammo='mcb25',orbit=True,kill=True,rocket='r310',portal=False,pursuit=False),
+            'saimon':dict(priority=1,radius=450,ammo='lcb10',orbit=True,kill=True,rocket='none',portal=False,pursuit=True),
+            'lordakia':dict(priority=2,radius=350,ammo='lcb10',orbit=False,kill=True,rocket='none',portal=False,pursuit=False)})
+        app.profile_table_signature=None;app.refresh_profile_table()
+        app.profile_table.selection_set('mordon');app.select_npc_row()
         app.open_settings('combat');root.geometry('960x760+20+20');root.update()
         snap(root,'autobox-settings-preview.png')
         print('Rendered actual app:',output)

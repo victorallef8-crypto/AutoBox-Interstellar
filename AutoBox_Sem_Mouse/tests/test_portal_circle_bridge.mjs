@@ -35,7 +35,7 @@ run(request);assert.ok(Math.abs(Math.hypot(renderer.__autoboxPortalCircle.x-120,
 console.log('Portal waypoints, bounded circles and four-corner orbits passed.');
 // Radial corrections are bounded; preferred direction stays stable in clear space.
 state.world={width:10000,height:10000};npc.x=5000;npc.y=5000;
-for(const [distance,expected] of [[300,600],[450,450],[700,225]]){
+for(const [distance,expected] of [[300,450],[450,450],[700,450]]){
  me.x=5000+distance;me.y=5000;renderer.__autoboxMove=null;
  const result=run({...request,action:'orbit',radius:450,rotate:true,direction:-1});
  assert.equal(result.action,'orbiting');assert.equal(result.direction,-1);
@@ -74,3 +74,16 @@ me.hp=100;
 assert.equal(run({...request,action:'roam',map:'other',x:500,y:500}).action,'changed');
 assert.equal(sent.length,sentBefore);
 console.log('Exploration: no-NPC navigation, combat/HP/context and bounds guards passed.');
+
+// Far targets do not silently cap a requested 800-unit stand-off at 550 units.
+state.world={width:10000,height:10000};state.npcs=[npc];npc.x=5000;npc.y=5000;
+me.x=7000;me.y=5000;me.hp=100;me.attacking=true;renderer.__autoboxMove=null;
+assert.equal(run({...request,action:'approach',radius:800}).action,'move_sent');
+assert.ok(Math.abs(Math.hypot(sent.at(-1).x-npc.x,sent.at(-1).y-npc.y)-800)<1e-6);
+// Applying a new distance changes the next orbit destination in either direction.
+for(const radius of [150,350,650,800,250]){
+ renderer.__autoboxMove=null;
+ assert.equal(run({...request,action:'orbit',radius,rotate:true,direction:1}).action,'orbiting');
+ assert.ok(Math.abs(Math.hypot(sent.at(-1).x-npc.x,sent.at(-1).y-npc.y)-radius)<1e-6);
+}
+console.log('Configured radius survives approach, orbit and repeated distance changes.');

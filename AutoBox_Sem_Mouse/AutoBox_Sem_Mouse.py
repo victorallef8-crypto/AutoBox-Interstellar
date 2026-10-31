@@ -98,6 +98,15 @@ class AutoBoxSemMouse:
         self.npc_kind=tk.StringVar(value=self.cfg.get("npc_kind","mordon"))
         self.npc_kinds_saved=set(self.cfg.get("npc_kinds") or [self.npc_kind.get()])
         self.cfg["npc_profiles"]=normalize_npc_profiles(self.cfg.get("npc_profiles"))
+        self.npc_profile_maps=self.cfg.get("npc_profiles_by_map",{})
+        if not isinstance(self.npc_profile_maps,dict):self.npc_profile_maps={}
+        self.npc_profile_maps={k:normalize_npc_profiles(v) for k,v in self.npc_profile_maps.items() if isinstance(k,str)}
+        if not self.npc_profile_maps:self.npc_profile_maps[self.npc_map.get().strip() or "*"]=dict(self.cfg["npc_profiles"])
+        self.cfg["npc_profiles_by_map"]=self.npc_profile_maps
+        self.npc_catalog=self.cfg.get("npc_catalog_by_map",{})
+        if not isinstance(self.npc_catalog,dict):self.npc_catalog={}
+        self.current_npc_map=None
+        self.profile_table_signature=None
         self.npc_kind_vars={}
         self.npc_min_hp=tk.StringVar(value=str(self.cfg.get("npc_min_hp",40)))
         self.npc_orbit=tk.BooleanVar(value=self.cfg.get("npc_orbit",True))
@@ -137,6 +146,7 @@ class AutoBoxSemMouse:
         self._draw()
         self._draw_world_page()
         self._draw_combat_page()
+        self.npc_map.trace_add("write",lambda *args:self.refresh_profile_table())
         self._draw_services()
         self.cockpit = Cockpit(self.map_page, self)
         self.compact = False
@@ -395,25 +405,29 @@ class AutoBoxSemMouse:
         for text,command in (("Iniciar NPC",self.start_npc_test),("Pausar NPC",self.pause_npc),("Parar NPC",self.stop_npc)):
             ttk.Button(controls,text=text,command=command).pack(side="left",expand=True,fill="x",padx=3)
         ttk.Label(body,textvariable=self.npc_summary).pack(anchor="w",pady=4)
-        self._map_controls(body,self.npc_map,"NPC")
-        test=ttk.LabelFrame(body,text="Farm de NPCs",padding=10)
+        map_row=ttk.Frame(body);map_row.pack(fill="x",pady=6)
+        ttk.Label(map_row,text="Mapa de trabalho").pack(side="left",padx=(0,8))
+        box=ttk.Combobox(map_row,textvariable=self.npc_map,width=14);box.pack(side="left");self.map_boxes.append(box)
+        ttk.Button(map_row,text="Ir ao mapa",command=lambda:self.start_trip(self.npc_map.get()),style="Compact.TButton").pack(side="left",padx=6)
+        ttk.Button(map_row,text="Salvar mapa",command=self.save,style="Compact.TButton").pack(side="left")
+        actions=ttk.Menubutton(map_row,text="Ações da tabela");actions.pack(side="right")
+        menu=tk.Menu(actions,tearoff=False)
+        menu.add_command(label="Marcar todos",command=lambda:self.mark_all_npcs(True))
+        menu.add_command(label="Desmarcar todos",command=lambda:self.mark_all_npcs(False))
+        menu.add_command(label="Aplicar editor aos marcados",command=self.apply_to_marked_npcs)
+        actions.configure(menu=menu)
+        combat_tabs=ttk.Notebook(body);combat_tabs.pack(fill="both",expand=True,pady=8)
+        npc_tab=ttk.Frame(combat_tabs);options_tab=ttk.Frame(combat_tabs);diagnostics_tab=ttk.Frame(combat_tabs)
+        combat_tabs.add(npc_tab,text="NPCs e extras");combat_tabs.add(options_tab,text="Recuperação e compras");combat_tabs.add(diagnostics_tab,text="Diagnóstico")
+        self.combat_tabs=combat_tabs
+        test=ttk.LabelFrame(options_tab,text="Recuperação",padding=10)
         test.pack(fill="x",pady=6)
-        ttk.Label(test,text="Tipos de NPC (marque um ou mais)").grid(row=0,column=0,sticky="nw")
         self.npc_choices=ttk.Frame(test)
-        self.npc_choices.grid(row=0,column=1,sticky="ew",pady=4)
         self._sync_npc_choices(self.npc_kinds_saved | {"mordon"})
         ttk.Label(test,text="Interromper tiros com vida em (%)").grid(row=1,column=0,sticky="w")
         ttk.Spinbox(test,from_=25,to=75,textvariable=self.npc_min_hp,width=8).grid(row=1,column=1,sticky="w",pady=4)
-        ttk.Checkbutton(test,text="Circular ao redor do NPC",variable=self.npc_orbit).grid(row=2,column=0,columnspan=2,sticky="w")
-        ttk.Label(test,text="Distância desejada (150 a 800)").grid(row=3,column=0,sticky="w")
-        ttk.Spinbox(test,from_=150,to=800,textvariable=self.npc_radius,width=8).grid(row=3,column=1,sticky="w")
         ttk.Checkbutton(test,text="Vida no limite: ir ao portal e ativar reparador",variable=self.npc_repair).grid(row=4,column=0,columnspan=2,sticky="w")
-        ttk.Checkbutton(test,text="Levar o NPC ao portal e lutar ao redor (experimental)",variable=self.npc_portal_fight).grid(row=5,column=0,columnspan=2,sticky="w")
-        ttk.Label(test,text="Laser").grid(row=6,column=0,sticky="w")
-        ttk.Combobox(test,textvariable=self.npc_ammo,state="readonly",values=("lcb10","mcb25","mcb50","ucb100","sab50","rsb75")).grid(row=6,column=1,sticky="w")
-        ttk.Label(test,text="Míssil (none = desativado)").grid(row=7,column=0,sticky="w")
-        ttk.Combobox(test,textvariable=self.npc_rocket,state="readonly",values=("none","r310","plt2026","plt2021","plt3030")).grid(row=7,column=1,sticky="w")
-        ttk.Label(test,text="Com pouca vida ao iniciar, o bot repara no portal antes de lutar. Tenha estoque das munições escolhidas. Laser sem confirmação de seleção encerra o farm; míssil vazio não é comprado. "
+        ttk.Label(test,text="Com pouca vida ao iniciar, o bot repara no portal antes de lutar. Tenha estoque das munições escolhidas. Edite distância, laser e extras na tabela por NPC. "
             "Os botões Pausar NPC e Parar NPC interrompem o combate. Distância não garante evitar dano. Reparo depende do equipamento e de 15 segundos sem combate; não pula o portal; após atingir a vida configurada abaixo, o farm retoma.",
             wraplength=680,style="Muted.TLabel").grid(row=9,column=0,columnspan=2,sticky="w")
         ttk.Checkbutton(test,text="Explorar o mapa quando não houver NPC marcado por perto",variable=self.npc_roam).grid(row=10,column=0,columnspan=2,sticky="w",pady=4)
@@ -421,14 +435,13 @@ class AutoBoxSemMouse:
         repair_row=ttk.Frame(test);repair_row.grid(row=12,column=0,columnspan=2,sticky="w",pady=4)
         ttk.Label(repair_row,text="Retomar após reparar até (%): ").pack(side="left")
         ttk.Spinbox(repair_row,from_=80,to=100,textvariable=self.npc_repair_to,width=6).pack(side="left")
-        pursuit=ttk.LabelFrame(body,text="Perseguição para finalização",padding=10)
-        pursuit.pack(fill="x",pady=6)
+        pursuit=ttk.LabelFrame(diagnostics_tab,text="Perseguição para finalização",padding=10)
+        pursuit.pack_forget()
         ttk.Checkbutton(pursuit,text="Perseguir de perto para finalizar",variable=self.pursuit_enabled).pack(anchor="w")
-        ttk.Label(pursuit,text="Segue bem perto do NPC em fuga com até 20% de vida, ignorando a distância normal de combate. Mantém as proteções de vida, mapa e falta de progresso. Lutar junto ao portal tem prioridade.",wraplength=650).pack(anchor="w")
-        shop=ttk.LabelFrame(body,text="Reposição automática de munições",padding=10)
+        shop=ttk.LabelFrame(options_tab,text="Reposição automática de munições",padding=10)
         shop.pack(fill="x",pady=8)
-        ttk.Checkbutton(shop,text="Comprar o laser selecionado acima",variable=self.buy_laser).pack(anchor="w")
-        ttk.Checkbutton(shop,text="Comprar o míssil selecionado acima",variable=self.buy_missile).pack(anchor="w")
+        ttk.Checkbutton(shop,text="Repor o laser configurado para cada NPC",variable=self.buy_laser).pack(anchor="w")
+        ttk.Checkbutton(shop,text="Repor o míssil configurado para cada NPC",variable=self.buy_missile).pack(anchor="w")
         for key,label in (("laser_threshold","Comprar laser quando estoque ≤"),("laser_quantity","Quantidade de laser por compra"),
                           ("missile_threshold","Comprar míssil quando estoque ≤"),("missile_quantity","Quantidade de mísseis por compra"),
                           ("reserve_uri","Manter no mínimo este uridium"),("reserve_credits","Manter no mínimo estes créditos")):
@@ -436,55 +449,64 @@ class AutoBoxSemMouse:
             ttk.Label(row,text=label).pack(side="left")
             ttk.Entry(row,textvariable=self.buy_fields[key],width=12).pack(side="right")
         ttk.Label(shop,text="Usa o preço e a moeda da loja. Compra apenas os tipos marcados, enquanto o farm está ativo. Se o cliente não confirmar preço, moeda ou estoque, interrompe e informa o motivo.",wraplength=650).pack(anchor="w")
-        ttk.Label(body,text="NPCs presentes no mapa",style="Heading.TLabel").pack(anchor="w",pady=6)
-        self.npc_table=ttk.Treeview(body,columns=("kind","hp","distance"),show="headings",height=5)
+        ttk.Label(diagnostics_tab,text="NPCs presentes no mapa",style="Heading.TLabel").pack(anchor="w",pady=6)
+        self.npc_table=ttk.Treeview(diagnostics_tab,columns=("kind","hp","distance"),show="headings",height=5)
         for name,title,width in (("kind","Tipo de NPC",230),("hp","Vida",140),("distance","Distância",140)):
             self.npc_table.heading(name,text=title)
             self.npc_table.column(name,width=width,stretch=True)
         self.npc_table.pack(fill="x",pady=6)
-        profiles=ttk.LabelFrame(body,text="Perfil por NPC • prioridade menor vem primeiro",padding=10)
+        profiles=ttk.LabelFrame(npc_tab,text="NPCs do mapa — configurações de combate",padding=8)
         profiles.pack(fill="x",pady=6)
-        self.profile_kind=tk.StringVar(value="mordon")
-        self.profile_ammo=tk.StringVar(value=self.npc_ammo.get())
-        self.profile_priority=tk.StringVar(value="0")
-        self.profile_radius=tk.StringVar(value=self.npc_radius.get())
-        self.profile_orbit=tk.BooleanVar(value=self.npc_orbit.get())
-        self.profile_choices=ttk.Combobox(profiles,textvariable=self.profile_kind,values=sorted(self.npc_kind_vars),width=16,state="readonly")
-        self.profile_choices.grid(row=0,column=0,sticky="w",padx=3)
+        self.npc_catalog_status=tk.StringVar(value="Entre no mapa para carregar os tipos disponíveis.")
+        ttk.Label(profiles,textvariable=self.npc_catalog_status,style="Muted.TLabel").pack(anchor="w",pady=(0,5))
+        tree_frame=ttk.Frame(profiles);tree_frame.pack(fill="x")
+        self.profile_table=ttk.Treeview(tree_frame,columns=("kill","npc","priority","radius","ammo","rocket","extras"),show="headings",height=5,selectmode="browse")
+        for key,label,width in (("kill","Matar",52),("npc","NPC",150),("priority","Prioridade",72),("radius","Distância",72),("ammo","Munição",92),("rocket","Míssil",90),("extras","Extras",180)):
+            self.profile_table.heading(key,text=label);self.profile_table.column(key,width=width,minwidth=40,stretch=key in ("npc","extras"))
+        self.profile_table.pack(side="left",fill="both",expand=True)
+        scroll=ttk.Scrollbar(tree_frame,orient="vertical",command=self.profile_table.yview)
+        scroll.pack(side="right",fill="y");self.profile_table.configure(yscrollcommand=scroll.set)
+        self.profile_table.bind("<<TreeviewSelect>>",self.select_npc_row)
+        self.profile_table.bind("<ButtonRelease-1>",self.toggle_npc_row)
+        self.profile_table.bind("<Double-1>",self.edit_npc_cell)
+        editor=ttk.Frame(profiles,padding=(0,8));editor.pack(fill="x")
+        self.profile_kind=tk.StringVar(value="mordon");self.profile_priority=tk.StringVar(value="0")
+        self.profile_ammo=tk.StringVar(value=self.npc_ammo.get());self.profile_radius=tk.StringVar(value=self.npc_radius.get())
+        self.profile_orbit=tk.BooleanVar(value=self.npc_orbit.get());self.profile_kill=tk.BooleanVar(value=True)
+        self.profile_rocket=tk.StringVar(value="none");self.profile_portal=tk.BooleanVar(value=False);self.profile_pursuit=tk.BooleanVar(value=False)
+        self.profile_choices=ttk.Combobox(editor,textvariable=self.profile_kind,values=sorted(self.npc_kind_vars),width=16,state="readonly")
+        self.profile_choices.grid(row=0,column=0,padx=(0,6),sticky="w")
         self.profile_choices.bind("<<ComboboxSelected>>",lambda e:self.load_npc_profile())
-        ttk.Label(profiles,text="Laser").grid(row=0,column=1)
-        ttk.Combobox(profiles,textvariable=self.profile_ammo,state="readonly",width=10,
-                     values=("lcb10","mcb25","mcb50","ucb100","sab50","rsb75")).grid(row=0,column=2,padx=3)
-        ttk.Label(profiles,text="Prioridade").grid(row=1,column=0,sticky="w")
-        ttk.Spinbox(profiles,textvariable=self.profile_priority,from_=-100,to=100,width=8).grid(row=1,column=1)
-        ttk.Label(profiles,text="Distância").grid(row=1,column=2)
-        ttk.Spinbox(profiles,textvariable=self.profile_radius,from_=150,to=800,width=8).grid(row=1,column=3)
-        ttk.Checkbutton(profiles,text="Circular",variable=self.profile_orbit).grid(row=2,column=0,sticky="w")
-        ttk.Button(profiles,text="Salvar perfil",command=self.save_npc_profile).grid(row=2,column=1,pady=5)
-        ttk.Button(profiles,text="Usar padrão",command=self.remove_npc_profile).grid(row=2,column=2)
-        self.profile_table=ttk.Treeview(profiles,columns=("npc","priority","ammo","radius","orbit"),show="headings",height=4)
-        for key,label in (("npc","NPC"),("priority","Prioridade"),("ammo","Laser"),("radius","Distância"),("orbit","Circular")):
-            self.profile_table.heading(key,text=label);self.profile_table.column(key,width=100)
-        self.profile_table.grid(row=3,column=0,columnspan=4,sticky="ew")
-        ttk.Label(profiles,text="Perfis valem no próximo início. NPC sem perfil usa as opções gerais acima.",style="Muted.TLabel").grid(row=4,column=0,columnspan=4,sticky="w",pady=4)
+        for col,label in ((1,"Prioridade"),(3,"Distância"),(5,"Munição")):
+            ttk.Label(editor,text=label).grid(row=0,column=col,padx=4)
+        ttk.Spinbox(editor,textvariable=self.profile_priority,from_=-100,to=100,width=5).grid(row=0,column=2)
+        ttk.Spinbox(editor,textvariable=self.profile_radius,from_=150,to=800,width=6).grid(row=0,column=4)
+        ttk.Combobox(editor,textvariable=self.profile_ammo,values=("lcb10","mcb25","mcb50","ucb100","sab50","rsb75"),state="readonly",width=10).grid(row=0,column=6)
+        for col,label,var in ((0,"Matar",self.profile_kill),(1,"Circular",self.profile_orbit),(2,"Lutar no portal",self.profile_portal),(4,"Finalizar de perto",self.profile_pursuit)):
+            ttk.Checkbutton(editor,text=label,variable=var).grid(row=1,column=col,columnspan=2 if col in (2,4) else 1,sticky="w",pady=6)
+        ttk.Label(editor,text="Míssil").grid(row=2,column=0,sticky="w")
+        ttk.Combobox(editor,textvariable=self.profile_rocket,values=("none","r310","plt2026","plt2021","plt3030"),state="readonly",width=10).grid(row=2,column=1,columnspan=2,sticky="w")
+        ttk.Button(editor,text="Aplicar ao NPC",command=self.save_npc_profile).grid(row=2,column=3,columnspan=2,padx=4)
+        ttk.Button(editor,text="Restaurar padrão",command=self.remove_npc_profile).grid(row=2,column=5,columnspan=2)
+        ttk.Label(profiles,text="Clique em Matar para marcar. Duplo clique edita distância, prioridade ou munição. Aplicar atualiza a luta. Portal/finalização alteram a distância quando marcados.",wraplength=800,style="Muted.TLabel").pack(anchor="w",pady=4)
         self.refresh_profile_table()
-        performance=ttk.LabelFrame(body,text="Desempenho por NPC nesta sessão",padding=10)
+        performance=ttk.LabelFrame(diagnostics_tab,text="Desempenho por NPC nesta sessão",padding=10)
         performance.pack(fill="x",pady=6)
         self.performance_table=ttk.Treeview(performance,columns=("npc","kills","average","last","ammo"),show="headings",height=4)
         for key,label in (("npc","NPC"),("kills","Derrotados"),("average","Média/ciclo"),("last","Último ciclo"),("ammo","Laser")):
             self.performance_table.heading(key,text=label);self.performance_table.column(key,width=100)
         self.performance_table.pack(fill="x")
         ttk.Label(performance,text="Tempo por ciclo inclui aproximação e confirmação. Estatísticas não trocam sua munição automaticamente.",style="Muted.TLabel",wraplength=650).pack(anchor="w",pady=4)
-        ttk.Label(body,text="Teste manual (até 90 segundos):\n1. Clique em Registrar luta.\n"
+        ttk.Label(diagnostics_tab,text="Teste manual (até 90 segundos):\n1. Clique em Registrar luta.\n"
             "2. No jogo, selecione um NPC fraco e ataque com a munição básica.\n"
             "3. Pare o ataque uma vez e depois ataque novamente até derrotá-lo, se for seguro.\n"
             "4. Clique em Encerrar registro e em Copiar diagnóstico da luta.",
             wraplength=680).pack(anchor="w",pady=10)
-        ttk.Button(body,text="Registrar luta manual (90 segundos)",command=self.record_combat).pack(fill="x",pady=4)
-        ttk.Button(body,text="Encerrar registro",command=self.finish_combat_recording).pack(fill="x",pady=4)
-        ttk.Button(body,text="Copiar diagnóstico da luta",command=self.copy_combat_report).pack(fill="x",pady=4)
-        ttk.Label(body,textvariable=self.combat_report_status,wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
-        ttk.Label(body,text="O registro manual só observa. Iniciar farm de NPCs continua após cada derrota confirmada. Pausar/Parar NPC encerram o combate; F8/F9/F10 controlam a coleta.",
+        ttk.Button(diagnostics_tab,text="Registrar luta manual (90 segundos)",command=self.record_combat).pack(fill="x",pady=4)
+        ttk.Button(diagnostics_tab,text="Encerrar registro",command=self.finish_combat_recording).pack(fill="x",pady=4)
+        ttk.Button(diagnostics_tab,text="Copiar diagnóstico da luta",command=self.copy_combat_report).pack(fill="x",pady=4)
+        ttk.Label(diagnostics_tab,textvariable=self.combat_report_status,wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
+        ttk.Label(diagnostics_tab,text="O registro manual só observa. Iniciar farm de NPCs continua após cada derrota confirmada. Pausar/Parar NPC encerram o combate; F8/F9/F10 controlam a coleta.",
                   wraplength=680,style="Muted.TLabel").pack(anchor="w",pady=8)
 
     def _draw_services(self):
@@ -590,43 +612,166 @@ class AutoBoxSemMouse:
         self.gg_worker=threading.Thread(target=engine.run,daemon=True);self.gg_worker.start()
         self.gg_status.set("Giros iniciados. Aguardando confirmação de cada lote.")
 
+    def npc_profile_map(self):
+        return self.npc_map.get().strip() or self.current_npc_map or "*"
+
+    def active_npc_profiles(self):
+        key=self.npc_profile_map()
+        profiles=self.npc_profile_maps.setdefault(key,{})
+        self.cfg["npc_profiles"]=profiles
+        return profiles
+
+    def npc_profile_defaults(self):
+        return dict(priority=0,radius=int(self.npc_radius.get()),ammo=self.npc_ammo.get(),orbit=self.npc_orbit.get(),
+                    rocket=self.npc_rocket.get(),kill=False,portal=self.npc_portal_fight.get(),pursuit=self.pursuit_enabled.get())
+
     def _sync_npc_choices(self,kinds):
         for kind in sorted(set(kinds)|self.npc_kinds_saved):
-            if kind in self.npc_kind_vars: continue
-            if not isinstance(kind,str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",kind): continue
-            var=tk.BooleanVar(value=kind in self.npc_kinds_saved)
-            index=len(self.npc_kind_vars)
-            self.npc_kind_vars[kind]=var
-            ttk.Checkbutton(self.npc_choices,text=kind,variable=var).grid(row=index//3,column=index%3,sticky="w",padx=5,pady=2)
+            if kind in self.npc_kind_vars:continue
+            if not isinstance(kind,str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",kind):continue
+            self.npc_kind_vars[kind]=tk.BooleanVar(value=kind in self.npc_kinds_saved)
         if hasattr(self,"profile_choices"):
-            self.profile_choices.configure(values=sorted(set(self.npc_kind_vars)|set(self.cfg.get("npc_profiles",{}))))
+            self.profile_choices.configure(values=self.npc_profile_kinds())
+            self.refresh_profile_table()
+
+    def npc_profile_kinds(self):
+        key=self.npc_profile_map()
+        known=self.npc_catalog.get(key,[])
+        if not isinstance(known,list):known=[]
+        kinds=set(known)|set(self.active_npc_profiles())
+        if not kinds and key=="*":kinds=set(self.npc_kind_vars)
+        return sorted(k for k in kinds if isinstance(k,str) and re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",k))
+
+    def remember_map_npcs(self,map_id,kinds):
+        if self.current_npc_map is None and "*" in self.npc_profile_maps and map_id not in self.npc_profile_maps:
+            self.npc_profile_maps[map_id]={k:dict(p) for k,p in self.npc_profile_maps["*"].items()}
+        self.current_npc_map=map_id
+        previous=set(self.npc_catalog.get(map_id,[]))
+        known=previous|set(kinds)
+        self.npc_catalog[map_id]=sorted(k for k in known if isinstance(k,str) and re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",k))
+        self.cfg["npc_catalog_by_map"]=self.npc_catalog
+        if self.npc_profile_map()==map_id:self._sync_npc_choices(known)
+        if known!=previous:
+            try:self._write_config()
+            except OSError as exc:self.say("Não foi possível salvar o catálogo de NPCs: "+str(exc))
 
     def refresh_profile_table(self):
+        if not hasattr(self,"profile_table"):return
+        editor=getattr(self,"npc_cell_editor",None)
+        if editor is not None and editor.winfo_exists():return
+        profiles=self.active_npc_profiles();rows=[]
+        for kind in self.npc_profile_kinds():
+            p=dict(self.npc_profile_defaults(),**profiles.get(kind,{}))
+            kill=profiles[kind].get("kill",kind in self.npc_kinds_saved) if kind in profiles else (self.npc_kind_vars.get(kind,tk.BooleanVar(value=False)).get() if self.npc_profile_map()=="*" else False)
+            self.npc_kind_vars.setdefault(kind,tk.BooleanVar(value=kill)).set(kill)
+            extras=", ".join(label for flag,label in ((p["orbit"],"Circular"),(p["portal"],"Portal"),(p["pursuit"],"Finalizar")) if flag) or "—"
+            rows.append((kind,("Sim" if kill else "Não",kind,p["priority"],p["radius"],p["ammo"].upper(),p["rocket"],extras)))
+        signature=(self.npc_profile_map(),tuple(rows))
+        if signature==self.profile_table_signature:return
+        selected=self.profile_table.selection()
         self.profile_table.delete(*self.profile_table.get_children())
-        for kind,p in sorted(self.cfg.get("npc_profiles",{}).items()):
-            self.profile_table.insert("","end",values=(kind,p["priority"],p["ammo"],p["radius"],"Sim" if p["orbit"] else "Não"))
+        for kind,values in rows:self.profile_table.insert("","end",iid=kind,values=values)
+        if selected and self.profile_table.exists(selected[0]):self.profile_table.selection_set(selected[0])
+        self.profile_table_signature=signature
+        if (not selected or not self.profile_table.exists(selected[0])) and rows:
+            self.profile_table.selection_set(rows[0][0])
+            self.profile_kind.set(rows[0][0]);self.load_npc_profile()
+        elif not rows:self.profile_kind.set("")
+        self.profile_choices.configure(values=[k for k,_ in rows])
+        self.npc_catalog_status.set("Mapa "+self.npc_profile_map()+" | "+str(len(rows))+" tipos conhecidos. Tipos novos entram ao receber dados do mapa.")
+
+    def select_npc_row(self,event=None):
+        selection=self.profile_table.selection()
+        if selection:self.profile_kind.set(selection[0]);self.load_npc_profile()
+
+    def toggle_npc_row(self,event):
+        if self.profile_table.identify_column(event.x)!="#1":return
+        kind=self.profile_table.identify_row(event.y)
+        if not kind:return
+        self.profile_kind.set(kind);self.load_npc_profile();self.profile_kill.set(not self.profile_kill.get());self.save_npc_profile()
+
+    def edit_npc_cell(self,event):
+        column=self.profile_table.identify_column(event.x);kind=self.profile_table.identify_row(event.y)
+        fields={"#3":self.profile_priority,"#4":self.profile_radius,"#5":self.profile_ammo,"#6":self.profile_rocket}
+        if not kind or column not in fields:return
+        if getattr(self,"npc_cell_editor",None) is not None:self.npc_cell_editor.destroy()
+        self.profile_table.selection_set(kind);self.profile_kind.set(kind);self.load_npc_profile()
+        variable=fields[column];previous=variable.get()
+        x,y,width,height=self.profile_table.bbox(kind,column)
+        if column in ("#5","#6"):
+            choices=("lcb10","mcb25","mcb50","ucb100","sab50","rsb75") if column=="#5" else ("none","r310","plt2026","plt2021","plt3030")
+            editor=ttk.Combobox(self.profile_table,textvariable=variable,values=choices,state="readonly")
+        else:
+            editor=ttk.Spinbox(self.profile_table,textvariable=variable,from_=150 if column=="#4" else -100,to=800 if column=="#4" else 100)
+        self.npc_cell_editor=editor;done=[False]
+        def finish(save=True):
+            if done[0]:return
+            done[0]=True
+            if not save:variable.set(previous)
+            editor.destroy();self.npc_cell_editor=None
+            if save:self.save_npc_profile()
+        editor.place(x=x,y=y,width=width,height=height);editor.focus_set()
+        editor.bind("<Return>",lambda e:finish());editor.bind("<FocusOut>",lambda e:finish())
+        editor.bind("<Escape>",lambda e:finish(False))
+        if column in ("#5","#6"):editor.bind("<<ComboboxSelected>>",lambda e:finish())
 
     def load_npc_profile(self):
-        p=self.cfg.get("npc_profiles",{}).get(self.profile_kind.get(),{})
-        self.profile_priority.set(str(p.get("priority",0)))
-        self.profile_ammo.set(p.get("ammo",self.npc_ammo.get()))
-        self.profile_radius.set(str(p.get("radius",self.npc_radius.get())))
-        self.profile_orbit.set(p.get("orbit",self.npc_orbit.get()))
+        kind=self.profile_kind.get();p=dict(self.npc_profile_defaults(),**self.active_npc_profiles().get(kind,{}))
+        self.profile_priority.set(str(p["priority"]));self.profile_ammo.set(p["ammo"])
+        self.profile_radius.set(str(p["radius"]));self.profile_orbit.set(p["orbit"])
+        self.profile_kill.set(self.npc_kind_vars.get(kind,tk.BooleanVar(value=p["kill"])).get())
+        self.profile_rocket.set(p["rocket"]);self.profile_portal.set(p["portal"]);self.profile_pursuit.set(p["pursuit"])
+
+    def publish_live_npc_settings(self):
+        if self.npc_engine is not None and hasattr(self.npc_engine,"live_settings"):
+            if getattr(self.npc_engine,"profile_map",self.npc_profile_map())!=self.npc_profile_map():
+                return
+            kinds=[k for k in self.npc_profile_kinds() if self.npc_kind_vars[k].get()]
+            self.npc_engine.live_settings.update(self.active_npc_profiles(),kinds)
+
+    def profile_editor_values(self):
+        p=dict(priority=int(self.profile_priority.get()),radius=int(self.profile_radius.get()),ammo=self.profile_ammo.get(),
+               orbit=self.profile_orbit.get(),kill=self.profile_kill.get(),rocket=self.profile_rocket.get(),
+               portal=self.profile_portal.get(),pursuit=self.profile_pursuit.get())
+        if "npc" not in normalize_npc_profiles({"npc":p}):raise ValueError("Confira prioridade, distância (150–800), munição e extras.")
+        return p
+
+    def mark_all_npcs(self,enabled):
+        profiles=self.active_npc_profiles()
+        for kind in self.npc_profile_kinds():
+            profiles[kind]=dict(self.npc_profile_defaults(),**profiles.get(kind,{}))
+            profiles[kind]["kill"]=bool(enabled);self.npc_kind_vars[kind].set(bool(enabled))
+        if self.save():
+            self.profile_table_signature=None;self.refresh_profile_table();self.publish_live_npc_settings()
+
+    def apply_to_marked_npcs(self):
+        try:
+            p=self.profile_editor_values()
+            kinds=[k for k in self.npc_profile_kinds() if self.npc_kind_vars[k].get()]
+            if not kinds:raise ValueError("Marque pelo menos um NPC na tabela.")
+            for kind in kinds:self.active_npc_profiles()[kind]=dict(p,kill=True)
+            if self.save():
+                self.profile_table_signature=None;self.refresh_profile_table();self.publish_live_npc_settings()
+                self.say("Editor aplicado aos %s NPCs marcados." % len(kinds))
+        except ValueError as exc:self.say(str(exc))
 
     def save_npc_profile(self):
         try:
             kind=self.profile_kind.get();priority=int(self.profile_priority.get());radius=int(self.profile_radius.get())
             if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",kind) or not -100<=priority<=100 or not 150<=radius<=800:
                 raise ValueError("Confira NPC, prioridade (-100 a 100) e distância (150 a 800).")
-            if self.profile_ammo.get() not in ("lcb10","mcb25","mcb50","ucb100","sab50","rsb75"):
-                raise ValueError("Laser inválido.")
-            self.cfg["npc_profiles"][kind]=dict(priority=priority,radius=radius,ammo=self.profile_ammo.get(),orbit=self.profile_orbit.get())
-            if self.save():self.refresh_profile_table();self.say("Perfil salvo. Vale no próximo início do farm.")
+            p=self.profile_editor_values()
+            self.active_npc_profiles()[kind]=p
+            self.npc_kind_vars.setdefault(kind,tk.BooleanVar()).set(p["kill"])
+            if self.save():
+                self.profile_table_signature=None;self.refresh_profile_table();self.publish_live_npc_settings()
+                self.say("Aplicado: "+kind+" | distância "+str(radius)+" | "+p["ammo"].upper()+". Portal/finalização têm prioridade se marcados.")
         except ValueError as exc:self.say(str(exc))
 
     def remove_npc_profile(self):
-        self.cfg["npc_profiles"].pop(self.profile_kind.get(),None)
-        if self.save():self.refresh_profile_table();self.load_npc_profile()
+        self.active_npc_profiles().pop(self.profile_kind.get(),None)
+        if self.save():
+            self.profile_table_signature=None;self.refresh_profile_table();self.load_npc_profile();self.publish_live_npc_settings()
 
     def start_npc_test(self, hybrid=False):
         if self.gg_active():
@@ -636,6 +781,9 @@ class AutoBoxSemMouse:
             self.combat_status.set("Farm em execução ou encerrando o ataque. Aguarde antes de iniciar novamente.")
             return
         if not self.save(): return
+        selected=[kind for kind in self.npc_profile_kinds() if self.npc_kind_vars[kind].get()]
+        if not selected:self.say("Marque Matar na tabela para ao menos um NPC.");return
+        self.cfg["npc_kinds"]=selected
         if not self.session.ready.is_set():
             self.say("Abra o jogo e entre no mapa antes do farm."); return
         if self.worker is not None and self.worker.is_alive():
@@ -653,7 +801,8 @@ class AutoBoxSemMouse:
         generation=self.npc_generation
         self.npc_stop_event=threading.Event()
         engine=NpcFarmWorker(self.session,self.npc_stop_event,lambda event,data:self.events.put(("npc_event",(generation,event,data))),
-            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),repair_to=int(self.npc_repair_to.get()),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}),pursuit_enabled=self.pursuit_enabled.get(),npc_profiles=self.cfg.get("npc_profiles",{}),hybrid=hybrid,roam=self.npc_roam.get(),recovery_settings={"reconnect":self.reconnect.get(),"respawn":self.respawn.get(),"max_deaths":int(self.max_deaths.get()),"max_cost":int(self.max_cost.get()),"death_state":self.death_state},collect_settings={"green":self.green.get(),"cloak":self.cloak_enabled.get()})
+            kind=self.cfg["npc_kinds"],destination=self.cfg.get("npc_map",""),min_hp=self.cfg["npc_min_hp"],orbit=self.npc_orbit.get(),radius=self.cfg["npc_radius"],repair_portal=self.npc_repair.get(),repair_to=int(self.npc_repair_to.get()),portal_fight=self.npc_portal_fight.get(),ammo=self.npc_ammo.get(),rocket=self.npc_rocket.get(),restock=dict(laser=self.buy_laser.get(),missile=self.buy_missile.get(),**{k:int(v.get()) for k,v in self.buy_fields.items()}),pursuit_enabled=self.pursuit_enabled.get(),npc_profiles=self.active_npc_profiles(),hybrid=hybrid,roam=self.npc_roam.get(),recovery_settings={"reconnect":self.reconnect.get(),"respawn":self.respawn.get(),"max_deaths":int(self.max_deaths.get()),"max_cost":int(self.max_cost.get()),"death_state":self.death_state},collect_settings={"green":self.green.get(),"cloak":self.cloak_enabled.get()})
+        engine.profile_map=self.npc_profile_map()
         engine.kills=previous_kills
         if self.npc_state=="paused" and self.npc_engine and isinstance(getattr(self.npc_engine,"stats",None),dict):
             engine.stats=dict(self.npc_engine.stats)
@@ -826,7 +975,7 @@ class AutoBoxSemMouse:
                         key=lambda n:math.hypot(n["x"]-origin[0],n["y"]-origin[1]))
             kinds=sorted({n.get("kind") or n.get("type") for n in npcs
                           if isinstance(n.get("kind") or n.get("type"),str)})
-            self._sync_npc_choices(kinds or ("mordon",))
+            self.remember_map_npcs(data["map"],kinds)
             for npc in npcs[:30]:
                 self.npc_table.insert("","end",values=(npc.get("kind") or npc.get("type") or "NPC",
                     str(npc.get("hp","—"))+" / "+str(npc.get("maxHp","—")),
@@ -1017,8 +1166,8 @@ class AutoBoxSemMouse:
             min_hp=int(self.npc_min_hp.get())
             if not 25<=min_hp<=75: raise ValueError("Limite de vida do teste: 25 a 75%.")
             selected_kinds=sorted(kind for kind,var in self.npc_kind_vars.items() if var.get())
-            if not selected_kinds: raise ValueError("Marque pelo menos um tipo de NPC.")
-            self.cfg["npc_kinds"]=selected_kinds
+
+            self.cfg["npc_kinds"]=[k for k in self.npc_profile_kinds() if self.npc_kind_vars[k].get()]
             if self.npc_ammo.get() not in ("lcb10","mcb25","mcb50","ucb100","sab50","rsb75") or self.npc_rocket.get() not in ("none","r310","plt2026","plt2021","plt3030"):
                 raise ValueError("Selecione laser e míssil válidos.")
             self.cfg.update(npc_ammo=self.npc_ammo.get(),npc_rocket=self.npc_rocket.get())

@@ -18,7 +18,7 @@ Os módulos no repositório principal do DarkBot estão marcados como legados; p
 
 | Recurso | Comportamento preparado no AutoBox |
 |---|---|
-| Movimento circular de combate | Correção gradual do raio conforme a distância, com avanço angular ligado à velocidade da nave. |
+| Movimento circular de combate | Raio configurado preservado na aproximação e no círculo, sem teto oculto de 550 nem correção que substitua o valor pedido. |
 | Escolha do sentido | Compara rotas nos dois sentidos e posições futuras; preserva o sentido quando não há vantagem suficiente em trocar. |
 | Outros NPCs | Penaliza trajetórias próximas de outros NPCs. Não equivale a uma garantia de não receber dano. |
 | Bordas | Margem de 80 unidades e busca de arcos interiores quando as duas direções iniciais são inválidas. |
@@ -67,7 +67,7 @@ A existência de código não significa teste real de todos esses recursos nesta
 
 ## Verificação
 
-- 260 testes Python aprovados, incluindo interface gráfica, após as mudanças visuais.
+- 274 testes Python aprovados, incluindo interface gráfica, após as mudanças visuais.
 - Cinco scripts Node aprovados: movimento/portal, perseguição, PET, camuflagem e Skylab.
 - Compilação Python e verificação de whitespace aprovadas.
 - Interface executada em display virtual: abrir/fechar configurações, persistir filtros, atualizar alvo/HP e verificar botões no tamanho mínimo de janela.
@@ -107,3 +107,15 @@ O utilitário `AutoBox_Sem_Mouse/tests/preview_cockpit.py` reproduz as capturas 
 - A projeção opcional de `players` aceita apenas nome público, posição e relação explícita (`isAlly` ou `relation`), com precedência para a identificação de hostilidade. Não classifica jogadores por proximidade ou nome; não retém login, tokens ou chat.
 - **Limitação:** o formato de relações de jogadores do cliente atual ainda não foi confirmado. A página `/play/` respondeu 401 sem login nesta sessão. Esse esquema de aliados é um contrato opcional implementado e coberto por simulações, não uma integração comprovada com o servidor atual. Se os campos não estiverem disponíveis, o painel informa “Aliados: identificação indisponível”. Para concluir a validação real, usar a exportação de integração do cliente pela janela dedicada já autenticada do usuário.
 - As novas capturas mostram nomes e aliados com dados simulados identificados no rodapé.
+
+## NPC Killer 0.18.0 — tabela por mapa e aplicação durante o combate
+
+A aba NPCs e extras reúne Matar, NPC, Prioridade, Distância, Munição, Míssil e Extras. Os tipos observados são armazenados por mapa e permanecem no catálogo após desaparecerem. Tipos nunca observados nesse mapa não são inventados; novos tipos entram quando os dados chegam.
+
+Clique na coluna Matar para habilitar/desabilitar um tipo. Duplo clique em prioridade, distância, munição ou míssil abre edição na célula. A linha selecionada também possui um editor de extras: Circular, Lutar no portal e Finalizar de perto. Aplicar ao NPC envia a configuração ao motor em andamento. O menu Ações da tabela marca/desmarca todos e aplica os valores do editor aos marcados.
+
+Os perfis são separados por mapa. O motor usa snapshots protegidos por lock; editar outro mapa não altera o farm em execução. Distância e extras são aplicados na próxima avaliação da luta; munição espera confirmação do cliente. Desmarcar o alvo atual interrompe seus tiros antes de escolher outro.
+
+A distância de 150 a 800 é o raio normal em unidades do jogo. A aproximação não limita mais o pedido a 550 nem desconta a velocidade da nave; o círculo não substitui 450 por 600/225 conforme o erro radial. Portal e finalização, quando marcados, continuam sendo modos explícitos que usam outra trajetória/distância. Limites do mapa e alcance real das armas ainda se aplicam. Não houve validação deste comportamento no servidor nesta sessão.
+
+Formações de drones, habilidades, controle de propriedade e todos os plugins/extras específicos de DarkOrbit continuam fora desta integração. Os controles desta versão correspondem a mecanismos implementados no AutoBox.

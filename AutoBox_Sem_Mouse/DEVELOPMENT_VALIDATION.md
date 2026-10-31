@@ -160,3 +160,8 @@ laser utilizado por tipo de NPC. Esses dados são da sessão, não aprendizado a
 
 CI Windows do cockpit inicial be85030 passou (run 14), incluindo empacotamento.
 A revisão final que inclui os guardas acima precisa do próprio resultado de CI.
+
+
+## 0.18.0 — perfis ao vivo e tabela por mapa
+
+Substitui a orientação anterior de reiniciar para aplicar perfis: a interface usa LiveNpcSettings para alterações explicitamente aplicadas, preservando a cópia isolada dos argumentos originais. A tabela é a fonte visível dos valores efetivos. Munição passa por confirmação do cliente; raio não é reduzido na aproximação nem substituído pela correção radial antiga. Os modos Portal e Finalizar são extras explícitos por NPC.
