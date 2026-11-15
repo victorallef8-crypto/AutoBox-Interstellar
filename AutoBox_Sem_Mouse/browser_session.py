@@ -2,6 +2,7 @@ from pet_collection import PET_COLLECT_SCRIPT
 from pathlib import Path
 import os
 import queue
+import subprocess
 import threading
 import math
 import json
@@ -539,7 +540,28 @@ class BrowserSession:
         self.data_actions_dispatched = 0
         self.pet_diagnostic={"requests":0,"movements":0,"last_action":None,"last_result":None,"failure":None}
 
-    def start(self, executable):
+    def open_browser(self, executable):
+        self.folder.mkdir(parents=True, exist_ok=True)
+        return subprocess.Popen([
+            executable, f"--user-data-dir={self.folder}",
+            "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0",
+            f"--window-size={self.viewport['width']},{self.viewport['height']}",
+            "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+            "--disable-backgrounding-occluded-windows", HOME_URL,
+        ])
+
+    def _local_endpoint(self):
+        try:
+            port, path = (self.folder / "DevToolsActivePort").read_text(encoding="ascii").splitlines()
+            if not port.isascii() or not port.isdecimal() or not 1 <= int(port) <= 65535:
+                raise ValueError("Porta inválida.")
+            if not re.fullmatch(r"/devtools/browser/[0-9a-fA-F-]+", path):
+                raise ValueError("Endereço inválido.")
+            return f"ws://127.0.0.1:{port}{path}"
+        except (OSError, ValueError):
+            raise RuntimeError("Abra o Opera GX pelo AutoBox e entre no mapa antes de conectar.") from None
+
+    def start(self):
         if self.thread is not None and self.thread.is_alive():
             return
         self.error = None
@@ -550,12 +572,12 @@ class BrowserSession:
         self.combat_probe = CombatProbe(self.world_feed)
         self.ready.clear()
         self.closed.clear()
-        self.thread = threading.Thread(target=self._run, args=(executable,), daemon=True)
+        self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
     def request(self, operation, payload=None, allowed=None, timeout=8):
         if not self.ready.is_set() and operation != "close":
-            raise RuntimeError(self.error or "Abra primeiro a sessao dedicada do Opera GX.")
+            raise RuntimeError(self.error or "Entre no mapa e clique em Conectar ao GX.")
         reply = queue.Queue(maxsize=1)
         cancelled = threading.Event()
         self.jobs.put((operation, payload, allowed, reply, cancelled))
@@ -821,7 +843,7 @@ class BrowserSession:
         if self.data_actions_dispatched: report["automatic_commands_sent"]=None
         return report
 
-    def _run(self, executable):
+    def _run(self):
         context = None
         try:
             if self.factory is None:
@@ -829,22 +851,20 @@ class BrowserSession:
                 factory = sync_playwright
             else:
                 factory = self.factory
-            self.folder.mkdir(parents=True, exist_ok=True)
+            endpoint = self._local_endpoint()
             with factory() as driver:
-                context = driver.chromium.launch_persistent_context(
-                    user_data_dir=str(self.folder), executable_path=executable,
-                    headless=False, chromium_sandbox=True, viewport=self.viewport, device_scale_factor=1,
-                    args=["--disable-background-timer-throttling","--disable-renderer-backgrounding",
-                          "--disable-backgrounding-occluded-windows"],
-                    accept_downloads=False)
-                context.on("page",lambda opened:self._attach_feed(context,opened))
+                browser = driver.chromium.connect_over_cdp(endpoint, timeout=8000)
+                if not browser.contexts:
+                    raise RuntimeError("Nenhuma janela da sessão dedicada foi encontrada.")
+                context = browser.contexts[0]
+                page = self._game_page(context)
+                if not page.evaluate("() => Boolean(window.PeriodWindows?.renderer?.state?.me)"):
+                    raise RuntimeError("Entre no mapa do jogo antes de conectar ao GX.")
+                context.on("page", lambda opened: self._attach_feed(context, opened))
                 for existing in context.pages:
-                    self._attach_feed(context,existing)
-                page = context.pages[0] if context.pages else context.new_page()
-                try:
-                    page.goto(HOME_URL, wait_until="domcontentloaded", timeout=45000)
-                except Exception:
-                    self.warning = "Confira a conexao e abra o jogo na janela dedicada."
+                    self._attach_feed(context, existing)
+                # Subscribe before the game opens its next event stream.
+                page.reload(wait_until="domcontentloaded", timeout=20000)
                 self.ready.set()
                 while True:
                     try:
@@ -861,7 +881,7 @@ class BrowserSession:
                         reply.put((False, "Comando expirado e cancelado."))
                         continue
                     if operation == "close":
-                        context.close()
+                        browser.close()
                         context = None
                         reply.put((True, None))
                         break
@@ -902,15 +922,10 @@ class BrowserSession:
                     except Exception as exc:
                         reply.put((False, str(exc)))
         except Exception as exc:
-            self.error = "Nao foi possivel abrir o Opera GX dedicado: " + str(exc)
+            self.error = "Não foi possível conectar ao Opera GX: " + str(exc)
         finally:
             self.world_feed.end(self.world_feed.stream,"Sessao encerrada.")
             self.ready.clear()
-            if context is not None:
-                try:
-                    context.close()
-                except Exception:
-                    pass
             self.closed.set()
 
 SKYLAB_SCRIPT = "t => {\n const W=window.PeriodWindows,S=window.InterstellarSkylab,me=W?.state?.me,lab=me?.skylab;\n const number=v=>typeof v==='number'&&Number.isFinite(v)&&v>=0;\n if(W?.readOnly||!S||!me||!lab?.initialized) throw Error('Abra o Skylab no jogo e aguarde carregar.');\n if(me.deadUntil||!number(me.hp)||me.hp<=0) throw Error('Skylab parado: nave destruída ou dados inválidos.');\n if(!Number.isSafeInteger(lab.revision)||!number(lab.now)||!number(me.credits)||!Array.isArray(S.ids)||!Array.isArray(S.raw))\n   throw Error('Dados do Skylab incompletos.');\n const target=t.target??20,reserve=t.reserve??0;\n if(!Number.isInteger(target)||target<1||target>20||!Number.isSafeInteger(reserve)||reserve<0)\n   throw Error('Limites do Skylab inválidos.');\n const rows=S.ids.map(id=>{\n   const m=lab.modules?.[id],max=Math.min(target,S.modules[id]?.maxLevel||20);\n   if(!m||!Number.isInteger(m.level)||m.level<0||m.level>20) throw Error('Nível de módulo inválido.');\n   const q=m.level<max?S.quote(id,m.level):null;\n   if(q&&(!Number.isInteger(q.level)||q.level!==m.level+1||![q.credits,q.ore,q.seconds].every(number)))\n     throw Error('Custo de melhoria indisponível.');\n   if(m.job&&(!number(m.job.end)||!Number.isInteger(m.job.level)))throw Error('Tempo de construção inválido.');\n   let reason=m.level>=max?'concluido':m.job?'construindo':'pronto';\n   if(reason==='pronto'){\n     if(!q)throw Error('Orçamento de melhoria ausente.');\n     if(id!=='basic'&&q.level>lab.modules.basic?.level)reason='modulo_basico';\n     else if(me.credits-q.credits<reserve)reason='creditos';\n     else if(S.raw.some(ore=>!number(lab.stock?.[ore])||lab.stock[ore]<q.ore))reason='minerios';\n     else if(!['solar','basic'].includes(id)&&m.enabled!==false){\n       const used=lab.power?.demand,available=lab.power?.available,extra=S.power(q.level)-S.power(m.level);\n       if(!number(used)||!number(available)||!Number.isFinite(extra))throw Error('Energia do Skylab indisponível.');\n       if(used+extra>available)reason='energia';\n     }\n   }\n   return {id,name:S.modules[id].name,level:m.level,max,enabled:m.enabled,reason,\n     job:m.job?{level:m.job.level,end:m.job.end}:null,\n     remaining:m.job?Math.max(0,Math.ceil((m.job.end-lab.now)/1000)):0,\n     quote:q?{level:q.level,credits:q.credits,ore:q.ore,seconds:q.seconds}:null};\n });\n const snap={action:'snapshot',owner:me.id,life:me.respawnRevision,revision:lab.revision,now:lab.now,rows};\n if(t.action==='inspect')return snap;\n if(t.action!=='upgrade')throw Error('Ação do Skylab não permitida.');\n if(t.owner!==me.id||t.life!==me.respawnRevision)throw Error('Conta ou vida da nave mudou.');\n if(t.revision!==lab.revision)return {...snap,action:'changed'};\n const row=rows.find(r=>r.id===t.module);\n if(!row||row.level!==t.level||row.reason!=='pronto'||rows.some(r=>r.job))return {...snap,action:'wait'};\n const panel=document.getElementById('period-manufacturing');\n if(!panel||panel.hidden||panel.querySelector('.manufacturing-content')?.dataset.manufacturingTab!=='skylab')\n   throw Error('Mantenha o painel Skylab aberto no jogo para melhorar módulos.');\n const select=panel.querySelector('[data-lab-module=\"'+row.id+'\"]');\n if(!select||select.disabled)throw Error('Módulo indisponível no painel.');\n select.click();\n const tab=panel.querySelector('[data-lab-tab=\"upgrade\"]');\n if(!tab||tab.hidden||tab.disabled)throw Error('Aba de melhoria indisponível.');\n tab.click();\n const button=panel.querySelector('[data-lab-upgrade=\"normal\"]');\n if(!button||button.disabled)throw Error('Construção normal indisponível. Confira o Skylab no jogo.');\n // Only the game's normal construction button; never finish, instant, send or robots.\n if(W.state.me!==me||me.skylab.revision!==t.revision) return {...snap,action:'changed'};\n button.click();\n return {...snap,action:'sent',module:row.id,level:row.level,next_level:row.quote.level};\n}"

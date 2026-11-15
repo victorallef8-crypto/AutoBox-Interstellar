@@ -262,6 +262,7 @@ class AutoBoxSemMouse:
         dashboard.configure(padding=8)
         toolbar=ttk.Frame(dashboard);toolbar.pack(fill="x",pady=(0,8))
         ttk.Button(toolbar,text="Iniciar jogo",command=self.open_browser,style="Compact.TButton").pack(side="left")
+        ttk.Button(toolbar,text="Conectar ao GX",command=self.connect_browser,style="Compact.TButton").pack(side="left",padx=(4,0))
         ttk.Button(toolbar,text="Modo compacto",command=lambda:self.set_compact(True),style="Compact.TButton").pack(side="left",padx=6)
         ttk.Button(toolbar,text="Verificar atualizações",command=self.check_updates,style="Compact.TButton").pack(side="right")
         balances=ttk.Frame(dashboard);balances.pack(fill="x")
@@ -319,9 +320,10 @@ class AutoBoxSemMouse:
         browser=self._scroll_page(self.pages["browser"])
         ttk.Label(browser,text="Sessão dedicada do Opera GX",style="Heading.TLabel").pack(anchor="w",pady=(0,12))
         ttk.Button(browser,text="Abrir Opera GX e entrar no jogo",command=self.open_browser).pack(fill="x",pady=4)
+        ttk.Button(browser,text="Conectar ao GX",command=self.connect_browser).pack(fill="x",pady=4)
         ttk.Button(browser,text="Localizar executável do Opera GX",command=self.choose_opera).pack(fill="x",pady=4)
         ttk.Label(browser,textvariable=self.session_label).pack(anchor="w",pady=12)
-        ttk.Label(browser,text="Faça login na janela aberta pelo bot. Mantenha essa janela aberta; o computador pode ser usado para outras tarefas. O uso com a janela minimizada ainda precisa de validação.",
+        ttk.Label(browser,text="Entre manualmente no mapa e clique em Conectar ao GX. A aba do jogo será recarregada para iniciar a leitura.",
                   wraplength=650,style="Muted.TLabel").pack(anchor="w")
 
         diagnostics=self._scroll_page(self.pages["diagnostics"])
@@ -1223,20 +1225,30 @@ class AutoBoxSemMouse:
         if not executable or not Path(executable).is_file():
             self.say("Use Localizar executavel para selecionar seu Opera GX.")
             return
+        try:
+            self.session.open_browser(executable)
+            self.say("Entre manualmente no mapa e depois clique em Conectar ao GX.")
+        except OSError as exc:
+            self.say("Não foi possível abrir o Opera GX: "+str(exc))
+
+    def connect_browser(self):
+        if self.opening or self.closing or self.session.ready.is_set():
+            return
         self.opening = True
-        self.say("Abrindo a sessao separada do Opera GX...")
-        def open_session():
+        self.say("Conectando ao mapa do GX...")
+        def connect_session():
             try:
-                self.session.start(executable)
-                if not self.session.ready.wait(65):
-                    raise RuntimeError(self.session.error or "Opera GX nao respondeu.")
-                self.events.put(("status", self.session.warning or
-                    "Sessao aberta. Entre no mapa e aguarde a leitura na aba Dados."))
+                self.session.start()
+                deadline=time.monotonic()+35
+                while not self.session.ready.wait(.2):
+                    if self.session.closed.is_set() or time.monotonic()>=deadline:
+                        raise RuntimeError(self.session.error or "O Opera GX não respondeu.")
+                self.events.put(("status","GX conectado. Aguarde os dados do mapa antes de iniciar."))
             except Exception as exc:
-                self.events.put(("status", str(exc)))
+                self.events.put(("status",str(exc)))
             finally:
                 self.opening = False
-        threading.Thread(target=open_session, daemon=True).start()
+        threading.Thread(target=connect_session, daemon=True).start()
 
 
     def start(self):

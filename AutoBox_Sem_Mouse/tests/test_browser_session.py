@@ -9,7 +9,7 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from browser_session import BrowserSession, HOME_URL, GAME_URL
@@ -17,7 +17,8 @@ tree=ast.parse((Path(__file__).resolve().parents[1]/"browser_session.py").read_t
 nodes=[node for node in tree.body if isinstance(node,ast.ClassDef) and node.name=="BrowserSession"]
 class FakePage:
     def __init__(self):
-        self.url = "about:blank"
+        self.url = GAME_URL
+        self.reload = Mock()
         self.mouse = SimpleNamespace(click=Mock())
         self.closed = False
         self.handlers = {}
@@ -41,21 +42,23 @@ class FakePage:
 
 class BrowserSessionTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[4])
+        self.temp = tempfile.TemporaryDirectory()
         self.page = FakePage()
         self.cdp = SimpleNamespace(on=Mock(),send=Mock())
         self.context = SimpleNamespace(pages=[self.page], close=Mock(),on=Mock(),
                                        new_cdp_session=Mock(return_value=self.cdp))
-        self.launch = Mock(return_value=self.context)
+        self.browser = SimpleNamespace(contexts=[self.context], close=Mock())
+        self.connect = Mock(return_value=self.browser)
         self.factory = Mock()
         self.factory.return_value.__enter__ = Mock(
-            return_value=SimpleNamespace(chromium=SimpleNamespace(launch_persistent_context=self.launch)))
+            return_value=SimpleNamespace(chromium=SimpleNamespace(connect_over_cdp=self.connect)))
         self.factory.return_value.__exit__ = Mock(return_value=False)
         self.session = BrowserSession(Path(self.temp.name) / "isolated",
                                       {"width": 1280, "height": 720}, factory=self.factory)
-        self.session.start("opera-gx.exe")
-        self.assertTrue(self.session.ready.wait(2))
-        self.page.url = GAME_URL  # Usuario entra no mapa pela pagina inicial.
+        self.session.folder.mkdir()
+        (self.session.folder / "DevToolsActivePort").write_text("43210\n/devtools/browser/abc-123\n",encoding="ascii")
+        self.session.start()
+        self.assertTrue(self.session.ready.wait(2),self.session.error)
     def tearDown(self):
         self.session.close()
         self.temp.cleanup()
@@ -155,15 +158,24 @@ class BrowserSessionTests(unittest.TestCase):
         self.page.handlers["close"](self.page)
         self.assertFalse(self.session.get_world_summary()["fresh"])
 
-    def test_opera_uses_own_profile_and_fixed_viewport(self):
-        self.assertEqual(self.page.last_navigation,HOME_URL)
-        args = self.launch.call_args.kwargs
-        self.assertEqual(args["executable_path"], "opera-gx.exe")
-        self.assertTrue(args["user_data_dir"].endswith("isolated"))
-        self.assertEqual(args["viewport"], {"width": 1280, "height": 720})
-        self.assertEqual(args["device_scale_factor"], 1)
-        self.assertFalse(args["headless"])
-        self.assertTrue(args["chromium_sandbox"])
+    def test_opera_opens_separately_and_connects_to_a_local_endpoint(self):
+        with patch("browser_session.subprocess.Popen") as popen:
+            self.session.open_browser("opera-gx.exe")
+        self.assertIn(f"--user-data-dir={self.session.folder}",popen.call_args.args[0])
+        self.assertIn("--remote-debugging-port=0",popen.call_args.args[0])
+        self.assertEqual(popen.call_args.args[0][-1],HOME_URL)
+        self.connect.assert_called_once_with("ws://127.0.0.1:43210/devtools/browser/abc-123",timeout=8000)
+        self.page.reload.assert_called_once()
+
+    def test_connection_requires_an_authenticated_map(self):
+        self.session.close()
+        self.page.evaluate=Mock(return_value=False)
+        self.page.reload.reset_mock()
+        self.session.start()
+        self.assertTrue(self.session.closed.wait(2))
+        self.assertFalse(self.session.ready.is_set())
+        self.assertIn("Entre no mapa",self.session.error)
+        self.page.reload.assert_not_called()
 
     def test_removed_image_operations_are_rejected(self):
         for operation in ("screenshot","click"):
@@ -181,7 +193,8 @@ class BrowserSessionTests(unittest.TestCase):
         self.session.close()
         self.assertTrue(self.session.closed.wait(1))
         self.assertFalse(self.session.ready.is_set())
-        self.context.close.assert_called_once()
+        self.browser.close.assert_called_once()
+        self.context.close.assert_not_called()
 
     def test_capture_does_not_use_global_mouse(self):
         # O servico depende apenas do objeto page, sem importar PyAutoGUI.
