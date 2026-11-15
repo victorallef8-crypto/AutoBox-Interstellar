@@ -20,7 +20,15 @@ me.x=gate.x;me.y=gate.y;
 const stationaryCount=sent.length;
 for(let i=0;i<10;i++) assert.equal(run(hold).action,'luring');
 assert.equal(sent.length,stationaryCount);
-me.x=1200;
+me.x=1200;me.moving=true;me.destination={x:gate.x,y:gate.y};
+const returning={...request,action:'retreat',hold:true,enable_repair:true};
+for(let i=0;i<10;i++){
+ const result=run(returning);
+ assert.equal(result.arrived,false);
+ assert.equal(result.repair,'waiting');
+}
+assert.equal(sent.length,stationaryCount);
+me.moving=false;me.destination=null;
 renderer.__autoboxMove=null;
 assert.equal(run(request).action,'luring');
 assert.equal(sent.at(-1).x,1080);

@@ -65,7 +65,6 @@ class LiveSettingsTests(unittest.TestCase):
         session=Session(stop,damage=False)
         npc=session.state["npc_candidates"][0]
         npc.update(kind="kristallon",x=500,hp=1000,maxHp=1000,shield=500)
-        session.state["combat"]["ammunition_stock"]={"sab50":100,"ncb25":100}
         original=session.request
         switches=[]
         pursuits=[]
@@ -83,8 +82,12 @@ class LiveSettingsTests(unittest.TestCase):
                     npc.update(shield=0,hp=150,x=550)
                 return {"action":"luring","gate":"home","distance":0}
             if action=="approach" and payload.get("pursuit"):
+                self.assertTrue(payload["continuous"])
                 pursuits.append(payload["ammo"])
-                session.state["hp_percent"]=30
+                if len(pursuits)==1:
+                    session.state["combat"]["attacking"]=False
+                else:
+                    session.state["hp_percent"]=30
                 return {"action":"move_sent"}
             if action=="retreat":
                 retreats.append(payload["gate"])
@@ -97,10 +100,10 @@ class LiveSettingsTests(unittest.TestCase):
 
         session.request=request
         worker=NpcTestWorker(session,stop,lambda *e:None,kind="kristallon",clock=lambda:stop.now,
-                             npc_profiles={"kristallon":profile(kristallon_portal=True)})
+                             npc_profiles={"kristallon":profile(stationary_portal=True)})
         worker.run()
-        self.assertEqual(switches,["sab50","ncb25"])
-        self.assertEqual(pursuits,["ncb25"])
+        self.assertEqual(switches,["sab50","mcb25"])
+        self.assertEqual(pursuits,["mcb25","mcb25"])
         self.assertTrue(retreats)
         self.assertEqual(set(retreats),{"home"})
         self.assertTrue(worker.report.get("recovered"))
