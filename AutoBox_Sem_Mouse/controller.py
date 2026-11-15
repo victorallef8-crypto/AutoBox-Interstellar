@@ -12,18 +12,22 @@ def normalize_npc_profiles(profiles):
     valid={}
     for name,p in profiles.items():
         if not isinstance(name,str) or not isinstance(p,dict):continue
-        if any(key in p and type(p[key]) is not bool for key in ("kill","portal","pursuit")):continue
+        if any(key in p and type(p[key]) is not bool for key in ("kill","portal","pursuit","kristallon_portal")):continue
         if "rocket" in p and p["rocket"] not in ("none","r310","plt2026","plt2021","plt3030"):continue
         if (type(p.get("priority")) is int and -100<=p["priority"]<=100
                 and type(p.get("radius")) is int and 150<=p["radius"]<=800
                 and p.get("ammo") in ("lcb10","mcb25","mcb50","ucb100","sab50","rsb75")
                 and type(p.get("orbit")) is bool):
             valid[name]={k:p[k] for k in ("priority","radius","ammo","orbit")}
-            for key in ("kill","portal","pursuit"):
+            for key in ("kill","portal","pursuit","kristallon_portal"):
                 if type(p.get(key)) is bool:valid[name][key]=p[key]
             if p.get("rocket") in ("none","r310","plt2026","plt2021","plt3030"):
                 valid[name]["rocket"]=p["rocket"]
     return valid
+
+def is_kristallon(kind):
+    return "".join(char for char in kind.lower() if char.isalpha()) == "kristallon"
+
 
 class LiveNpcSettings:
     """Atomic snapshots for changes explicitly applied from the NPC table."""
@@ -467,6 +471,8 @@ class NpcTestWorker:
             raise ValueError("Vida após reparo: 80 a 100%.")
         self.repair_to=repair_to
         self.orbit=orbit; self.radius=max(150,min(800,radius)); self.repair_portal=repair_portal; self.direction=1
+        self.profile_repair_portal=repair_portal
+        self.kristallon_portal=False; self.shield_drained=False
         self.ammo=ammo; self.rocket=rocket; self.next_rocket=0
         self.restock=restock or {}; self.next_restock=0
         self.pursuit=FinishPursuit(pursuit_enabled,pursuit_hp,pursuit_radius,pursuit_max_distance,pursuit_seconds)
@@ -499,6 +505,15 @@ class NpcTestWorker:
         previous=self.ammo
         self.radius=profile["radius"];self.orbit=profile["orbit"];self.ammo=profile["ammo"]
         self.rocket=profile["rocket"];self.portal_fight=profile["portal"];self.pursuit.enabled=profile["pursuit"]
+        self.kristallon_portal=is_kristallon(self.kind) and profile.get("kristallon_portal",False)
+        self.repair_portal=self.profile_repair_portal or self.kristallon_portal
+        if self.kristallon_portal:
+            self.portal_fight=True
+            self.orbit=False
+            self.pursuit.enabled=True
+            self.ammo=previous if self.shield_drained else "sab50"
+        else:
+            self.shield_drained=False
         if not self.pursuit.enabled:self.pursuit.active=False
         self.ammo_change_requested=self.ammo_change_requested or previous!=self.ammo
         self.report.update(kind=self.kind,laser=self.ammo,missile=self.rocket,radius=self.radius,
@@ -583,7 +598,8 @@ class NpcTestWorker:
                      "Alvo saiu da leitura; derrota sem confirmação de recompensa. Teste encerrado.")
 
     def recover_at_portal(self):
-        started=self.clock(); next_move=0; gate=None; repair_sent=None
+        started=self.clock(); next_move=0; repair_sent=None
+        gate=self.fight_gate if self.kristallon_portal else None
         stop_attempts=0
         while not self.stop.is_set():
             snap=self.session.get_world_snapshot(); now=self.clock()
@@ -669,6 +685,30 @@ class NpcTestWorker:
                     self.progress=now
                     self.report["target_id"]=self.target["id"]
                     self.report["map"]=snap["map"]
+                if snap["map"]!=self.context["map"] or snap.get("respawn_revision")!=self.context["life"]:
+                    raise ValueError("Mapa ou vida da nave mudou durante o teste.")
+                current=next((n for n in snap.get("npc_candidates",[]) if str(n["id"])==str(self.target["id"])
+                             and n.get("respawnRevision")==self.target.get("respawnRevision")),None)
+                xp=snap.get("account",{}).get("xp")
+                if current is None or current.get("hp",0)<=0:
+                    self.confirm_target_end()
+                    break
+                self.target=dict(current)
+                if self.kristallon_portal:
+                    shield=current.get("shield")
+                    if type(shield) in (int,float) and isfinite(shield) and shield==0:
+                        self.shield_drained=True
+                    if self.shield_drained:
+                        stock=snap.get("combat",{}).get("ammunition_stock") or {}
+                        desired="ncb25" if "ncb25" in stock else "mcb25"
+                    else:
+                        desired="sab50"
+                    if desired!=self.ammo:
+                        self.ammo=desired
+                        self.report["laser"]=desired
+                        self.ammo_change_requested=True
+                        if self.pending and self.pending[0]=="ammo":
+                            self.pending=None
                 if self.restock and now>=self.next_restock:
                     for kind,item in (("laser",self.ammo),("missile",self.rocket)):
                         if not self.restock.get(kind) or item=="none": continue
@@ -680,15 +720,6 @@ class NpcTestWorker:
                         elif result.get("action")=="funds":
                             self.emit("status","Compra não realizada: saldo/reserva insuficiente para "+item)
                     self.next_restock=now+5
-                if snap["map"]!=self.context["map"] or snap.get("respawn_revision")!=self.context["life"]:
-                    raise ValueError("Mapa ou vida da nave mudou durante o teste.")
-                current=next((n for n in snap.get("npc_candidates",[]) if str(n["id"])==str(self.target["id"])
-                             and n.get("respawnRevision")==self.target.get("respawnRevision")),None)
-                xp=snap.get("account",{}).get("xp")
-                if current is None or current.get("hp",0)<=0:
-                    self.confirm_target_end()
-                    break
-                self.target=dict(current)
                 health=current["hp"]+(current.get("shield") or 0)
                 if self.lowest is not None and health<self.lowest:
                     self.damage=True; self.progress=now
@@ -707,7 +738,7 @@ class NpcTestWorker:
                 combat=snap.get("combat",{})
                 selected=str(combat.get("target_id"))==str(current["id"])
                 was_pursuing=self.pursuit.active
-                pursuing=self.pursuit.step(current,snap["position"],now,selected and combat.get("attacking") is True and not self.portal_fight)
+                pursuing=self.pursuit.step(current,snap["position"],now,selected and combat.get("attacking") is True and (not self.portal_fight or self.kristallon_portal))
                 self.report["pursuit_active"]=pursuing
                 if pursuing and not was_pursuing: self.emit("status","Perseguição para finalização iniciada: "+str(current["id"]))
                 elif was_pursuing and not pursuing: self.emit("status","Finalização encerrada; retomando comportamento normal.")
@@ -761,13 +792,16 @@ class NpcTestWorker:
                     self.publish("Perseguindo NPC para finalização")
                 elif selected and self.portal_fight:
                     if now>=self.next_move:
-                        result=self.action("portal_lure",gate=self.fight_gate); self.next_move=now+.15
+                        options={"hold":True} if self.kristallon_portal else {}
+                        result=self.action("portal_lure",gate=self.fight_gate,**options)
+                        self.next_move=now+.15
                         if result.get("action")!="luring": raise ValueError("Condução ao portal não aceita: "+result.get("action","?"))
                         self.fight_gate=result.get("gate"); self.report["combat_gate"]=self.fight_gate
                         gate_distance=result.get("distance")
                         if type(gate_distance) in (int,float) and gate_distance<self.gate_best-10:
                             self.gate_best=gate_distance; self.progress=now
-                    self.publish("Conduzindo o NPC e mantendo a luta perto do portal.")
+                    self.publish("Modo portal parado | "+self.ammo.upper()+"." if self.kristallon_portal
+                                 else "Conduzindo o NPC e mantendo a luta perto do portal.")
                 elif selected and d>self.radius+40:
                     if now>=self.next_move:
                         result=self.action("approach",close_approach=False,radius=self.radius); self.next_move=now+.35
@@ -996,7 +1030,7 @@ class NpcFarmWorker:
                     self.last=engine
                     self.emit("status","Vida baixa ao iniciar: indo ao portal e ativando reparador antes do farm.")
                 if hp<=limit or initial_repair:
-                    if not initial_repair and (not self.settings.get("repair_portal") or self.last is None):
+                    if not initial_repair and (self.last is None or not self.last.repair_portal):
                         raise ValueError("Vida no limite; habilite recuperação ou repare manualmente.")
                     self.last.report["recovered"]=False
                     self.last.recover_at_portal()
@@ -1024,6 +1058,8 @@ class NpcFarmWorker:
                     if self.stop.wait(1): break
                     continue
                 engine=NpcTestWorker(self.session,self.stop,self.relay,**self.settings)
+                if self.last is not None and self.last.kristallon_portal and self.last.context=={"map":snap["map"],"life":snap.get("respawn_revision")}:
+                    engine.fight_gate=self.last.fight_gate
                 engine.ignore_targets=dict(self.skip_until)
                 engine.finish_stop=False
                 engine.max_fight_seconds=900

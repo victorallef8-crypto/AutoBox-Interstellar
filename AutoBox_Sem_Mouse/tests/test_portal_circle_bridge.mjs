@@ -11,6 +11,17 @@ const renderer={state,worldAt:()=>({x:0,y:0}),hitTarget:()=>npc};
 const env={window:{PeriodWindows:{renderer},DarkOrbitGroups:{onFollow:p=>sent.push(p)}},document:{getElementById:()=>({})}};
 vm.createContext(env);const run=vm.runInContext('('+script+')',env);
 const request={action:'portal_lure',id:'npc',revision:1,map:'a',life:1,min_hp:40};
+const hold={...request,hold:true};
+renderer.__autoboxMove=null;
+assert.equal(run(hold).gate,'gate');
+assert.equal(sent.at(-1).x,gate.x);
+assert.equal(sent.at(-1).y,gate.y);
+me.x=gate.x;me.y=gate.y;
+const stationaryCount=sent.length;
+for(let i=0;i<10;i++) assert.equal(run(hold).action,'luring');
+assert.equal(sent.length,stationaryCount);
+me.x=1200;
+renderer.__autoboxMove=null;
 assert.equal(run(request).action,'luring');
 assert.equal(sent.at(-1).x,1080);
 // Moving towards a waypoint must not move that waypoint every frame.

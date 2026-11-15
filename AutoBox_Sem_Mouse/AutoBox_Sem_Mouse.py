@@ -16,7 +16,7 @@ from controller import DataFarmPlanner, DataCollector, SessionEarnings, TravelWo
 import updater
 from pet_collection import PetCollector
 from cockpit import Cockpit
-from controller import normalize_npc_profiles
+from controller import is_kristallon, normalize_npc_profiles
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "AutoBoxSemMouse"
 CONFIG_PATH = APP_DIR / "config.json"
@@ -474,6 +474,7 @@ class AutoBoxSemMouse:
         self.profile_ammo=tk.StringVar(value=self.npc_ammo.get());self.profile_radius=tk.StringVar(value=self.npc_radius.get())
         self.profile_orbit=tk.BooleanVar(value=self.npc_orbit.get());self.profile_kill=tk.BooleanVar(value=True)
         self.profile_rocket=tk.StringVar(value="none");self.profile_portal=tk.BooleanVar(value=False);self.profile_pursuit=tk.BooleanVar(value=False)
+        self.profile_kristallon_portal=tk.BooleanVar(value=False)
         self.profile_choices=ttk.Combobox(editor,textvariable=self.profile_kind,values=sorted(self.npc_kind_vars),width=16,state="readonly")
         self.profile_choices.grid(row=0,column=0,padx=(0,6),sticky="w")
         self.profile_choices.bind("<<ComboboxSelected>>",lambda e:self.load_npc_profile())
@@ -484,6 +485,8 @@ class AutoBoxSemMouse:
         ttk.Combobox(editor,textvariable=self.profile_ammo,values=("lcb10","mcb25","mcb50","ucb100","sab50","rsb75"),state="readonly",width=10).grid(row=0,column=6)
         for col,label,var in ((0,"Matar",self.profile_kill),(1,"Circular",self.profile_orbit),(2,"Lutar no portal",self.profile_portal),(4,"Finalizar de perto",self.profile_pursuit)):
             ttk.Checkbutton(editor,text=label,variable=var).grid(row=1,column=col,columnspan=2 if col in (2,4) else 1,sticky="w",pady=6)
+        self.kristallon_option=ttk.Checkbutton(editor,text="Kristallon parado no portal (SAB-50 → NCB-25)",variable=self.profile_kristallon_portal,state="disabled")
+        self.kristallon_option.grid(row=3,column=0,columnspan=7,sticky="w")
         ttk.Label(editor,text="Míssil").grid(row=2,column=0,sticky="w")
         ttk.Combobox(editor,textvariable=self.profile_rocket,values=("none","r310","plt2026","plt2021","plt3030"),state="readonly",width=10).grid(row=2,column=1,columnspan=2,sticky="w")
         ttk.Button(editor,text="Aplicar ao NPC",command=self.save_npc_profile).grid(row=2,column=3,columnspan=2,padx=4)
@@ -665,7 +668,10 @@ class AutoBoxSemMouse:
             kill=profiles[kind].get("kill",kind in self.npc_kinds_saved) if kind in profiles else (self.npc_kind_vars.get(kind,tk.BooleanVar(value=False)).get() if self.npc_profile_map()=="*" else False)
             self.npc_kind_vars.setdefault(kind,tk.BooleanVar(value=kill)).set(kill)
             extras=", ".join(label for flag,label in ((p["orbit"],"Circular"),(p["portal"],"Portal"),(p["pursuit"],"Finalizar")) if flag) or "—"
-            rows.append((kind,("Sim" if kill else "Não",kind,p["priority"],p["radius"],p["ammo"].upper(),p["rocket"],extras)))
+            special=is_kristallon(kind) and p.get("kristallon_portal")
+            if special:extras="Portal parado, finalizar, reparar"
+            laser="SAB-50 → NCB-25" if special else p["ammo"].upper()
+            rows.append((kind,("Sim" if kill else "Não",kind,p["priority"],p["radius"],laser,p["rocket"],extras)))
         signature=(self.npc_profile_map(),tuple(rows))
         if signature==self.profile_table_signature:return
         selected=self.profile_table.selection()
@@ -720,6 +726,8 @@ class AutoBoxSemMouse:
         self.profile_priority.set(str(p["priority"]));self.profile_ammo.set(p["ammo"])
         self.profile_radius.set(str(p["radius"]));self.profile_orbit.set(p["orbit"])
         self.profile_kill.set(self.npc_kind_vars.get(kind,tk.BooleanVar(value=p["kill"])).get())
+        self.profile_kristallon_portal.set(is_kristallon(kind) and p.get("kristallon_portal",False))
+        self.kristallon_option.configure(state="normal" if is_kristallon(kind) else "disabled")
         self.profile_rocket.set(p["rocket"]);self.profile_portal.set(p["portal"]);self.profile_pursuit.set(p["pursuit"])
 
     def publish_live_npc_settings(self):
@@ -732,7 +740,8 @@ class AutoBoxSemMouse:
     def profile_editor_values(self):
         p=dict(priority=int(self.profile_priority.get()),radius=int(self.profile_radius.get()),ammo=self.profile_ammo.get(),
                orbit=self.profile_orbit.get(),kill=self.profile_kill.get(),rocket=self.profile_rocket.get(),
-               portal=self.profile_portal.get(),pursuit=self.profile_pursuit.get())
+               portal=self.profile_portal.get(),pursuit=self.profile_pursuit.get(),
+               kristallon_portal=is_kristallon(self.profile_kind.get()) and self.profile_kristallon_portal.get())
         if "npc" not in normalize_npc_profiles({"npc":p}):raise ValueError("Confira prioridade, distância (150–800), munição e extras.")
         return p
 
@@ -749,7 +758,10 @@ class AutoBoxSemMouse:
             p=self.profile_editor_values()
             kinds=[k for k in self.npc_profile_kinds() if self.npc_kind_vars[k].get()]
             if not kinds:raise ValueError("Marque pelo menos um NPC na tabela.")
-            for kind in kinds:self.active_npc_profiles()[kind]=dict(p,kill=True)
+            for kind in kinds:
+                existing=self.active_npc_profiles().get(kind,{})
+                special=p["kristallon_portal"] if kind==self.profile_kind.get() else existing.get("kristallon_portal",False)
+                self.active_npc_profiles()[kind]=dict(p,kill=True,kristallon_portal=special)
             if self.save():
                 self.profile_table_signature=None;self.refresh_profile_table();self.publish_live_npc_settings()
                 self.say("Editor aplicado aos %s NPCs marcados." % len(kinds))

@@ -60,6 +60,52 @@ class LiveSettingsTests(unittest.TestCase):
         worker=NpcTestWorker(session,stop,lambda *e:None,clock=lambda:stop.now,orbit=True,runtime=runtime)
         worker.run();self.assertTrue(worker.report['target_disabled']);self.assertTrue(worker.report['stop_confirmed'])
 
+    def test_kristallon_holds_portal_switches_laser_pursues_and_repairs(self):
+        stop=Stop()
+        session=Session(stop,damage=False)
+        npc=session.state["npc_candidates"][0]
+        npc.update(kind="kristallon",x=500,hp=1000,maxHp=1000,shield=500)
+        session.state["combat"]["ammunition_stock"]={"sab50":100,"ncb25":100}
+        original=session.request
+        switches=[]
+        pursuits=[]
+        retreats=[]
+
+        def request(op,payload,allowed):
+            action=payload["action"]
+            if action=="attack" and payload["ammo"]!=session.state["combat"]["selectedAmmo"]:
+                switches.append(payload["ammo"])
+                session.state["combat"]["selectedAmmo"]=payload["ammo"]
+                return {"action":"ammo_sent"}
+            if action=="portal_lure":
+                self.assertTrue(payload["hold"])
+                if npc["shield"]:
+                    npc.update(shield=0,hp=150,x=550)
+                return {"action":"luring","gate":"home","distance":0}
+            if action=="approach" and payload.get("pursuit"):
+                pursuits.append(payload["ammo"])
+                session.state["hp_percent"]=30
+                return {"action":"move_sent"}
+            if action=="retreat":
+                retreats.append(payload["gate"])
+                if payload["enable_repair"]:
+                    session.state["hp_percent"]=95
+                    session.state["combat"]["repairing"]=True
+                return {"action":"retreating","gate":"home","distance":0,
+                        "repair":"sent" if payload["enable_repair"] else "waiting"}
+            return original(op,payload,allowed)
+
+        session.request=request
+        worker=NpcTestWorker(session,stop,lambda *e:None,kind="kristallon",clock=lambda:stop.now,
+                             npc_profiles={"kristallon":profile(kristallon_portal=True)})
+        worker.run()
+        self.assertEqual(switches,["sab50","ncb25"])
+        self.assertEqual(pursuits,["ncb25"])
+        self.assertTrue(retreats)
+        self.assertEqual(set(retreats),{"home"})
+        self.assertTrue(worker.report.get("recovered"))
+        self.assertTrue(worker.report.get("stop_confirmed"))
+
     def test_per_npc_extras_apply_together(self):
         stop=Stop();worker=NpcTestWorker(Session(stop),stop,lambda *e:None,
             npc_profiles={'mordon':profile(radius=700,rocket='plt2026',portal=True,pursuit=True,orbit=False)})
